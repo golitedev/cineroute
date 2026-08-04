@@ -1,0 +1,27 @@
+services:
+  cineroute:
+    build: .
+    image: cineroute:dev
+    container_name: cineroute
+    user: "1001:10"
+    environment:
+      CINEROUTE_CONFIG: /config/config.yaml
+      CINEROUTE_TMDB_API_KEY: ${CINEROUTE_TMDB_API_KEY:-}
+      CINEROUTE_QBIT_USERNAME: ${CINEROUTE_QBIT_USERNAME:-}
+      CINEROUTE_QBIT_PASSWORD: ${CINEROUTE_QBIT_PASSWORD:-}
+      CINEROUTE_AUTH_PASSWORD: ${CINEROUTE_AUTH_PASSWORD:-}
+    volumes:
+      - ./config.yaml:/config/config.yaml:ro
+      # Movie roots
+      - /volume1/hdd1/movies:/m1
+      - /volume3/hdd2/movies:/m2
+      - /volume4/hdd3/movies:/m3
+      - /volume5/hdd4/movies:/m4
+      # TV roots
+      - /volume1/hdd1/tv:/t1
+      - /volume3/hdd2/tv:/t2
+      - /volume4/hdd3/tv:/t3
+      - /volume5/hdd4/tv:/t4
+    ports:
+      - "127.0.0.1:8787:8787"
+    restart: unless-stopped

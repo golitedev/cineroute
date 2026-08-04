@@ -1,0 +1,5 @@
+/cineroute
+/config.yaml
+/config.yml
+*.test
+/dist/

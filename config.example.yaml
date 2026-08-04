@@ -1,0 +1,51 @@
+# CineRoute configuration
+# Copy to config.yaml and adjust. Secrets can be supplied via environment
+# variables instead of this file.
+
+listen: "127.0.0.1:8787"
+
+# Optional password for the web interface (basic auth, user "cineroute").
+# Alternatively: CINEROUTE_AUTH_PASSWORD
+auth_password: ""
+
+# Maximum .torrent upload size in bytes.
+max_upload_bytes: 67108864
+
+tmdb:
+  # Alternatively: CINEROUTE_TMDB_API_KEY
+  api_key: ""
+  language: "en-US"
+
+qbittorrent:
+  # Alternatively: CINEROUTE_QBIT_URL, CINEROUTE_QBIT_USERNAME, CINEROUTE_QBIT_PASSWORD
+  url: "http://localhost:8080"
+  username: "admin"
+  password: ""
+  movie_category: "cineroute-movie"
+  tv_category: "cineroute-tv"
+
+library:
+  folder_format: "{title} ({year})"
+
+# The four drives. movie_root and tv_root must be the same paths CineRoute and
+# qBittorrent see (container-side aliases).
+drives:
+  - id: "hdd1"
+    movie_root: "/m1"
+    tv_root: "/t1"
+    reserve_bytes: 107374182400
+
+  - id: "hdd2"
+    movie_root: "/m2"
+    tv_root: "/t2"
+    reserve_bytes: 107374182400
+
+  - id: "hdd3"
+    movie_root: "/m3"
+    tv_root: "/t3"
+    reserve_bytes: 107374182400
+
+  - id: "hdd4"
+    movie_root: "/m4"
+    tv_root: "/t4"
+    reserve_bytes: 107374182400
