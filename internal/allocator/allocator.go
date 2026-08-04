@@ -86,11 +86,9 @@ func (a *Allocator) Statuses(ctx context.Context, drives []config.Drive) []Drive
 	return out
 }
 
-// Select picks the drive for a new title. preferred is the drive an existing
-// TV show lives on; when set, that drive is used unconditionally if it has
-// enough space, and an error is returned if it does not (the show must never
-// be split silently). pending is the bytes already reserved by other intakes.
-func (a *Allocator) Select(ctx context.Context, drives []config.Drive, pending map[string]int64, need int64, preferred string) (Selection, error) {
+// Select picks the drive with the most usable space for a new title.
+// pending is the bytes already reserved by other intakes.
+func (a *Allocator) Select(ctx context.Context, drives []config.Drive, pending map[string]int64, need int64) (Selection, error) {
 	var best *Selection
 	var bestUsable int64
 	for _, d := range drives {
@@ -101,14 +99,6 @@ func (a *Allocator) Select(ctx context.Context, drives []config.Drive, pending m
 		usable := st.Usable - pending[d.ID]
 		if usable < 0 {
 			usable = 0
-		}
-		if d.ID == preferred {
-			if usable < need {
-				return Selection{}, fmt.Errorf(
-					"%s already has this title but lacks space: need %d bytes, usable %d bytes (shortfall %d)",
-					d.ID, need, usable, need-usable)
-			}
-			return Selection{Drive: d, Status: st}, nil
 		}
 		if usable >= need && (best == nil || usable > bestUsable) {
 			sel := Selection{Drive: d, Status: st}

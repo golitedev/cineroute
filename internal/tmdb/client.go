@@ -85,7 +85,15 @@ func (c *Client) search(ctx context.Context, endpoint, query string, year int, y
 		return nil, err
 	}
 	req.Header.Set("Accept", "application/json")
-	req.Header.Set("Authorization", "Bearer "+c.apiKey)
+	// TMDB accepts the v4 read access token as a Bearer header and the
+	// classic v3 API key as a query parameter. V4 tokens are JWTs.
+	if isV4Token(c.apiKey) {
+		req.Header.Set("Authorization", "Bearer "+c.apiKey)
+	} else {
+		v := req.URL.Query()
+		v.Set("api_key", c.apiKey)
+		req.URL.RawQuery = v.Encode()
+	}
 
 	resp, err := c.httpc.Do(req)
 	if err != nil {
@@ -118,6 +126,12 @@ func (c *Client) SearchTV(ctx context.Context, query string, year int) ([]Result
 		return nil, err
 	}
 	return Rank(results, query, year), nil
+}
+
+// isV4Token reports whether key looks like a TMDB v4 read access token
+// (a JWT) rather than a classic v3 API key (32 hex characters).
+func isV4Token(key string) bool {
+	return strings.Count(key, ".") >= 2
 }
 
 // Rank orders candidates by exact normalized title match, exact year match,
@@ -154,8 +168,9 @@ func Rank(results []Result, wantTitle string, wantYear int) []Result {
 			out[j], out[j-1] = out[j-1], out[j]
 		}
 	}
-	top := make([]Result, 0, min(5, len(out)))
-	for _, s := range out {
+	n := min(10, len(out))
+	top := make([]Result, 0, n)
+	for _, s := range out[:n] {
 		top = append(top, s.r)
 	}
 	return top

@@ -1,27 +1,36 @@
+# CineRoute compose example, matching a Synology-style layout where
+# /volume2 is the SSD for app configs and /volume1,3,4,5 are the HDDs.
 services:
   cineroute:
-    build: .
-    image: cineroute:dev
+    # Prebuilt image from GitHub Container Registry (see README):
+    image: ghcr.io/YOUR_GITHUB_USERNAME/cineroute:latest
+    # ...or build locally instead:
+    # build: .
     container_name: cineroute
     user: "1001:10"
     environment:
+      TZ: America/Asuncion
       CINEROUTE_CONFIG: /config/config.yaml
+      # 127.0.0.1 would be unreachable from outside the container:
+      CINEROUTE_LISTEN: 0.0.0.0:8787
       CINEROUTE_TMDB_API_KEY: ${CINEROUTE_TMDB_API_KEY:-}
+      CINEROUTE_QBIT_URL: ${CINEROUTE_QBIT_URL:-http://qbittorrent:8080}
       CINEROUTE_QBIT_USERNAME: ${CINEROUTE_QBIT_USERNAME:-}
       CINEROUTE_QBIT_PASSWORD: ${CINEROUTE_QBIT_PASSWORD:-}
       CINEROUTE_AUTH_PASSWORD: ${CINEROUTE_AUTH_PASSWORD:-}
     volumes:
-      - ./config.yaml:/config/config.yaml:ro
-      # Movie roots
+      # Config lives on the SSD:
+      - /volume2/docker/cineroute/config.yaml:/config/config.yaml:ro
+      # Movie roots (same aliases qBittorrent uses):
       - /volume1/hdd1/movies:/m1
       - /volume3/hdd2/movies:/m2
       - /volume4/hdd3/movies:/m3
       - /volume5/hdd4/movies:/m4
-      # TV roots
+      # TV roots:
       - /volume1/hdd1/tv:/t1
       - /volume3/hdd2/tv:/t2
       - /volume4/hdd3/tv:/t3
       - /volume5/hdd4/tv:/t4
     ports:
-      - "127.0.0.1:8787:8787"
+      - "8787:8787"
     restart: unless-stopped

@@ -99,6 +99,53 @@ func TestParseV2RootedAndRootless(t *testing.T) {
 	}
 }
 
+func TestPureV2Hashes(t *testing.T) {
+	mi, err := Parse(makeV2Torrent("Subs", "Subs", "Episode 1.mkv"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if mi.HasV1 {
+		t.Fatal("pure v2 must not have a v1 component")
+	}
+	if !mi.HasV2 || mi.InfoHashV2 == "" || len(mi.InfoHashV2) != 64 {
+		t.Fatalf("v2 hash: %q", mi.InfoHashV2)
+	}
+	if mi.InfoHashV1 != "" {
+		t.Fatalf("pure v2 must not carry a v1 hash, got %q", mi.InfoHashV1)
+	}
+	if mi.PrimaryHash() != mi.InfoHashV2 {
+		t.Fatalf("primary hash should be v2: %q", mi.PrimaryHash())
+	}
+	if mi.QueryHashes() != mi.InfoHashV2 {
+		t.Fatalf("query hashes: %q", mi.QueryHashes())
+	}
+}
+
+func TestHybridHashes(t *testing.T) {
+	// Hybrid = pieces (v1) + file tree (v2) in the same info dict.
+	tree := "d" + beStr("Ep1.mkv") + "d" + "0:" + "d" + beStr("length") + beInt(1000) + "e" + "e" + "e"
+	info := "d" + beStr("file tree") + tree +
+		beStr("meta version") + beInt(2) +
+		beStr("name") + beStr("Hybrid.Show.S01") +
+		beStr("piece length") + beInt(16384) +
+		beStr("pieces") + beStr(string(make([]byte, 20))) + "e"
+	raw := []byte("d" + beStr("info") + info + "e")
+	mi, err := Parse(raw)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !mi.HasV1 || !mi.HasV2 {
+		t.Fatalf("hybrid: HasV1=%v HasV2=%v", mi.HasV1, mi.HasV2)
+	}
+	if mi.InfoHashV1 == "" || mi.InfoHashV2 == "" {
+		t.Fatal("hybrid must carry both hashes")
+	}
+	// qBittorrent reports the v1 hash for hybrid torrents.
+	if mi.PrimaryHash() != mi.InfoHashV1 {
+		t.Fatalf("hybrid primary hash should be v1: %q", mi.PrimaryHash())
+	}
+}
+
 func TestRejectTraversal(t *testing.T) {
 	raw := makeTorrent("Evil", map[string]int64{
 		"../escape.txt": 5,

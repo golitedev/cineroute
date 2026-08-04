@@ -4,11 +4,13 @@ import (
 	"context"
 	"crypto/rand"
 	"encoding/json"
+	"fmt"
 	"io"
 	"net/http"
 	"strings"
 	"time"
 
+	"cineroute/internal/allocator"
 	"cineroute/internal/classifier"
 	"cineroute/internal/library"
 	"cineroute/internal/tmdb"
@@ -23,6 +25,7 @@ type apiResponse struct {
 
 type intakeJSON struct {
 	ID          string        `json:"id"`
+	CreatedAt   time.Time     `json:"created_at"`
 	Filename    string        `json:"filename"`
 	TorrentName string        `json:"torrent_name"`
 	Size        int64         `json:"size"`
@@ -31,6 +34,7 @@ type intakeJSON struct {
 	RootName    string        `json:"root_name"`
 	Files       int           `json:"files"`
 	InfoHashV1  string        `json:"info_hash_v1"`
+	InfoHashV2  string        `json:"info_hash_v2,omitempty"`
 	MediaType   string        `json:"media_type"`
 	Title       string        `json:"title"`
 	Year        int           `json:"year"`
@@ -48,6 +52,7 @@ type intakeJSON struct {
 func toJSON(in *Intake) *intakeJSON {
 	return &intakeJSON{
 		ID:          in.ID,
+		CreatedAt:   in.CreatedAt,
 		Filename:    in.Filename,
 		TorrentName: in.Meta.Name,
 		Size:        in.Meta.Size,
@@ -56,6 +61,7 @@ func toJSON(in *Intake) *intakeJSON {
 		RootName:    in.Meta.RootName,
 		Files:       len(in.Meta.Files),
 		InfoHashV1:  in.Meta.InfoHashV1,
+		InfoHashV2:  in.Meta.InfoHashV2,
 		MediaType:   in.Class.MediaType,
 		Title:       in.Class.Title,
 		Year:        in.Class.Year,
@@ -201,8 +207,8 @@ func (s *Server) upload(w http.ResponseWriter, r *http.Request) {
 		Bytes:     data,
 		Meta:      meta,
 		Class: classifierResult{
-			MediaType: cls.MediaType, Title: cls.Title, Year: cls.Year,
-			Season: cls.Season, Confidence: cls.Confidence,
+			MediaType: cls.MediaType, Title: cls.Title, AltTitle: cls.AltTitle,
+			Year: cls.Year, Season: cls.Season, Confidence: cls.Confidence,
 		},
 		Status: "parsed",
 	}
@@ -270,6 +276,10 @@ func (s *Server) searchTMDB(in *Intake) {
 	s.searchTMDBWith(in, in.Class.Title, in.Class.Year)
 }
 
+// searchTMDBWith queries TMDB with a fallback chain so a wrong guessed year
+// or a year that is part of the title ("Blade Runner 2049") still finds the
+// right title: (1) query+year, (2) alternate title without year,
+// (3) query without year.
 func (s *Server) searchTMDBWith(in *Intake, query string, year int) {
 	in.TMDBResults = nil
 	in.TMDBError = ""
@@ -279,18 +289,36 @@ func (s *Server) searchTMDBWith(in *Intake, query string, year int) {
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 	defer cancel()
-	var results []tmdb.Result
-	var err error
-	if in.Class.MediaType == "tv" {
-		results, err = s.tmdb.SearchTV(ctx, query, year)
-	} else {
-		results, err = s.tmdb.SearchMovie(ctx, query, year)
+
+	type attempt struct {
+		q string
+		y int
 	}
-	if err != nil {
-		in.TMDBError = err.Error()
-		return
+	attempts := []attempt{{query, year}}
+	if in.Class.AltTitle != "" && !strings.EqualFold(in.Class.AltTitle, query) {
+		attempts = append(attempts, attempt{in.Class.AltTitle, 0})
 	}
-	in.TMDBResults = results
+	if year > 0 {
+		attempts = append(attempts, attempt{query, 0})
+	}
+
+	for _, a := range attempts {
+		var results []tmdb.Result
+		var err error
+		if in.Class.MediaType == "tv" {
+			results, err = s.tmdb.SearchTV(ctx, a.q, a.y)
+		} else {
+			results, err = s.tmdb.SearchMovie(ctx, a.q, a.y)
+		}
+		if err != nil {
+			in.TMDBError = err.Error()
+			return
+		}
+		if len(results) > 0 {
+			in.TMDBResults = results
+			return
+		}
+	}
 }
 
 // match selects a TMDB result and computes the destination preview.
@@ -358,6 +386,18 @@ func (s *Server) planDestination(in *Intake) (*Destination, string) {
 		d.SavePath = m.Path
 		d.ContentPath = in.Meta.ContentPath(m.Path)
 		d.EnoughSpace = true
+		// The title stays on its drive regardless of free space; a tight
+		// drive only produces a warning.
+		if st, ok := s.driveStatus(context.Background(), m.DriveID); ok {
+			d.UsableSpace = st.Usable
+			d.EnoughSpace = st.Usable >= in.Meta.Size
+			d.Shortfall = in.Meta.Size - st.Usable
+			if !d.EnoughSpace {
+				d.Warnings = append(d.Warnings, fmt.Sprintf(
+					"%s has only %s usable (torrent needs %s); adding anyway to keep the title on its drive",
+					m.DriveID, humanBytes(st.Usable), humanBytes(in.Meta.Size)))
+			}
+		}
 		return d, ""
 	}
 
@@ -372,7 +412,7 @@ func (s *Server) planDestination(in *Intake) (*Destination, string) {
 
 	// New title: choose the drive with the most usable space.
 	pending := s.pendingReservations()
-	sel, err := s.alloc.Select(context.Background(), s.cfg.Drives, pending, in.Meta.Size, "")
+	sel, err := s.alloc.Select(context.Background(), s.cfg.Drives, pending, in.Meta.Size)
 	if err != nil {
 		d.EnoughSpace = false
 		d.Shortfall = in.Meta.Size
@@ -390,6 +430,30 @@ func (s *Server) planDestination(in *Intake) (*Destination, string) {
 	d.EnoughSpace = d.UsableSpace >= in.Meta.Size
 	d.Shortfall = in.Meta.Size - d.UsableSpace
 	return d, ""
+}
+
+// driveStatus reports the current status of one drive.
+func (s *Server) driveStatus(ctx context.Context, id string) (allocator.DriveStatus, bool) {
+	for _, st := range s.alloc.Statuses(ctx, s.cfg.Drives) {
+		if st.ID == id {
+			return st, true
+		}
+	}
+	return allocator.DriveStatus{}, false
+}
+
+func humanBytes(n int64) string {
+	if n < 0 {
+		n = 0
+	}
+	units := []string{"B", "KiB", "MiB", "GiB", "TiB"}
+	v := float64(n)
+	i := 0
+	for v >= 1024 && i < len(units)-1 {
+		v /= 1024
+		i++
+	}
+	return strings.TrimRight(strings.TrimRight(fmt.Sprintf("%.1f", v), "0"), ".") + " " + units[i]
 }
 
 func newID() string {

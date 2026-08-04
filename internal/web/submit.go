@@ -20,7 +20,7 @@ func (s *Server) pendingReservations() map[string]int64 {
 	defer s.mu.Unlock()
 	out := map[string]int64{}
 	for _, in := range s.intakes {
-		if in.Status != "submitted" && in.Dest != nil && in.Dest.EnoughSpace && in.Dest.NeededBytes > 0 {
+		if in.Status != "submitted" && in.Dest != nil && in.Dest.DriveID != "" && in.Dest.NeededBytes > 0 {
 			out[in.Dest.DriveID] += in.Dest.NeededBytes
 		}
 	}
@@ -72,8 +72,8 @@ func (s *Server) submitLocked(ctx context.Context, in *Intake) error {
 	}
 
 	// 2. Duplicate check against qBittorrent.
-	if in.Meta.InfoHashV1 != "" {
-		ts, err := s.qb.Torrents(ctx, map[string][]string{"hashes": {in.Meta.InfoHashV1}})
+	if hashes := in.Meta.QueryHashes(); hashes != "" {
+		ts, err := s.qb.Torrents(ctx, map[string][]string{"hashes": {hashes}})
 		if err != nil {
 			return fmt.Errorf("duplicate check failed: %w", err)
 		}
@@ -96,13 +96,15 @@ func (s *Server) submitLocked(ctx context.Context, in *Intake) error {
 	var driveID string
 	switch {
 	case len(matches) == 1:
+		// An existing show/movie stays on its drive regardless of free
+		// space; a tight drive only produces a warning.
 		savePath = matches[0].Path
 		driveID = matches[0].DriveID
 	case len(matches) > 1:
 		return errors.New("this title exists on multiple drives; resolve the duplicates before submitting")
 	default:
 		pending := s.pendingReservations()
-		sel, err := s.alloc.Select(ctx, s.cfg.Drives, pending, in.Meta.Size, "")
+		sel, err := s.alloc.Select(ctx, s.cfg.Drives, pending, in.Meta.Size)
 		if err != nil {
 			return err
 		}
@@ -124,6 +126,16 @@ func (s *Server) submitLocked(ctx context.Context, in *Intake) error {
 		RootFolder:  in.Meta.RootFolder,
 		NeededBytes: in.Meta.Size,
 		EnoughSpace: true,
+	}
+	if st, ok := s.driveStatus(ctx, driveID); ok {
+		dest.UsableSpace = st.Usable
+		dest.EnoughSpace = st.Usable >= in.Meta.Size
+		dest.Shortfall = in.Meta.Size - st.Usable
+		if !dest.EnoughSpace && dest.Existing {
+			dest.Warnings = append(dest.Warnings, fmt.Sprintf(
+				"%s has only %s usable (torrent needs %s); adding anyway to keep the title on its drive",
+				driveID, humanBytes(st.Usable), humanBytes(in.Meta.Size)))
+		}
 	}
 	in.Dest = dest
 
@@ -252,8 +264,8 @@ func (s *Server) waitForTag(ctx context.Context, tag string) (*qbittorrent.Torre
 // failure.
 func (s *Server) verify(ctx context.Context, tor *qbittorrent.Torrent, in *Intake, wantSave, wantContent, wantCat, tag string) error {
 	problems := []string{}
-	if in.Meta.InfoHashV1 != "" && tor.Hash != in.Meta.InfoHashV1 {
-		problems = append(problems, fmt.Sprintf("hash: got %s want %s", tor.Hash, in.Meta.InfoHashV1))
+	if want := in.Meta.PrimaryHash(); want != "" && !strings.EqualFold(tor.Hash, want) {
+		problems = append(problems, fmt.Sprintf("hash: got %s want %s", tor.Hash, want))
 	}
 	if strings.TrimRight(tor.SavePath, "/") != strings.TrimRight(wantSave, "/") {
 		problems = append(problems, fmt.Sprintf("save_path: got %q want %q", tor.SavePath, wantSave))

@@ -2,6 +2,8 @@
 # Copy to config.yaml and adjust. Secrets can be supplied via environment
 # variables instead of this file.
 
+# Note: inside a container this must be 0.0.0.0:8787 (or set CINEROUTE_LISTEN)
+# or the web UI is unreachable from the host.
 listen: "127.0.0.1:8787"
 
 # Optional password for the web interface (basic auth, user "cineroute").
@@ -12,6 +14,8 @@ auth_password: ""
 max_upload_bytes: 67108864
 
 tmdb:
+  # Either the classic v3 API key (32 hex chars) or the v4 API Read Access
+  # Token (a long JWT) works — both are detected automatically.
   # Alternatively: CINEROUTE_TMDB_API_KEY
   api_key: ""
   language: "en-US"

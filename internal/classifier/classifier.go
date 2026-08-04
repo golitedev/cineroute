@@ -12,6 +12,7 @@ import (
 type Result struct {
 	MediaType  string // "movie" | "tv"
 	Title      string
+	AltTitle   string // title including a trailing year token ("Blade Runner 2049")
 	Year       int
 	Season     int
 	Confidence string // "high" | "medium" | "low"
@@ -95,11 +96,10 @@ func Classify(name string, relPaths []string) Result {
 
 	isTV := season > 0 || series
 
-	if m := reYear.FindString(base); m != "" {
-		res.Year, _ = strconv.Atoi(m)
-	}
-
-	res.Title = extractTitle(base, seasonTok)
+	title, altTitle, year := extractTitleAndYear(base, seasonTok)
+	res.Title = title
+	res.AltTitle = altTitle
+	res.Year = year
 	if res.Title == "" {
 		res.Title = base
 	}
@@ -146,28 +146,85 @@ func Classify(name string, relPaths []string) Result {
 	return res
 }
 
-// extractTitle splits the release name into tokens and takes everything up to
-// the first season marker or release-metadata token.
-func extractTitle(name, seasonTok string) string {
-	tokens := splitTokens(name)
-	title := []string{}
-	for _, t := range tokens {
-		if t == "" {
-			continue
+// extractTitleAndYear splits the release name into tokens and derives the
+// search title, an alternate title (title + trailing year token, for movies
+// like "Blade Runner 2049") and the release year.
+//
+// The release year is the LAST year-like token immediately followed by a
+// stop/noise token or the end of the name. Year-like tokens before it are
+// part of the title: "2012.2009.1080p" → title "2012", year 2009;
+// "2001.A.Space.Odyssey.1968.2160p" → title "2001 A Space Odyssey", year 1968.
+func extractTitleAndYear(name, seasonTok string) (title, altTitle string, year int) {
+	tokens := []string{}
+	for _, t := range splitTokens(name) {
+		if t != "" {
+			tokens = append(tokens, t)
 		}
+	}
+	yearIdx := releaseYearIndex(tokens)
+	if yearIdx >= 0 {
+		year, _ = strconv.Atoi(tokens[yearIdx])
+	}
+
+	end := len(tokens)
+	for i, t := range tokens {
 		if seasonTok != "" && strings.EqualFold(t, seasonTok) {
+			end = i
+			break
+		}
+		if i == yearIdx {
+			end = i
 			break
 		}
 		lt := strings.ToLower(t)
-		if isStopToken(lt) || isNoiseToken(lt) {
+		if isStopToken(lt) {
+			end = i
 			break
 		}
-		title = append(title, t)
+		// Year-like tokens other than the chosen release year belong to the
+		// title; other noise ends it.
+		if isNoiseToken(lt) && !reYear.MatchString(t) {
+			end = i
+			break
+		}
 	}
-	if len(title) == 0 {
-		return ""
+	if end > 0 {
+		title = strings.Join(tokens[:end], " ")
 	}
-	return strings.Join(title, " ")
+	// When the chosen year directly follows the title, the year may actually
+	// be part of the title ("Blade Runner 2049"): offer it as an alternative.
+	if title != "" && yearIdx == end && yearIdx < len(tokens) {
+		altTitle = title + " " + tokens[yearIdx]
+	}
+	return title, altTitle, year
+}
+
+// releaseYearIndex picks the most plausible release-year token: the last
+// year-like token followed by a stop/noise token or the end of the name.
+// Falls back to the first year-like token.
+func releaseYearIndex(tokens []string) int {
+	chosen := -1
+	first := -1
+	for i, t := range tokens {
+		if !reYear.MatchString(t) {
+			continue
+		}
+		if first < 0 {
+			first = i
+		}
+		if i+1 >= len(tokens) {
+			chosen = i
+			continue
+		}
+		nt := strings.ToLower(tokens[i+1])
+		if isStopToken(nt) || isNoiseToken(nt) {
+			chosen = i
+		}
+	}
+	if chosen < 0 {
+		chosen = first
+	}
+	return chosen
 }
 
 func splitTokens(name string) []string {

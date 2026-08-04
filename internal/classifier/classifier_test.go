@@ -63,3 +63,29 @@ func TestClassifyCompleteSeries(t *testing.T) {
 		t.Fatalf("expected tv, got %+v", r)
 	}
 }
+
+// Year-like numbers in titles: the year after the title number must win, and
+// a trailing title number must remain available as an alternate title.
+func TestClassifyYearLikeTitles(t *testing.T) {
+	cases := []struct {
+		name     string
+		title    string
+		altTitle string
+		year     int
+	}{
+		{"Blade.Runner.2049.2160p.WEB-DL.DDP5.1", "Blade Runner", "Blade Runner 2049", 2049},
+		{"Blade.Runner.2049.2017.1080p.BluRay", "Blade Runner 2049", "Blade Runner 2049 2017", 2017},
+		{"2012.2009.1080p.BluRay.x264-GROUP", "2012", "2012 2009", 2009},
+		{"2001.A.Space.Odyssey.1968.2160p.UHD.BluRay", "2001 A Space Odyssey", "2001 A Space Odyssey 1968", 1968},
+		{"1917.2019.1080p.BluRay.x264", "1917", "1917 2019", 2019},
+		{"Alien.Romulus.2024.1080p.WEB-DL.DDP5.1.Atmos", "Alien Romulus", "Alien Romulus 2024", 2024},
+		{"Widow's.Bay.2026.S01.1080p", "Widow's Bay", "Widow's Bay 2026", 2026},
+	}
+	for _, tc := range cases {
+		r := Classify(tc.name, []string{tc.name + ".mkv"})
+		if r.Title != tc.title || r.AltTitle != tc.altTitle || r.Year != tc.year {
+			t.Errorf("%s: got title=%q alt=%q year=%d, want %q %q %d",
+				tc.name, r.Title, r.AltTitle, r.Year, tc.title, tc.altTitle, tc.year)
+		}
+	}
+}

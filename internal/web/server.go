@@ -45,37 +45,38 @@ type Intake struct {
 type classifierResult struct {
 	MediaType  string
 	Title      string
+	AltTitle   string
 	Year       int
 	Season     int
 	Confidence string
 }
 
 type Destination struct {
-	DriveID       string
-	DriveName     string
-	SavePath      string
-	FolderName    string
-	Existing      bool
-	ExistingPaths []string
-	ContentPath   string
-	RootFolder    bool
-	UsableSpace   int64
-	NeededBytes   int64
-	EnoughSpace   bool
-	Shortfall     int64
-	Warnings      []string
+	DriveID       string   `json:"drive_id"`
+	DriveName     string   `json:"drive_name"`
+	SavePath      string   `json:"save_path"`
+	FolderName    string   `json:"folder_name"`
+	Existing      bool     `json:"existing"`
+	ExistingPaths []string `json:"existing_paths,omitempty"`
+	ContentPath   string   `json:"content_path"`
+	RootFolder    bool     `json:"root_folder"`
+	UsableSpace   int64    `json:"usable_space"`
+	NeededBytes   int64    `json:"needed_bytes"`
+	EnoughSpace   bool     `json:"enough_space"`
+	Shortfall     int64    `json:"shortfall"`
+	Warnings      []string `json:"warnings,omitempty"`
 }
 
 type SubmitResult struct {
-	Hash        string
-	TorrentName string
-	SavePath    string
-	ContentPath string
-	Category    string
-	DriveID     string
-	RootFolder  bool
-	Files       int
-	SubmittedAt time.Time
+	Hash        string    `json:"hash"`
+	TorrentName string    `json:"torrent_name"`
+	SavePath    string    `json:"save_path"`
+	ContentPath string    `json:"content_path"`
+	Category    string    `json:"category"`
+	DriveID     string    `json:"drive_id"`
+	RootFolder  bool      `json:"root_folder"`
+	Files       int       `json:"files"`
+	SubmittedAt time.Time `json:"submitted_at"`
 }
 
 type Server struct {

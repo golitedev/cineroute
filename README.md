@@ -64,11 +64,11 @@ Secrets can also come from environment variables:
 | Web UI password (basic auth, user `cineroute`) | `CINEROUTE_AUTH_PASSWORD` |
 
 ```yaml
-listen: "127.0.0.1:8787"
+listen: "127.0.0.1:8787"   # use 0.0.0.0:8787 inside a container
 auth_password: ""          # set a password or use CINEROUTE_AUTH_PASSWORD
 
 tmdb:
-  api_key: ""              # or CINEROUTE_TMDB_API_KEY
+  api_key: ""              # v3 API key or v4 read access token, or CINEROUTE_TMDB_API_KEY
   language: "en-US"
 
 qbittorrent:
@@ -107,6 +107,18 @@ volumes:
   # ... hdd2..hdd4 as /m2-/t2, /m3-/t3, /m4-/t4
 ```
 
+Set `CINEROUTE_LISTEN=0.0.0.0:8787` (already in the example) — the default
+`127.0.0.1` listen address is unreachable from outside the container.
+
+### Prebuilt image (GHCR)
+
+The GitHub Actions workflow in `.github/workflows/docker.yml` runs the tests
+and builds `linux/amd64` + `linux/arm64` images to
+`ghcr.io/<your-username>/cineroute` on every push to `main` and on `v*` tags
+(`v1.2.3` → `1.2.3`, `1.2`, plus `main` and short-SHA tags). No extra secrets
+are needed — it uses the built-in `GITHUB_TOKEN`. Pull requests get a
+build-only check without pushing.
+
 ## qBittorrent requirements
 
 CineRoute refuses to submit unless:
@@ -128,10 +140,18 @@ category, size, state).
 * **Layout is derived from torrent structure, never guessed:**
   single-file → `root_folder=false`; rooted v1/v2/hybrid multi-file →
   `root_folder=true`; rootless BEP 52 → `root_folder=false`.
-* **Existing TV show** is always kept on its drive; if that drive lacks
-  space the submission is blocked (shows are never split silently).
+* **v1, v2 and hybrid torrents** are supported. Hash verification uses the
+  hash qBittorrent actually reports: v1 for v1/hybrid, v2 (SHA-256) for
+  pure-v2 torrents.
+* **Existing TV show** is always kept on its drive — every season goes into
+  the same `Title (Year)` folder regardless of free space. If that drive is
+  tight, a warning is shown but the submission is never blocked.
 * **New titles** go to the drive with the most usable space
   (free − reserve − qBittorrent incomplete bytes).
+* **Forgiving TMDB search:** if the year filter returns nothing (a year
+  that is part of the title, like *Blade Runner 2049*, or a season pack
+  carrying the season's air year instead of the show's first-air year), the
+  search is retried with an alternate title and then without a year.
 * **Duplicates** (same info hash already in qBittorrent) are blocked.
 * The destination is recomputed authoritatively under the allocation lock at
   submit time; a library that changed while you reviewed is never silently
@@ -139,8 +159,7 @@ category, size, state).
 * Intakes live in memory (no database yet); qBittorrent is the source of
   truth for what was submitted.
 
-## Not implemented yet (planned in `plan.md`)
+## Not implemented yet
 
 SQLite history, intake recovery after crash, singleton lease, archives,
-v2 info-hash verification, auto-submit mode, GitHub Actions/GHCR pipeline,
-Forgejo mirror.
+auto-submit mode.

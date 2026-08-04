@@ -131,7 +131,7 @@ func (f *fakeQB) handler() http.Handler {
 			files = append(files, qbFile{name: p, size: meta.Files[i].Length})
 		}
 		t := &qbTorrent{
-			hash:        meta.InfoHashV1,
+			hash:        meta.PrimaryHash(),
 			name:        meta.Name,
 			savePath:    savepath,
 			contentPath: contentPath,
@@ -206,6 +206,40 @@ func (f *fakeQB) handler() http.Handler {
 
 func singleFileTorrent(name string, length int64) []byte {
 	return buildFixtureTorrent(name, length, nil)
+}
+
+// buildV2FixtureTorrent builds a pure-v2 (BEP 52) metainfo blob with a file
+// tree rooted at name and no "pieces" key.
+func buildV2FixtureTorrent(name string, files map[string]int64) []byte {
+	be := func(s string) string { return fmt.Sprintf("%d:%s", len(s), s) }
+	bi := func(n int64) string { return fmt.Sprintf("i%de", n) }
+	var tree bytes.Buffer
+	tree.WriteString("d")
+	tree.WriteString(be(name))
+	tree.WriteString("d")
+	for p, ln := range files {
+		tree.WriteString(be(p))
+		tree.WriteString("d0:d")
+		tree.WriteString(be("length"))
+		tree.WriteString(bi(ln))
+		tree.WriteString("ee")
+	}
+	tree.WriteString("ee")
+	var b bytes.Buffer
+	b.WriteString("d")
+	b.WriteString(be("info"))
+	b.WriteString("d")
+	b.WriteString(be("file tree"))
+	b.WriteString(tree.String())
+	b.WriteString(be("meta version"))
+	b.WriteString(bi(2))
+	b.WriteString(be("name"))
+	b.WriteString(be(name))
+	b.WriteString(be("piece length"))
+	b.WriteString(bi(16384))
+	b.WriteString("e")
+	b.WriteString("e")
+	return b.Bytes()
 }
 
 func buildFixtureTorrent(name string, length int64, files map[string]int64) []byte {
@@ -486,6 +520,101 @@ func TestMissingTMDBKeyShowsError(t *testing.T) {
 	in := uploadTorrent(t, httpSrv, "x.torrent", raw)
 	if in.TMDBError == "" {
 		t.Fatal("expected tmdb error message")
+	}
+}
+
+// Pure-v2 torrents must pass verification: qBittorrent reports the v2
+// (SHA-256) hash for them, not the v1 SHA-1.
+func TestEndToEndPureV2Torrent(t *testing.T) {
+	srv, fake, httpSrv, roots := newTestServer(t)
+	_ = srv
+	_ = roots
+
+	raw := buildV2FixtureTorrent("Brand.New.Show.S02.1080p.WEB-DL", map[string]int64{
+		"ep1.mkv": 400,
+		"ep2.mkv": 300,
+	})
+	in := uploadTorrent(t, httpSrv, "show.torrent", raw)
+	if in.MediaType != "tv" || in.Season != 2 {
+		t.Fatalf("classification: %+v", in)
+	}
+	if in.InfoHashV2 == "" || in.InfoHashV1 != "" {
+		t.Fatalf("pure v2 hashes: v1=%q v2=%q", in.InfoHashV1, in.InfoHashV2)
+	}
+	if !in.RootFolder {
+		t.Fatal("rooted v2 torrent should set root_folder")
+	}
+
+	resp, _ := http.Post(httpSrv.URL+"/api/intakes/"+in.ID+"/match",
+		"application/json", strings.NewReader(`{"tmdb_id":4607}`))
+	j := apiResponse{}
+	json.NewDecoder(resp.Body).Decode(&j)
+	resp.Body.Close()
+	if j.Error != "" || j.Intake.Dest == nil {
+		t.Fatalf("match failed: %+v", j)
+	}
+
+	resp, _ = http.Post(httpSrv.URL+"/api/intakes/"+in.ID+"/submit",
+		"application/json", strings.NewReader(`{}`))
+	j = apiResponse{}
+	json.NewDecoder(resp.Body).Decode(&j)
+	resp.Body.Close()
+	if j.Intake.Error != "" || j.Intake.Result == nil {
+		t.Fatalf("submit failed: %+v", j.Intake)
+	}
+	if j.Intake.Result.Hash != in.InfoHashV2 {
+		t.Fatalf("result hash: got %q want v2 %q", j.Intake.Result.Hash, in.InfoHashV2)
+	}
+	fake.mu.Lock()
+	defer fake.mu.Unlock()
+	if !fake.started[j.Intake.Result.Hash] {
+		t.Fatal("v2 torrent was never started")
+	}
+}
+
+// When the year filter kills the TMDB search (a year that is part of the
+// title, like Blade Runner 2049), the fallback chain must retry with the
+// alternate title and no year.
+func TestTMDBFallbackChain(t *testing.T) {
+	qb := newFakeQB()
+	qbSrv := httptest.NewServer(qb.handler())
+	defer qbSrv.Close()
+	base := t.TempDir()
+	os.MkdirAll(filepath.Join(base, "m1"), 0o755)
+	os.MkdirAll(filepath.Join(base, "t1"), 0o755)
+	cfg := config.Default()
+	cfg.QBittorrent.URL = qbSrv.URL
+	cfg.Drives = []config.Drive{{ID: "hdd1", MovieRoot: filepath.Join(base, "m1"), TVRoot: filepath.Join(base, "t1")}}
+
+	var queries []string
+	tmdbSrv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		q := r.URL.Query().Get("query")
+		yr := r.URL.Query().Get("primary_release_year")
+		queries = append(queries, q+"|year="+yr)
+		if yr == "2049" {
+			json.NewEncoder(w).Encode(map[string]any{"results": []any{}})
+			return
+		}
+		json.NewEncoder(w).Encode(map[string]any{"results": []map[string]any{
+			{"id": 76341, "title": "Blade Runner 2049", "original_title": "Blade Runner 2049", "release_date": "2017-10-06"},
+		}})
+	}))
+	defer tmdbSrv.Close()
+	tc := tmdb.New("test-key", "en-US", 5*time.Second)
+	tc.SetBaseURL(tmdbSrv.URL)
+
+	qbClient, _ := qbittorrent.New(qbSrv.URL, "a", "b", 5*time.Second)
+	srv := New(cfg, qbClient, tc)
+	httpSrv := httptest.NewServer(srv.Handler())
+	defer httpSrv.Close()
+
+	raw := singleFileTorrent("Blade.Runner.2049.2160p.WEB-DL.DDP5.1.mkv", 100)
+	in := uploadTorrent(t, httpSrv, "br.torrent", raw)
+	if len(in.TMDB) == 0 || in.TMDB[0].ID != 76341 {
+		t.Fatalf("fallback should find Blade Runner 2049: %+v (queries: %v)", in, queries)
+	}
+	if len(queries) < 2 {
+		t.Fatalf("expected at least two attempts, got %v", queries)
 	}
 }
 

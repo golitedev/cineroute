@@ -6,6 +6,7 @@ package torrentmeta
 import (
 	"bytes"
 	"crypto/sha1"
+	"crypto/sha256"
 	"encoding/hex"
 	"errors"
 	"fmt"
@@ -219,9 +220,34 @@ type MetaInfo struct {
 	RootFolder  bool // the explicit value to send to qBittorrent
 	Files       []File
 	InfoHashV1  string
+	InfoHashV2  string // set for v2 and hybrid torrents
+	HasV1       bool   // has a "pieces" key (v1 or hybrid)
+	HasV2       bool   // has a "file tree" key (v2 or hybrid)
 	MetaVersion int
 	Private     bool
 	Trackers    []string
+}
+
+// PrimaryHash is the hash qBittorrent reports for this torrent: the v1 hash
+// for v1 and hybrid torrents, the v2 hash for pure-v2 torrents.
+func (mi *MetaInfo) PrimaryHash() string {
+	if mi.HasV2 && !mi.HasV1 {
+		return mi.InfoHashV2
+	}
+	return mi.InfoHashV1
+}
+
+// QueryHashes returns every known info hash joined with "|" for
+// qBittorrent's hashes filter.
+func (mi *MetaInfo) QueryHashes() string {
+	var out []string
+	if mi.InfoHashV1 != "" {
+		out = append(out, mi.InfoHashV1)
+	}
+	if mi.InfoHashV2 != "" && mi.InfoHashV2 != mi.InfoHashV1 {
+		out = append(out, mi.InfoHashV2)
+	}
+	return strings.Join(out, "|")
 }
 
 // Parse decodes metainfo and derives the structural topology. The raw byte
@@ -248,8 +274,19 @@ func Parse(data []byte) (*MetaInfo, error) {
 	}
 
 	mi := &MetaInfo{}
-	sum := sha1.Sum(info.raw)
-	mi.InfoHashV1 = hex.EncodeToString(sum[:])
+	mi.HasV1 = info.dict["pieces"] != nil
+	mi.HasV2 = info.dict["file tree"] != nil && info.dict["file tree"].dict != nil
+	if mi.HasV1 || !mi.HasV2 {
+		// The v1 hash is only meaningful when the torrent has a v1
+		// component; compute it anyway for malformed torrents without a
+		// file tree so duplicate detection still has something to check.
+		sum := sha1.Sum(info.raw)
+		mi.InfoHashV1 = hex.EncodeToString(sum[:])
+	}
+	if mi.HasV2 {
+		sum2 := sha256.Sum256(info.raw)
+		mi.InfoHashV2 = hex.EncodeToString(sum2[:])
+	}
 
 	if mv := info.dict["meta version"]; mv != nil {
 		mi.MetaVersion = int(mv.num)

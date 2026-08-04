@@ -189,7 +189,7 @@ function render(){
     ["Size",fmtBytes(intake.size)],
     ["Layout",intake.kind==="single"?"Single file":intake.kind==="rooted-multi"?"Multi-file (rooted)":"Multi-file (rootless)"],
     ["Root folder",intake.root_folder?"true":"false"],
-    ["Info hash",'<span class="mono">'+esc(intake.info_hash_v1)+"</span>"],
+    ["Info hash",'<span class="mono">'+esc(intake.info_hash_v1||intake.info_hash_v2||"—")+"</span>"],
     ["Files",intake.files],
     ["Detected type",'<span class="badge '+(intake.media_type==="tv"?"ok":"")+'">'+esc(intake.media_type)+"</span> <span class='small'>("+esc(intake.confidence)+" confidence)</span>"],
     ["Search title",esc(intake.title||"—")],
@@ -251,6 +251,9 @@ function renderDest(){
     ];
   }
   $("destBody").innerHTML=rows.map(r=>"<tr><td>"+r[0]+"</td><td>"+r[1]+"</td></tr>").join("");
+  if(dest&&dest.warnings&&dest.warnings.length){
+    $("submitResult").innerHTML='<div class="errbox" style="background:#2b2412;border-color:#6b5214;color:#e3b341">'+esc(dest.warnings.join("\n"))+"</div>";
+  }
   if(dest&&dest.existing_paths&&dest.existing_paths.length>1){
     $("submitResult").innerHTML='<div class="errbox">'+esc("Title exists at:\n"+dest.existing_paths.join("\n"))+"<br>Resolve the duplicates in your library first.</div>";
   }else if(err&&intake.status!=="submitted"){
