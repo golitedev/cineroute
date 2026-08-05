@@ -235,8 +235,9 @@ func (s *Server) auth(next http.Handler) http.Handler {
 	})
 }
 
-// login authenticates with the configured password and sets a session cookie
-// valid for sessionTTL. Logging in while auth is disabled is a no-op.
+// login authenticates with the configured username and password and sets a
+// session cookie valid for sessionTTL. Logging in while auth is disabled is
+// a no-op.
 func (s *Server) login(w http.ResponseWriter, r *http.Request) {
 	pass := s.cfg.AuthPassword
 	if pass == "" {
@@ -244,6 +245,7 @@ func (s *Server) login(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var body struct {
+		Username string `json:"username"`
 		Password string `json:"password"`
 	}
 	r.Body = http.MaxBytesReader(w, r.Body, 1<<20)
@@ -251,8 +253,13 @@ func (s *Server) login(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusBadRequest, "invalid body")
 		return
 	}
-	if subtle.ConstantTimeCompare([]byte(body.Password), []byte(pass)) != 1 {
-		writeErr(w, http.StatusUnauthorized, "invalid password")
+	// An empty configured username means "any username" (keeps logins
+	// working for configs that never set auth_username); otherwise the
+	// username must match, compared in constant time.
+	userOK := s.cfg.AuthUsername == "" ||
+		subtle.ConstantTimeCompare([]byte(body.Username), []byte(s.cfg.AuthUsername)) == 1
+	if !userOK || subtle.ConstantTimeCompare([]byte(body.Password), []byte(pass)) != 1 {
+		writeErr(w, http.StatusUnauthorized, "invalid username or password")
 		return
 	}
 	expires := time.Now().Add(sessionTTL)

@@ -404,7 +404,7 @@ func TestSessionAuth(t *testing.T) {
 	}
 
 	// Wrong password is rejected.
-	resp, err := client.Post(httpSrv.URL+"/api/login", "application/json", strings.NewReader(`{"password":"wrong"}`))
+	resp, err := client.Post(httpSrv.URL+"/api/login", "application/json", strings.NewReader(`{"username":"alice","password":"wrong"}`))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -413,8 +413,18 @@ func TestSessionAuth(t *testing.T) {
 		t.Fatalf("login wrong password: %d", resp.StatusCode)
 	}
 
-	// Correct password sets a session cookie.
-	resp, err = client.Post(httpSrv.URL+"/api/login", "application/json", strings.NewReader(`{"password":"secret"}`))
+	// Wrong username is rejected.
+	resp, err = client.Post(httpSrv.URL+"/api/login", "application/json", strings.NewReader(`{"username":"mallory","password":"secret"}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	resp.Body.Close()
+	if resp.StatusCode != 401 {
+		t.Fatalf("login wrong username: %d", resp.StatusCode)
+	}
+
+	// Correct credentials set a session cookie.
+	resp, err = client.Post(httpSrv.URL+"/api/login", "application/json", strings.NewReader(`{"username":"alice","password":"secret"}`))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -479,12 +489,12 @@ func newAuthServer(t *testing.T, user, pass string) *httptest.Server {
 	return httpSrv
 }
 
-// loginCookie posts the password to /api/login and returns the session
-// cookie from the response.
-func loginCookie(t *testing.T, httpSrv *httptest.Server, pass string) *http.Cookie {
+// loginCookie posts the username and password to /api/login and returns the
+// session cookie from the response.
+func loginCookie(t *testing.T, httpSrv *httptest.Server, user, pass string) *http.Cookie {
 	t.Helper()
 	resp, err := http.Post(httpSrv.URL+"/api/login", "application/json",
-		strings.NewReader(`{"password":"`+pass+`"}`))
+		strings.NewReader(`{"username":"`+user+`","password":"`+pass+`"}`))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -552,7 +562,7 @@ func TestUnauthenticated401NoBasicChallenge(t *testing.T) {
 // plain HTTP on the LAN.
 func TestLoginSetsPersistentSessionCookie(t *testing.T) {
 	httpSrv := newAuthServer(t, "alice", "secret")
-	sess := loginCookie(t, httpSrv, "secret")
+	sess := loginCookie(t, httpSrv, "alice", "secret")
 
 	wantMaxAge := int((90 * 24 * time.Hour) / time.Second)
 	if sess.MaxAge != wantMaxAge {
@@ -578,7 +588,7 @@ func TestLoginSetsPersistentSessionCookie(t *testing.T) {
 // The session cookie alone must authorize protected endpoints.
 func TestSessionCookieAuthorizesProtectedEndpoints(t *testing.T) {
 	httpSrv := newAuthServer(t, "alice", "secret")
-	sess := loginCookie(t, httpSrv, "secret")
+	sess := loginCookie(t, httpSrv, "alice", "secret")
 
 	for _, path := range []string{"/api/status", "/api/intakes"} {
 		req := mustReq(t, http.MethodGet, httpSrv.URL+path, nil)
@@ -597,7 +607,7 @@ func TestSessionCookieAuthorizesProtectedEndpoints(t *testing.T) {
 // cookie.
 func TestSessionSurvivesNewServerInstance(t *testing.T) {
 	httpSrv1 := newAuthServer(t, "alice", "secret")
-	sess := loginCookie(t, httpSrv1, "secret")
+	sess := loginCookie(t, httpSrv1, "alice", "secret")
 
 	httpSrv2 := newAuthServer(t, "alice", "secret")
 	req := mustReq(t, http.MethodGet, httpSrv2.URL+"/api/status", nil)
@@ -613,7 +623,7 @@ func TestSessionSurvivesNewServerInstance(t *testing.T) {
 // session token.
 func TestPasswordChangeInvalidatesOldSessions(t *testing.T) {
 	httpSrv1 := newAuthServer(t, "alice", "secret-a")
-	sess := loginCookie(t, httpSrv1, "secret-a")
+	sess := loginCookie(t, httpSrv1, "alice", "secret-a")
 
 	httpSrv2 := newAuthServer(t, "alice", "secret-b")
 	req := mustReq(t, http.MethodGet, httpSrv2.URL+"/api/status", nil)
@@ -682,7 +692,7 @@ func TestInvalidBasicAuthNoChallenge(t *testing.T) {
 // the cookie.)
 func TestLogoutClearsSessionCookie(t *testing.T) {
 	httpSrv := newAuthServer(t, "alice", "secret")
-	sess := loginCookie(t, httpSrv, "secret")
+	sess := loginCookie(t, httpSrv, "alice", "secret")
 
 	logoutReq := mustReq(t, http.MethodPost, httpSrv.URL+"/api/logout",
 		strings.NewReader(`{}`))
