@@ -68,15 +68,15 @@ func (s *Scan) find(canonical string, rootOf func(Drive) string) []Folder {
 var wsRe = regexp.MustCompile(`\s+`)
 
 // Normalize canonicalizes a folder name for comparison: Unicode lowercased,
-// whitespace collapsed, apostrophes unified, colons removed, dots removed at
-// the end.
+// whitespace collapsed, apostrophes unified, forbidden filename characters
+// removed, dots removed at the end.
 func Normalize(name string) string {
 	var b strings.Builder
 	for _, r := range name {
 		if r == '\u2019' || r == '\u2018' || r == '`' {
 			r = '\''
 		}
-		if r == ':' {
+		if r == ':' || strings.ContainsRune("<>\"\\|?*", r) {
 			continue
 		}
 		b.WriteRune(unicode.ToLower(r))
@@ -99,8 +99,9 @@ func FolderName(format, title string, year int) string {
 // SanitizeTitle makes a title safe as a single Linux path component. It only
 // removes characters that cannot appear in a path.
 func SanitizeTitle(title string) string {
-	title = strings.ReplaceAll(title, "/", "-")
-	title = strings.ReplaceAll(title, ":", "")
+	for _, r := range "<>:\"/\\|?*" {
+		title = strings.ReplaceAll(title, string(r), "")
+	}
 	title = strings.ReplaceAll(title, "\x00", "")
 	title = strings.TrimSpace(title)
 	title = wsRe.ReplaceAllString(title, " ")
