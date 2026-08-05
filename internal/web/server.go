@@ -106,7 +106,6 @@ type SubmitResult struct {
 	TorrentName string    `json:"torrent_name"`
 	SavePath    string    `json:"save_path"`
 	ContentPath string    `json:"content_path"`
-	Category    string    `json:"category"`
 	DriveID     string    `json:"drive_id"`
 	RootFolder  bool      `json:"root_folder"`
 	Files       int       `json:"files"`

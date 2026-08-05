@@ -24,11 +24,10 @@ import (
 
 // fakeQB emulates the qBittorrent WebUI API surface CineRoute uses.
 type fakeQB struct {
-	mu         sync.Mutex
-	torrents   map[string]*qbTorrent
-	started    map[string]bool
-	added      []addCall
-	categories map[string]string
+	mu       sync.Mutex
+	torrents map[string]*qbTorrent
+	started  map[string]bool
+	added    []addCall
 	// transitionalPolls maps a torrent hash to the number of remaining
 	// /api/v2/torrents/info polls that should report "checkingResumeData"
 	// before the torrent settles into its real (stopped) state. Used to
@@ -69,7 +68,6 @@ func newFakeQB() *fakeQB {
 	return &fakeQB{
 		torrents:          map[string]*qbTorrent{},
 		started:           map[string]bool{},
-		categories:        map[string]string{},
 		transitionalPolls: map[string]int{},
 	}
 }
@@ -88,22 +86,6 @@ func (f *fakeQB) handler() http.Handler {
 	})
 	mux.HandleFunc("/api/v2/app/preferences", func(w http.ResponseWriter, r *http.Request) {
 		json.NewEncoder(w).Encode(map[string]any{"preallocate_all": false, "temp_path_enabled": false})
-	})
-	mux.HandleFunc("/api/v2/torrents/categories", func(w http.ResponseWriter, r *http.Request) {
-		out := map[string]any{}
-		f.mu.Lock()
-		for k := range f.categories {
-			out[k] = map[string]any{"savePath": ""}
-		}
-		f.mu.Unlock()
-		json.NewEncoder(w).Encode(out)
-	})
-	mux.HandleFunc("/api/v2/torrents/createCategory", func(w http.ResponseWriter, r *http.Request) {
-		r.ParseForm()
-		f.mu.Lock()
-		f.categories[r.Form.Get("category")] = r.Form.Get("savePath")
-		f.mu.Unlock()
-		w.WriteHeader(200)
 	})
 	mux.HandleFunc("/api/v2/torrents/add", func(w http.ResponseWriter, r *http.Request) {
 		if err := r.ParseMultipartForm(1 << 20); err != nil {
@@ -916,6 +898,11 @@ func TestEndToEndSingleFileMovie(t *testing.T) {
 	if call.rootFolder != "false" || call.paused != "true" || call.autoTMM != "false" {
 		t.Fatalf("add params: %+v", call)
 	}
+	if call.category != "" || call.tags != "" {
+		t.Fatalf("torrent must be added without category or tags, got %+v", call)
+	}
+	// The verification step rejects a torrent that qBittorrent reports with
+	// any category or tag, so reaching the start means it landed untagged.
 	if !fake.started[j.Intake.Result.Hash] {
 		t.Fatal("torrent was never started")
 	}

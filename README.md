@@ -77,8 +77,6 @@ qbittorrent:
   url: "http://localhost:8080"
   username: "admin"
   password: ""
-  movie_category: "cineroute-movie"
-  tv_category: "cineroute-tv"
 
 drives:
   - id: "hdd1"
@@ -127,14 +125,11 @@ CineRoute refuses to submit unless:
 * Web API version is 2.11+.
 * **Pre-allocate disk space** is disabled (`preallocate_all = false`).
 * **Keep incomplete torrents in** is disabled (`temp_path_enabled = false`).
-* Categories `cineroute-movie` and `cineroute-tv` exist with **empty save
-  paths** (CineRoute creates them if missing).
 
-Every submission is manual (`autoTMM=false`), stopped, tagged
-(`cineroute`, `cineroute-<intake>`, `tmdb-<id>`, `<drive>`), with an explicit
-topology-derived `root_folder` value. Nothing is started until the stopped
-add passes exact verification (hash, save path, content path, file tree,
-category, size, state).
+Every submission is manual (`autoTMM=false`), stopped, with no category and
+no tags, and an explicit topology-derived `root_folder` value. Nothing is
+started until the stopped add passes exact verification (hash, save path,
+content path, file tree, empty category/tags, size, state).
 
 ## Behavior notes
 

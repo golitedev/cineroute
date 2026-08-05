@@ -6,8 +6,7 @@
 # or the web UI is unreachable from the host.
 listen: "127.0.0.1:8787"
 
-# Optional username/password for the web interface. The username only applies
-# to basic auth; the login form just needs the password. Quote them if they
+# Optional username/password for the web interface. Quote them if they
 # contain special characters (# : " etc).
 # Alternatively: CINEROUTE_AUTH_USERNAME, CINEROUTE_AUTH_PASSWORD
 auth_username: "cineroute"
@@ -28,8 +27,6 @@ qbittorrent:
   url: "http://localhost:8080"
   username: "admin"
   password: ""
-  movie_category: "cineroute-movie"
-  tv_category: "cineroute-tv"
 
 library:
   folder_format: "{title} ({year})"

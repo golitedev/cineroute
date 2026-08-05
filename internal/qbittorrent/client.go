@@ -1,6 +1,6 @@
 // Package qbittorrent is a minimal client for the qBittorrent WebUI API.
 // It only touches the endpoints CineRoute needs: auth, add (stopped), verify,
-// start, categories, preferences, versions, and the torrent list.
+// start, preferences, versions, and the torrent list.
 package qbittorrent
 
 import (
@@ -175,10 +175,6 @@ type TorrentFile struct {
 	Size int64  `json:"size"`
 }
 
-type Category struct {
-	SavePath string `json:"savePath"`
-}
-
 type Preferences struct {
 	PreallocateAll  bool `json:"preallocate_all"`
 	TempPathEnabled bool `json:"temp_path_enabled"`
@@ -210,37 +206,6 @@ func (c *Client) Preferences(ctx context.Context) (*Preferences, error) {
 	return &p, nil
 }
 
-func (c *Client) Categories(ctx context.Context) (map[string]Category, error) {
-	b, err := c.get(ctx, "/api/v2/torrents/categories", nil)
-	if err != nil {
-		return nil, err
-	}
-	var m map[string]Category
-	if err := json.Unmarshal(b, &m); err != nil {
-		return nil, err
-	}
-	return m, nil
-}
-
-// EnsureCategory creates the category with an empty save path if missing.
-func (c *Client) EnsureCategory(ctx context.Context, name string) error {
-	if name == "" {
-		return nil
-	}
-	cats, err := c.Categories(ctx)
-	if err != nil {
-		return err
-	}
-	if _, ok := cats[name]; ok {
-		return nil
-	}
-	_, err = c.post(ctx, "/api/v2/torrents/createCategory", url.Values{
-		"category": {name},
-		"savePath": {""},
-	})
-	return err
-}
-
 func (c *Client) Torrents(ctx context.Context, q url.Values) ([]Torrent, error) {
 	b, err := c.get(ctx, "/api/v2/torrents/info", q)
 	if err != nil {
@@ -267,8 +232,6 @@ func (c *Client) Files(ctx context.Context, hash string) ([]TorrentFile, error) 
 
 type AddOptions struct {
 	SavePath   string
-	Category   string
-	Tags       string
 	RootFolder bool
 	Stopped    bool
 	Filename   string
@@ -287,8 +250,6 @@ func (c *Client) AddTorrent(ctx context.Context, data []byte, opts AddOptions) e
 		}
 		fields := map[string]string{
 			"savepath":    opts.SavePath,
-			"category":    opts.Category,
-			"tags":        opts.Tags,
 			"autoTMM":     "false",
 			"paused":      strconv.FormatBool(opts.Stopped),
 			"stopped":     strconv.FormatBool(opts.Stopped),

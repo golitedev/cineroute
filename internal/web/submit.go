@@ -119,10 +119,9 @@ func (s *Server) submitLocked(ctx context.Context, in *Intake) error {
 	class := in.Class
 	bytes := in.Bytes
 	filename := in.Filename
-	id := in.ID
 	s.mu.RUnlock()
 
-	// 1. Readiness gate: versions, preferences, categories.
+	// 1. Readiness gate: versions, preferences.
 	if err := s.ready(ctx); err != nil {
 		return err
 	}
@@ -202,17 +201,9 @@ func (s *Server) submitLocked(ctx context.Context, in *Intake) error {
 		return fmt.Errorf("creating %s: %w", savePath, err)
 	}
 
-	// 5. Add stopped with a unique tag.
-	tag := "cineroute-" + id
-	cat := s.cfg.CategoryFor(class.MediaType)
-	tags := "cineroute," + tag + fmt.Sprintf(",tmdb-%d", match.ID)
-	if driveID != "" {
-		tags += "," + driveID
-	}
+	// 5. Add stopped, without a category or tags.
 	if err := s.qb.AddTorrent(ctx, bytes, qbittorrent.AddOptions{
 		SavePath:   savePath,
-		Category:   cat,
-		Tags:       tags,
 		RootFolder: meta.RootFolder,
 		Stopped:    true,
 		Filename:   filename,
@@ -221,7 +212,7 @@ func (s *Server) submitLocked(ctx context.Context, in *Intake) error {
 	}
 
 	// 6. Verify the stopped add exactly.
-	tor, err := s.waitForTag(ctx, tag)
+	tor, err := s.waitForHash(ctx, meta.QueryHashes())
 	if err != nil {
 		return err
 	}
@@ -233,7 +224,7 @@ func (s *Server) submitLocked(ctx context.Context, in *Intake) error {
 		return err
 	}
 	expectedContent := meta.ContentPath(savePath)
-	if err := s.verify(ctx, tor, meta, savePath, expectedContent, cat, tag); err != nil {
+	if err := s.verify(ctx, tor, meta, savePath, expectedContent); err != nil {
 		return err
 	}
 
@@ -252,7 +243,6 @@ func (s *Server) submitLocked(ctx context.Context, in *Intake) error {
 		TorrentName: tor.Name,
 		SavePath:    tor.SavePath,
 		ContentPath: tor.ContentPath,
-		Category:    tor.Category,
 		DriveID:     driveID,
 		RootFolder:  meta.RootFolder,
 		Files:       len(meta.Files),
@@ -262,7 +252,7 @@ func (s *Server) submitLocked(ctx context.Context, in *Intake) error {
 	return nil
 }
 
-// ready checks qBittorrent versions, preferences and categories.
+// ready checks qBittorrent versions and preferences.
 func (s *Server) ready(ctx context.Context) error {
 	api, err := s.qb.WebAPIVersion(ctx)
 	if err != nil {
@@ -282,31 +272,16 @@ func (s *Server) ready(ctx context.Context) error {
 	if prefs.TempPathEnabled {
 		return errors.New("qBittorrent incomplete torrent path is enabled; disable \"Keep incomplete torrents in\" before submitting")
 	}
-	cats, err := s.qb.Categories(ctx)
-	if err != nil {
-		return err
-	}
-	for _, cat := range []string{s.cfg.QBittorrent.MovieCategory, s.cfg.QBittorrent.TVCategory} {
-		if cat == "" {
-			continue
-		}
-		if c, exists := cats[cat]; exists {
-			if strings.TrimSpace(c.SavePath) != "" {
-				return fmt.Errorf("category %s has a save path set; it must be empty", cat)
-			}
-			continue
-		}
-		if err := s.qb.EnsureCategory(ctx, cat); err != nil {
-			return fmt.Errorf("creating category %s: %w", cat, err)
-		}
-	}
 	return nil
 }
 
-func (s *Server) waitForTag(ctx context.Context, tag string) (*qbittorrent.Torrent, error) {
+// waitForHash polls the torrent list until the freshly added torrent shows
+// up. The torrent is located by its info hash (v1 and/or v2) instead of a
+// tag, so the add carries no tags or category.
+func (s *Server) waitForHash(ctx context.Context, hashes string) (*qbittorrent.Torrent, error) {
 	deadline := time.Now().Add(30 * time.Second)
 	for {
-		ts, err := s.qb.Torrents(ctx, map[string][]string{"tag": {tag}})
+		ts, err := s.qb.Torrents(ctx, map[string][]string{"hashes": {hashes}})
 		if err != nil {
 			return nil, err
 		}
@@ -359,7 +334,7 @@ func (s *Server) waitStopped(ctx context.Context, hash string) (*qbittorrent.Tor
 // verify checks every invariant of the stopped torrent against the parsed
 // torrent and the expected destination. The torrent is never started on
 // failure.
-func (s *Server) verify(ctx context.Context, tor *qbittorrent.Torrent, meta *torrentmeta.MetaInfo, wantSave, wantContent, wantCat, tag string) error {
+func (s *Server) verify(ctx context.Context, tor *qbittorrent.Torrent, meta *torrentmeta.MetaInfo, wantSave, wantContent string) error {
 	problems := []string{}
 	if want := meta.PrimaryHash(); want != "" && !strings.EqualFold(tor.Hash, want) {
 		problems = append(problems, fmt.Sprintf("hash: got %s want %s", tor.Hash, want))
@@ -370,8 +345,11 @@ func (s *Server) verify(ctx context.Context, tor *qbittorrent.Torrent, meta *tor
 	if strings.TrimRight(tor.ContentPath, "/") != strings.TrimRight(wantContent, "/") {
 		problems = append(problems, fmt.Sprintf("content_path: got %q want %q", tor.ContentPath, wantContent))
 	}
-	if tor.Category != wantCat {
-		problems = append(problems, fmt.Sprintf("category: got %q want %q", tor.Category, wantCat))
+	if tor.Category != "" {
+		problems = append(problems, fmt.Sprintf("category: got %q, want none", tor.Category))
+	}
+	if tor.Tags != "" {
+		problems = append(problems, fmt.Sprintf("tags: got %q, want none", tor.Tags))
 	}
 	if tor.AutoTMM {
 		problems = append(problems, "auto_tmm is true")
@@ -381,9 +359,6 @@ func (s *Server) verify(ctx context.Context, tor *qbittorrent.Torrent, meta *tor
 	}
 	if !tor.Stopped() {
 		problems = append(problems, fmt.Sprintf("state: got %q, expected stopped", tor.State))
-	}
-	if !strings.Contains(tor.Tags, tag) {
-		problems = append(problems, fmt.Sprintf("tags: got %q, missing %s", tor.Tags, tag))
 	}
 	if len(problems) == 0 {
 		if err := s.verifyFiles(ctx, tor.Hash, meta); err != nil {

@@ -25,11 +25,9 @@ type TMDB struct {
 }
 
 type QBittorrent struct {
-	URL           string `yaml:"url"`
-	Username      string `yaml:"username"`
-	Password      string `yaml:"password"`
-	MovieCategory string `yaml:"movie_category"`
-	TVCategory    string `yaml:"tv_category"`
+	URL      string `yaml:"url"`
+	Username string `yaml:"username"`
+	Password string `yaml:"password"`
 }
 
 type Library struct {
@@ -51,10 +49,8 @@ func Default() *Config {
 			Language: "en-US",
 		},
 		QBittorrent: QBittorrent{
-			URL:           "http://localhost:8080",
-			Username:      "admin",
-			MovieCategory: "cineroute-movie",
-			TVCategory:    "cineroute-tv",
+			URL:      "http://localhost:8080",
+			Username: "admin",
 		},
 		Library: Library{FolderFormat: "{title} ({year})"},
 		Drives: []Drive{
@@ -119,9 +115,6 @@ func (c *Config) validate() error {
 	if c.QBittorrent.URL == "" {
 		return errors.New("qbittorrent.url must not be empty")
 	}
-	if c.QBittorrent.MovieCategory == "" || c.QBittorrent.TVCategory == "" {
-		return errors.New("qbittorrent categories must not be empty")
-	}
 	seen := map[string]bool{}
 	for _, d := range c.Drives {
 		if d.ID == "" {
@@ -145,11 +138,4 @@ func (c *Config) DriveByID(id string) (Drive, bool) {
 		}
 	}
 	return Drive{}, false
-}
-
-func (c *Config) CategoryFor(mediaType string) string {
-	if mediaType == "tv" {
-		return c.QBittorrent.TVCategory
-	}
-	return c.QBittorrent.MovieCategory
 }
