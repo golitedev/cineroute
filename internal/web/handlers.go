@@ -97,21 +97,23 @@ func (s *Server) health(w http.ResponseWriter, r *http.Request) {
 }
 
 type driveStatusJSON struct {
-	ID         string `json:"id"`
-	Root       string `json:"root"`
-	Total      int64  `json:"total"`
-	Available  int64  `json:"available"`
-	Reserve    int64  `json:"reserve"`
-	Incomplete int64  `json:"incomplete"`
-	Usable     int64  `json:"usable"`
-	Healthy    bool   `json:"healthy"`
-	Err        string `json:"err"`
+	ID          string `json:"id"`
+	Root        string `json:"root"`
+	Total       int64  `json:"total"`
+	Available   int64  `json:"available"`
+	TVTotal     int64  `json:"tv_total"`
+	TVAvailable int64  `json:"tv_available"`
+	Reserve     int64  `json:"reserve"`
+	Incomplete  int64  `json:"incomplete"`
+	Usable      int64  `json:"usable"`
+	TVUsable    int64  `json:"tv_usable"`
+	Healthy     bool   `json:"healthy"`
+	Err         string `json:"err"`
 }
 
 // aggregateStatusJSON totals usable space across all drives for one media
-// type. Each HDD hosts both its movie and tv root, so the per-drive usable
-// figure (measured via the movie root) applies to both; the movies and tv
-// aggregates are therefore the same sum.
+// type. Each drive is measured via the movie root for movies and via the tv
+// root for tv, so the two aggregates reflect their own volumes.
 type aggregateStatusJSON struct {
 	Usable  int64 `json:"usable"`
 	Healthy bool  `json:"healthy"`
@@ -161,20 +163,25 @@ func (s *Server) status(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 	}
-	agg := aggregateStatusJSON{Healthy: true}
+	movies := aggregateStatusJSON{Healthy: true}
+	tv := aggregateStatusJSON{Healthy: true}
 	for _, st := range s.alloc.Statuses(r.Context(), s.cfg.Drives) {
 		out.Drives = append(out.Drives, driveStatusJSON{
 			ID: st.ID, Root: st.MovieRoot, Total: st.Total, Available: st.Available,
-			Reserve: st.Reserve, Incomplete: st.Incomplete, Usable: st.Usable,
+			TVTotal: st.TVTotal, TVAvailable: st.TVAvailable,
+			Reserve: st.Reserve, Incomplete: st.Incomplete,
+			Usable: st.Usable, TVUsable: st.TVUsable,
 			Healthy: st.Healthy, Err: st.Err,
 		})
-		agg.Usable += st.Usable
+		movies.Usable += st.Usable
+		tv.Usable += st.TVUsable
 		if !st.Healthy {
-			agg.Healthy = false
+			movies.Healthy = false
+			tv.Healthy = false
 		}
 	}
-	out.Movies = agg
-	out.TV = agg
+	out.Movies = movies
+	out.TV = tv
 	out.Auth = s.cfg.AuthPassword != ""
 	writeJSON(w, http.StatusOK, out)
 }

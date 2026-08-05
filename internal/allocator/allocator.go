@@ -13,16 +13,19 @@ import (
 )
 
 type DriveStatus struct {
-	ID         string
-	MovieRoot  string
-	TVRoot     string
-	Total      int64
-	Available  int64
-	Reserve    int64
-	Incomplete int64
-	Usable     int64
-	Healthy    bool
-	Err        string
+	ID          string
+	MovieRoot   string
+	TVRoot      string
+	Total       int64
+	Available   int64
+	TVTotal     int64
+	TVAvailable int64
+	Reserve     int64
+	Incomplete  int64
+	Usable      int64
+	TVUsable    int64
+	Healthy     bool
+	Err         string
 }
 
 type Selection struct {
@@ -63,7 +66,8 @@ func (a *Allocator) torrentSnapshot(ctx context.Context) ([]qbittorrent.Torrent,
 
 // driveStatus computes the status of one drive from a shared torrent snapshot
 // (so the full torrent list is only fetched once per Statuses/Select) and a
-// per-drive statfs.
+// per-drive statfs. Both roots are measured separately so the movies and tv
+// aggregates reflect their own volumes even if a drive hosts them elsewhere.
 func (a *Allocator) driveStatus(d config.Drive, incomplete int64) DriveStatus {
 	st := DriveStatus{
 		ID:        d.ID,
@@ -82,10 +86,21 @@ func (a *Allocator) driveStatus(d config.Drive, incomplete int64) DriveStatus {
 	}
 	st.Total = int64(fs.Blocks) * fs.Bsize
 	st.Available = int64(fs.Bavail) * fs.Bsize
+	fsTV, err := statfs(d.TVRoot)
+	if err != nil {
+		st.Err = fmt.Sprintf("statfs tv root: %v", err)
+		return st
+	}
+	st.TVTotal = int64(fsTV.Blocks) * fsTV.Bsize
+	st.TVAvailable = int64(fsTV.Bavail) * fsTV.Bsize
 	st.Incomplete = incomplete
 	st.Usable = st.Available - st.Reserve - st.Incomplete
 	if st.Usable < 0 {
 		st.Usable = 0
+	}
+	st.TVUsable = st.TVAvailable - st.Reserve - st.Incomplete
+	if st.TVUsable < 0 {
+		st.TVUsable = 0
 	}
 	st.Healthy = true
 	return st
