@@ -6,8 +6,11 @@
 # or the web UI is unreachable from the host.
 listen: "127.0.0.1:8787"
 
-# Optional password for the web interface (basic auth, user "cineroute").
-# Alternatively: CINEROUTE_AUTH_PASSWORD
+# Optional username/password for the web interface. The username only applies
+# to basic auth; the login form just needs the password. Quote them if they
+# contain special characters (# : " etc).
+# Alternatively: CINEROUTE_AUTH_USERNAME, CINEROUTE_AUTH_PASSWORD
+auth_username: "cineroute"
 auth_password: ""
 
 # Maximum .torrent upload size in bytes.
