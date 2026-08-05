@@ -122,6 +122,7 @@ async function login(){
   try{
     await postJSON("/api/login",{password:pass});
     $("loginCard").classList.add("hidden");
+    $("uploadCard").classList.remove("hidden");
     loadStatus();refresh();
   }catch(e){
     $("loginErr").textContent=e.message;

@@ -217,12 +217,19 @@ func (s *Server) auth(next http.Handler) http.Handler {
 				return
 			}
 			gotUser, pw, ok := r.BasicAuth()
-			if !ok || gotUser != user ||
-				subtle.ConstantTimeCompare([]byte(pw), []byte(pass)) != 1 {
-				w.Header().Set("WWW-Authenticate", `Basic realm="cineroute"`)
-				http.Error(w, "unauthorized", http.StatusUnauthorized)
+			if ok && gotUser == user &&
+				subtle.ConstantTimeCompare([]byte(pw), []byte(pass)) == 1 {
+				next.ServeHTTP(w, r)
 				return
 			}
+			// No WWW-Authenticate header here: advertising Basic Auth makes
+			// browsers pop their native credential dialog instead of using
+			// the login form, and the dialog's credentials never create the
+			// persistent session cookie. API clients can still send Basic
+			// Auth proactively (handled above); browsers see a plain JSON
+			// 401 and the frontend shows the sign-in card.
+			writeErr(w, http.StatusUnauthorized, "unauthorized")
+			return
 		}
 		next.ServeHTTP(w, r)
 	})
@@ -269,6 +276,7 @@ func (s *Server) logout(w http.ResponseWriter, r *http.Request) {
 		Path:     "/",
 		HttpOnly: true,
 		SameSite: http.SameSiteLaxMode,
+		Expires:  time.Unix(1, 0),
 		MaxAge:   -1,
 	})
 	writeJSON(w, http.StatusOK, apiResponse{})

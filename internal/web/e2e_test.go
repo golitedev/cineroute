@@ -432,7 +432,7 @@ func TestSessionAuth(t *testing.T) {
 	if sess == nil {
 		t.Fatal("no session cookie set")
 	}
-	if sess.MaxAge != int((90 * 24 * time.Hour) / time.Second) {
+	if sess.MaxAge != int((90*24*time.Hour)/time.Second) {
 		t.Fatalf("session max age: %d", sess.MaxAge)
 	}
 	if !sess.HttpOnly {
@@ -462,6 +462,269 @@ func TestSessionAuth(t *testing.T) {
 	if resp2.StatusCode != 200 {
 		t.Fatalf("status with basic auth: %d", resp2.StatusCode)
 	}
+}
+
+// newAuthServer builds a fresh CineRoute server gated by the given username
+// and password, without qBittorrent/TMDB, for auth-focused tests.
+func newAuthServer(t *testing.T, user, pass string) *httptest.Server {
+	t.Helper()
+	cfg := config.Default()
+	cfg.AuthUsername = user
+	cfg.AuthPassword = pass
+	cfg.QBittorrent.URL = "http://unused:1"
+	cfg.Drives = nil
+	srv := New(cfg, nil, nil)
+	httpSrv := httptest.NewServer(srv.Handler())
+	t.Cleanup(httpSrv.Close)
+	return httpSrv
+}
+
+// loginCookie posts the password to /api/login and returns the session
+// cookie from the response.
+func loginCookie(t *testing.T, httpSrv *httptest.Server, pass string) *http.Cookie {
+	t.Helper()
+	resp, err := http.Post(httpSrv.URL+"/api/login", "application/json",
+		strings.NewReader(`{"password":"`+pass+`"}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("login: got %d, want %d", resp.StatusCode, http.StatusOK)
+	}
+	for _, c := range resp.Cookies() {
+		if c.Name == sessionCookie {
+			return c
+		}
+	}
+	t.Fatal("login response carried no session cookie")
+	return nil
+}
+
+func getStatus(t *testing.T, httpSrv *httptest.Server, req *http.Request) (*http.Response, apiResponse) {
+	t.Helper()
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	var j apiResponse
+	if err := json.NewDecoder(resp.Body).Decode(&j); err != nil {
+		t.Fatalf("401/200 body must be valid JSON: %v", err)
+	}
+	return resp, j
+}
+
+// Unauthenticated requests to protected endpoints must get a plain JSON 401
+// with no WWW-Authenticate header: that header is what makes Firefox and
+// Brave pop their native Basic Auth dialog and bypass the login form.
+func TestUnauthenticated401NoBasicChallenge(t *testing.T) {
+	httpSrv := newAuthServer(t, "alice", "secret")
+
+	// Public endpoints stay public.
+	for _, path := range []string{"/", "/health", "/favicon.png", "/logo.svg"} {
+		resp, err := http.Get(httpSrv.URL + path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		resp.Body.Close()
+		if resp.StatusCode != http.StatusOK {
+			t.Fatalf("%s: got %d, want 200", path, resp.StatusCode)
+		}
+	}
+
+	for _, path := range []string{"/api/status", "/api/intakes", "/api/history"} {
+		resp, j := getStatus(t, httpSrv, mustReq(t, http.MethodGet, httpSrv.URL+path, nil))
+		if resp.StatusCode != http.StatusUnauthorized {
+			t.Fatalf("%s without auth: got %d, want %d",
+				path, resp.StatusCode, http.StatusUnauthorized)
+		}
+		if got := resp.Header.Get("WWW-Authenticate"); got != "" {
+			t.Fatalf("%s: unexpected Basic Auth challenge: %q", path, got)
+		}
+		if j.Error == "" {
+			t.Fatalf("%s: 401 body should be the JSON error envelope, got %+v", path, j)
+		}
+	}
+}
+
+// The login cookie must be a persistent 90-day session cookie usable over
+// plain HTTP on the LAN.
+func TestLoginSetsPersistentSessionCookie(t *testing.T) {
+	httpSrv := newAuthServer(t, "alice", "secret")
+	sess := loginCookie(t, httpSrv, "secret")
+
+	wantMaxAge := int((90 * 24 * time.Hour) / time.Second)
+	if sess.MaxAge != wantMaxAge {
+		t.Fatalf("session MaxAge: got %d, want %d", sess.MaxAge, wantMaxAge)
+	}
+	if sess.Expires.Before(time.Now().Add(89 * 24 * time.Hour)) {
+		t.Fatalf("session expiry is too soon: %v", sess.Expires)
+	}
+	if !sess.HttpOnly {
+		t.Fatal("session cookie must be HttpOnly")
+	}
+	if sess.Path != "/" {
+		t.Fatalf("session cookie path: got %q, want %q", sess.Path, "/")
+	}
+	if sess.SameSite != http.SameSiteLaxMode {
+		t.Fatalf("session SameSite: got %v, want Lax", sess.SameSite)
+	}
+	if sess.Value == "" || !strings.Contains(sess.Value, ".") {
+		t.Fatalf("session token should be expiry.signature, got %q", sess.Value)
+	}
+}
+
+// The session cookie alone must authorize protected endpoints.
+func TestSessionCookieAuthorizesProtectedEndpoints(t *testing.T) {
+	httpSrv := newAuthServer(t, "alice", "secret")
+	sess := loginCookie(t, httpSrv, "secret")
+
+	for _, path := range []string{"/api/status", "/api/intakes"} {
+		req := mustReq(t, http.MethodGet, httpSrv.URL+path, nil)
+		req.AddCookie(sess)
+		resp, _ := getStatus(t, httpSrv, req)
+		if resp.StatusCode != http.StatusOK {
+			t.Fatalf("%s with session: got %d, want %d",
+				path, resp.StatusCode, http.StatusOK)
+		}
+	}
+}
+
+// The session token is signed with the configured password, not kept in an
+// in-memory store, so it must survive a full server (process/container)
+// restart: a brand-new instance with the same password accepts the old
+// cookie.
+func TestSessionSurvivesNewServerInstance(t *testing.T) {
+	httpSrv1 := newAuthServer(t, "alice", "secret")
+	sess := loginCookie(t, httpSrv1, "secret")
+
+	httpSrv2 := newAuthServer(t, "alice", "secret")
+	req := mustReq(t, http.MethodGet, httpSrv2.URL+"/api/status", nil)
+	req.AddCookie(sess)
+	resp, _ := getStatus(t, httpSrv2, req)
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("old session on new server: got %d, want %d",
+			resp.StatusCode, http.StatusOK)
+	}
+}
+
+// Changing the configured auth password must invalidate every existing
+// session token.
+func TestPasswordChangeInvalidatesOldSessions(t *testing.T) {
+	httpSrv1 := newAuthServer(t, "alice", "secret-a")
+	sess := loginCookie(t, httpSrv1, "secret-a")
+
+	httpSrv2 := newAuthServer(t, "alice", "secret-b")
+	req := mustReq(t, http.MethodGet, httpSrv2.URL+"/api/status", nil)
+	req.AddCookie(sess)
+	resp, _ := getStatus(t, httpSrv2, req)
+	if resp.StatusCode != http.StatusUnauthorized {
+		t.Fatalf("old session after password change: got %d, want %d",
+			resp.StatusCode, http.StatusUnauthorized)
+	}
+	if got := resp.Header.Get("WWW-Authenticate"); got != "" {
+		t.Fatalf("unexpected Basic Auth challenge: %q", got)
+	}
+}
+
+// Removing the WWW-Authenticate challenge must not remove Basic Auth
+// support: proactively supplied credentials still authorize API clients
+// like curl -u user:pass.
+func TestBasicAuthFallbackStillWorks(t *testing.T) {
+	httpSrv := newAuthServer(t, "alice", "secret")
+
+	req, err := http.NewRequest(http.MethodGet, httpSrv.URL+"/api/status", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	req.SetBasicAuth("alice", "secret")
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("basic auth: got %d, want %d", resp.StatusCode, http.StatusOK)
+	}
+}
+
+// Wrong Basic Auth credentials get a JSON 401, never a challenge header.
+func TestInvalidBasicAuthNoChallenge(t *testing.T) {
+	httpSrv := newAuthServer(t, "alice", "secret")
+
+	for _, creds := range [][2]string{
+		{"alice", "wrong"},
+		{"bob", "secret"},
+	} {
+		req, err := http.NewRequest(http.MethodGet, httpSrv.URL+"/api/status", nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		req.SetBasicAuth(creds[0], creds[1])
+		resp, j := getStatus(t, httpSrv, req)
+		if resp.StatusCode != http.StatusUnauthorized {
+			t.Fatalf("basic auth %q/%q: got %d, want %d",
+				creds[0], creds[1], resp.StatusCode, http.StatusUnauthorized)
+		}
+		if got := resp.Header.Get("WWW-Authenticate"); got != "" {
+			t.Fatalf("unexpected Basic Auth challenge: %q", got)
+		}
+		if j.Error == "" {
+			t.Fatalf("401 body should be the JSON error envelope, got %+v", j)
+		}
+	}
+}
+
+// Logout must delete the session cookie with matching attributes and an
+// explicit past expiry so browsers reliably clear it. (Session tokens are
+// stateless HMAC signatures, so revocation happens client-side by deleting
+// the cookie.)
+func TestLogoutClearsSessionCookie(t *testing.T) {
+	httpSrv := newAuthServer(t, "alice", "secret")
+	sess := loginCookie(t, httpSrv, "secret")
+
+	logoutReq := mustReq(t, http.MethodPost, httpSrv.URL+"/api/logout",
+		strings.NewReader(`{}`))
+	logoutReq.AddCookie(sess)
+	resp, err := http.DefaultClient.Do(logoutReq)
+	if err != nil {
+		t.Fatal(err)
+	}
+	resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("logout: got %d, want %d", resp.StatusCode, http.StatusOK)
+	}
+	var del *http.Cookie
+	for _, c := range resp.Cookies() {
+		if c.Name == sessionCookie {
+			del = c
+		}
+	}
+	if del == nil {
+		t.Fatal("logout returned no deletion cookie")
+	}
+	if del.Path != "/" {
+		t.Fatalf("deletion cookie path: got %q, want %q", del.Path, "/")
+	}
+	if del.MaxAge != -1 {
+		t.Fatalf("deletion cookie MaxAge: got %d, want -1", del.MaxAge)
+	}
+	if !del.Expires.Before(time.Now()) {
+		t.Fatalf("deletion cookie expiry should be in the past: %v", del.Expires)
+	}
+	if !del.HttpOnly || del.SameSite != http.SameSiteLaxMode {
+		t.Fatalf("deletion cookie attributes must match the session cookie: %+v", del)
+	}
+}
+
+func mustReq(t *testing.T, method, url string, body io.Reader) *http.Request {
+	t.Helper()
+	req, err := http.NewRequest(method, url, body)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return req
 }
 
 func TestDeleteIntake(t *testing.T) {

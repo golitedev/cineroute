@@ -116,9 +116,9 @@ Set `CINEROUTE_LISTEN=0.0.0.0:8787` (already in the example) — the default
 The GitHub Actions workflow in `.github/workflows/docker.yml` runs the tests
 and builds `linux/amd64` + `linux/arm64` images to
 `ghcr.io/<your-username>/cineroute` on every push to `main` and on `v*` tags
-(`v1.2.3` → `1.2.3`, `1.2`, plus `main` and short-SHA tags). No extra secrets
-are needed — it uses the built-in `GITHUB_TOKEN`. Pull requests get a
-build-only check without pushing.
+(`v1.2.3` → `1.2.3`, `1.2`, plus `main`, `latest` and short-SHA tags). No
+extra secrets are needed — it uses the built-in `GITHUB_TOKEN`. Pull requests
+get a build-only check without pushing.
 
 ## qBittorrent requirements
 
