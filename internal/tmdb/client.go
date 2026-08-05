@@ -21,6 +21,7 @@ type Result struct {
 	ReleaseDate   string  `json:"release_date"`
 	FirstAirDate  string  `json:"first_air_date"`
 	Overview      string  `json:"overview"`
+	PosterPath    string  `json:"poster_path"`
 	Popularity    float64 `json:"popularity"`
 	VoteCount     int     `json:"vote_count"`
 }

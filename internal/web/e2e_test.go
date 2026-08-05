@@ -325,13 +325,13 @@ func newTestServer(t *testing.T) (*Server, *fakeQB, *httptest.Server, map[string
 	tmdbSrv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if strings.Contains(r.URL.Path, "/search/movie") {
 			json.NewEncoder(w).Encode(map[string]any{"results": []map[string]any{
-				{"id": 862, "title": "Toy Story", "original_title": "Toy Story", "release_date": "1995-11-22", "overview": "A cowboy doll."},
+				{"id": 862, "title": "Toy Story", "original_title": "Toy Story", "release_date": "1995-11-22", "overview": "A cowboy doll.", "poster_path": "/toy.jpg"},
 			}})
 			return
 		}
 		if strings.Contains(r.URL.Path, "/search/tv") {
 			json.NewEncoder(w).Encode(map[string]any{"results": []map[string]any{
-				{"id": 4607, "name": "Lost", "original_name": "Lost", "first_air_date": "2004-09-22", "overview": "Island."},
+				{"id": 4607, "name": "Lost", "original_name": "Lost", "first_air_date": "2004-09-22", "overview": "Island.", "poster_path": "/lost.jpg"},
 			}})
 			return
 		}

@@ -29,9 +29,10 @@ th{color:var(--dim);font-weight:500;width:170px}
 .badge.ok{color:var(--ok);border-color:#2c6a3a}
 .badge.err{color:var(--err);border-color:#7a2f2d}
 .badge.warn{color:var(--warn);border-color:#6b5214}
-.tmdb-item{border:1px solid var(--border);border-radius:8px;padding:10px 12px;margin-bottom:8px;cursor:pointer}
+.tmdb-item{border:1px solid var(--border);border-radius:8px;padding:10px 12px;margin-bottom:8px;cursor:pointer;display:flex;gap:12px;align-items:flex-start}
 .tmdb-item:hover{border-color:var(--accent)}
 .tmdb-item.selected{border-color:var(--accent);background:#121a2e}
+.tmdb-item img{width:46px;height:69px;object-fit:cover;border-radius:4px;background:#0f1115;flex:none}
 .tmdb-item .t{font-weight:600}
 .tmdb-item .d{color:var(--dim);font-size:12px;margin-top:2px}
 .tmdb-item .y{color:var(--dim)}
@@ -212,8 +213,9 @@ function render(){
     tc.classList.remove("hidden");
     tl.innerHTML=intake.tmdb.map(r=>{
       const title=r.title||r.name;const yr=(r.release_date||r.first_air_date||"").slice(0,4);
-      return '<div class="tmdb-item" onclick="pick('+r.id+')"><div class="t">'+esc(title)+' <span class="y">('+esc(yr)+")</span></div>"+
-        (r.overview?'<div class="d">'+esc(r.overview.slice(0,140))+"…</div>":"")+"</div>";
+      const poster=r.poster_path?('<img src="https://image.tmdb.org/t/p/w92'+esc(r.poster_path)+'" alt="" loading="lazy">'):'<img alt="">';
+      return '<div class="tmdb-item" onclick="pick('+r.id+')">'+poster+'<div><div class="t">'+esc(title)+' <span class="y">('+esc(yr)+")</span></div>"+
+        (r.overview?'<div class="d">'+esc(r.overview.slice(0,140))+"…</div>":"")+"</div></div>";
     }).join("");
   }else if(intake.status!=="submitting"){
     tc.classList.add("hidden");
