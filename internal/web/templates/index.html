@@ -10,8 +10,9 @@
 *{box-sizing:border-box}
 body{margin:0;font:14px/1.5 system-ui,sans-serif;background:var(--bg);color:var(--text)}
 header{display:flex;align-items:center;gap:16px;padding:14px 20px;border-bottom:1px solid var(--border);background:#13161c}
-header h1{font-size:18px;margin:0}
+header h1{font-size:18px;margin:0;display:flex;align-items:center;gap:10px}
 header #brand{height:26px;display:block}
+header #brandIcon{height:26px;width:26px;border-radius:5px}
 header .tag{color:var(--dim);font-size:12px}
 main{max-width:760px;margin:0 auto;padding:20px}
 .card{background:var(--panel);border:1px solid var(--border);border-radius:10px;padding:16px;margin-bottom:16px}
@@ -53,7 +54,7 @@ input[type=number]{width:90px}
 </head>
 <body>
 <header>
-  <h1><img id="brand" src="/logo.svg" alt="CineRoute"></h1>
+  <h1><img id="brandIcon" src="/favicon.svg" alt=""> <img id="brand" src="/logo.svg" alt="CineRoute"></h1>
   <span class="tag">route torrents into the media library</span>
   <div id="statusbar" style="margin-left:auto"></div>
 </header>
