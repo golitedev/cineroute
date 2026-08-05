@@ -28,9 +28,10 @@ func (s *Server) pendingReservations() map[string]int64 {
 	return out
 }
 
-// submit runs the intake transaction under the allocation lock:
-// readiness gate, authoritative rescan, drive selection, folder creation,
-// stopped add, exact verification, explicit start.
+// submit runs the intake transaction under the allocation lock for every
+// ready member of the intake's stack group: readiness gate, authoritative
+// rescan, drive selection, folder creation, stopped add, exact verification,
+// explicit start. A failure in one member does not block the others.
 func (s *Server) submit(w http.ResponseWriter, r *http.Request) {
 	in, ok := s.getIntake(r.PathValue("id"))
 	if !ok {
@@ -41,29 +42,49 @@ func (s *Server) submit(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusBadRequest, "a TMDB match is required before submitting")
 		return
 	}
-	if in.Status == "submitted" {
-		writeErr(w, http.StatusBadRequest, "already submitted")
-		return
-	}
 
 	s.allocMu.Lock()
 	defer s.allocMu.Unlock()
 
-	in.Status = "submitting"
-	in.Error = ""
-	in.Dest = nil
-
-	if err := s.submitLocked(r.Context(), in); err != nil {
-		in.Status = "failed"
-		in.Error = err.Error()
-		s.pushHistory(in)
-		writeJSON(w, http.StatusConflict, apiResponse{Intake: toJSON(in)})
+	members := []*Intake{}
+	for _, m := range s.groupMembers(groupKey(in)) {
+		if m.Status == "submitted" || m.Match == nil {
+			continue
+		}
+		members = append(members, m)
+	}
+	if len(members) == 0 {
+		writeJSON(w, http.StatusOK, apiResponse{Intake: toJSON(in)})
 		return
 	}
 
-	in.Status = "submitted"
-	s.pushHistory(in)
-	writeJSON(w, http.StatusOK, apiResponse{Intake: toJSON(in)})
+	failed := false
+	for _, m := range members {
+		m.Status = "submitting"
+		m.Error = ""
+		m.Dest = nil
+		if err := s.submitLocked(r.Context(), m); err != nil {
+			m.Status = "failed"
+			m.Error = err.Error()
+			s.pushHistory(m)
+			if m.ID == in.ID {
+				failed = true
+			}
+			continue
+		}
+		m.Status = "submitted"
+		s.pushHistory(m)
+	}
+
+	out := apiResponse{Intake: toJSON(in)}
+	for _, m := range s.groupMembers(groupKey(in)) {
+		out.Intakes = append(out.Intakes, toJSON(m))
+	}
+	status := http.StatusOK
+	if failed {
+		status = http.StatusConflict
+	}
+	writeJSON(w, status, out)
 }
 
 func (s *Server) submitLocked(ctx context.Context, in *Intake) error {

@@ -6,8 +6,11 @@ package web
 import (
 	"crypto/subtle"
 	"embed"
+	"fmt"
 	"html/template"
 	"net/http"
+	"sort"
+	"strings"
 	"sync"
 	"time"
 
@@ -134,6 +137,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /health", s.health)
 	mux.HandleFunc("GET /api/status", s.status)
 	mux.HandleFunc("GET /api/history", s.historyHandler)
+	mux.HandleFunc("GET /api/intakes", s.listIntakes)
 	mux.HandleFunc("POST /api/intakes", s.upload)
 	mux.HandleFunc("POST /api/intakes/{id}/type", s.setType)
 	mux.HandleFunc("POST /api/intakes/{id}/search", s.search)
@@ -181,6 +185,40 @@ func (s *Server) getIntake(id string) (*Intake, bool) {
 	defer s.mu.Unlock()
 	in, ok := s.intakes[id]
 	return in, ok
+}
+
+// groupKey returns the stack group an intake belongs to. TV intakes of the
+// same show (same normalized title and year) are stacked into one group so
+// seasons and episode packs get matched and submitted together; every movie
+// (and a lone TV intake) forms its own group.
+func groupKey(in *Intake) string {
+	if in.Class.MediaType != "tv" {
+		return "movie:" + in.ID
+	}
+	var b strings.Builder
+	b.WriteString("tv:")
+	for _, r := range strings.ToLower(in.Class.Title) {
+		if (r >= 'a' && r <= 'z') || (r >= '0' && r <= '9') {
+			b.WriteRune(r)
+		}
+	}
+	b.WriteByte(':')
+	fmt.Fprintf(&b, "%d", in.Class.Year)
+	return b.String()
+}
+
+// groupMembers returns every intake in the same stack group, oldest first.
+func (s *Server) groupMembers(key string) []*Intake {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	out := []*Intake{}
+	for _, in := range s.intakes {
+		if groupKey(in) == key {
+			out = append(out, in)
+		}
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].CreatedAt.Before(out[j].CreatedAt) })
+	return out
 }
 
 func (s *Server) storeIntake(in *Intake) {

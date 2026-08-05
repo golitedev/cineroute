@@ -6,7 +6,9 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"mime/multipart"
 	"net/http"
+	"sort"
 	"strings"
 	"time"
 
@@ -18,13 +20,15 @@ import (
 )
 
 type apiResponse struct {
-	Intake *intakeJSON `json:"intake,omitempty"`
-	Error  string      `json:"error,omitempty"`
-	Status string      `json:"status,omitempty"`
+	Intake  *intakeJSON   `json:"intake,omitempty"`
+	Intakes []*intakeJSON `json:"intakes"`
+	Error   string        `json:"error,omitempty"`
+	Status  string        `json:"status,omitempty"`
 }
 
 type intakeJSON struct {
 	ID          string        `json:"id"`
+	Group       string        `json:"group"`
 	CreatedAt   time.Time     `json:"created_at"`
 	Filename    string        `json:"filename"`
 	TorrentName string        `json:"torrent_name"`
@@ -52,6 +56,7 @@ type intakeJSON struct {
 func toJSON(in *Intake) *intakeJSON {
 	return &intakeJSON{
 		ID:          in.ID,
+		Group:       groupKey(in),
 		CreatedAt:   in.CreatedAt,
 		Filename:    in.Filename,
 		TorrentName: in.Meta.Name,
@@ -196,39 +201,59 @@ func (s *Server) historyHandler(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{"history": out})
 }
 
-// upload accepts the multipart .torrent upload, parses it, classifies it and
-// runs an initial TMDB search.
+// upload accepts one or more .torrent files, parsing, classifying and
+// running the initial TMDB search on each. TV intakes of the same show are
+// stacked into one group; every movie is its own group.
 func (s *Server) upload(w http.ResponseWriter, r *http.Request) {
 	if err := r.ParseMultipartForm(s.cfg.MaxUploadBytes); err != nil {
 		writeErr(w, http.StatusBadRequest, "upload too large or malformed")
 		return
 	}
-	file, header, err := r.FormFile("torrents")
-	if err != nil {
+	files := r.MultipartForm.File["torrents"]
+	if len(files) == 0 {
 		writeErr(w, http.StatusBadRequest, "missing torrent file")
 		return
+	}
+	parsed := make([]*Intake, 0, len(files))
+	for _, fh := range files {
+		in, err := s.ingestFile(fh)
+		if err != nil {
+			writeErr(w, http.StatusBadRequest, "invalid torrent: "+err.Error())
+			return
+		}
+		parsed = append(parsed, in)
+	}
+	created := make([]*intakeJSON, 0, len(parsed))
+	for _, in := range parsed {
+		s.storeIntake(in)
+		created = append(created, toJSON(in))
+	}
+	writeJSON(w, http.StatusOK, apiResponse{Intake: created[0], Intakes: created})
+}
+
+func (s *Server) ingestFile(fh *multipart.FileHeader) (*Intake, error) {
+	file, err := fh.Open()
+	if err != nil {
+		return nil, err
 	}
 	defer file.Close()
 	data, err := io.ReadAll(io.LimitReader(file, s.cfg.MaxUploadBytes+1))
 	if err != nil {
-		writeErr(w, http.StatusBadRequest, "failed to read upload")
-		return
+		return nil, fmt.Errorf("failed to read upload: %w", err)
 	}
 	if int64(len(data)) > s.cfg.MaxUploadBytes {
-		writeErr(w, http.StatusBadRequest, "torrent exceeds maximum upload size")
-		return
+		return nil, fmt.Errorf("%s exceeds maximum upload size", fh.Filename)
 	}
 	meta, err := torrentmeta.Parse(data)
 	if err != nil {
-		writeErr(w, http.StatusBadRequest, "invalid torrent: "+err.Error())
-		return
+		return nil, err
 	}
 
 	cls := classifier.Classify(meta.Name, meta.RelPaths())
 	in := &Intake{
 		ID:        newID(),
 		CreatedAt: time.Now(),
-		Filename:  header.Filename,
+		Filename:  fh.Filename,
 		Bytes:     data,
 		Meta:      meta,
 		Class: classifierResult{
@@ -238,8 +263,24 @@ func (s *Server) upload(w http.ResponseWriter, r *http.Request) {
 		Status: "parsed",
 	}
 	s.searchTMDB(in)
-	s.storeIntake(in)
-	writeJSON(w, http.StatusOK, apiResponse{Intake: toJSON(in)})
+	return in, nil
+}
+
+// listIntakes reports every active intake, oldest first, so the frontend can
+// render the whole stack (grouped by show) after any action.
+func (s *Server) listIntakes(w http.ResponseWriter, r *http.Request) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	all := make([]*Intake, 0, len(s.intakes))
+	for _, in := range s.intakes {
+		all = append(all, in)
+	}
+	sort.Slice(all, func(i, j int) bool { return all[i].CreatedAt.Before(all[j].CreatedAt) })
+	out := make([]*intakeJSON, 0, len(all))
+	for _, in := range all {
+		out = append(out, toJSON(in))
+	}
+	writeJSON(w, http.StatusOK, apiResponse{Intakes: out})
 }
 
 // setType re-classifies the intake as movie or tv and re-runs the TMDB search.
@@ -268,7 +309,8 @@ func (s *Server) setType(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, apiResponse{Intake: toJSON(in)})
 }
 
-// search re-runs the TMDB search with a manual query.
+// search re-runs the TMDB search with a manual query for the whole group the
+// intake belongs to.
 func (s *Server) search(w http.ResponseWriter, r *http.Request) {
 	in, ok := s.getIntake(r.PathValue("id"))
 	if !ok {
@@ -288,12 +330,17 @@ func (s *Server) search(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusBadRequest, "query must not be empty")
 		return
 	}
-	in.SearchQuery = body.Query
-	in.SearchYear = body.Year
-	in.Match = nil
-	in.Dest = nil
-	in.Error = ""
-	s.searchTMDBWith(in, body.Query, body.Year)
+	for _, m := range s.groupMembers(groupKey(in)) {
+		if m.Status == "submitted" {
+			continue
+		}
+		m.SearchQuery = body.Query
+		m.SearchYear = body.Year
+		m.Match = nil
+		m.Dest = nil
+		m.Error = ""
+		s.searchTMDBWith(m, body.Query, body.Year)
+	}
 	writeJSON(w, http.StatusOK, apiResponse{Intake: toJSON(in)})
 }
 
@@ -346,7 +393,9 @@ func (s *Server) searchTMDBWith(in *Intake, query string, year int) {
 	}
 }
 
-// match selects a TMDB result and computes the destination preview.
+// match selects a TMDB result and computes the destination preview for the
+// whole group the intake belongs to, so every part of the same show is
+// matched in one click.
 func (s *Server) match(w http.ResponseWriter, r *http.Request) {
 	in, ok := s.getIntake(r.PathValue("id"))
 	if !ok {
@@ -360,26 +409,37 @@ func (s *Server) match(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusBadRequest, "invalid body")
 		return
 	}
-	var found *tmdb.Result
-	for i := range in.TMDBResults {
-		if in.TMDBResults[i].ID == body.TMDBID {
-			found = &in.TMDBResults[i]
-			break
-		}
-	}
-	if found == nil {
+	if findResult(in.TMDBResults, body.TMDBID) == nil {
 		writeErr(w, http.StatusBadRequest, "tmdb result not found")
 		return
 	}
-	in.Match = found
-	in.Dest = nil
-	in.Error = ""
-	dest, warn := s.planDestination(in)
-	in.Dest = dest
-	if warn != "" {
-		in.Error = warn
+	for _, m := range s.groupMembers(groupKey(in)) {
+		if m.Status == "submitted" {
+			continue
+		}
+		found := findResult(m.TMDBResults, body.TMDBID)
+		if found == nil {
+			continue
+		}
+		m.Match = found
+		m.Dest = nil
+		m.Error = ""
+		dest, warn := s.planDestination(m)
+		m.Dest = dest
+		if warn != "" {
+			m.Error = warn
+		}
 	}
 	writeJSON(w, http.StatusOK, apiResponse{Intake: toJSON(in)})
+}
+
+func findResult(results []tmdb.Result, id int) *tmdb.Result {
+	for i := range results {
+		if results[i].ID == id {
+			return &results[i]
+		}
+	}
+	return nil
 }
 
 // planDestination computes the canonical folder, checks the library, and

@@ -61,39 +61,12 @@ input[type=number]{width:90px}
 
 <div class="card" id="uploadCard">
   <div id="drop">
-    <p><strong>Drop a .torrent file here</strong><br>or click to browse</p>
-    <input type="file" id="file" accept=".torrent" hidden>
+    <p><strong>Drop .torrent files here</strong><br>one or many at once — or click to browse</p>
+    <input type="file" id="file" accept=".torrent" multiple hidden>
   </div>
 </div>
 
-<div class="card hidden" id="analysisCard">
-  <h2>Torrent analysis</h2>
-  <table class="kv"><tbody id="analysisBody"></tbody></table>
-  <div class="row" style="margin-top:12px">
-    <span class="small">Type:</span>
-    <button id="btnMovie">Movie</button>
-    <button id="btnTV">TV show</button>
-    <input type="text" id="qTitle" placeholder="Search title">
-    <input type="number" id="qYear" placeholder="Year">
-    <button id="btnSearch">Search TMDB</button>
-  </div>
-  <div id="tmdbError"></div>
-</div>
-
-<div class="card hidden" id="tmdbCard">
-  <h2>TMDB match <span class="small">— click a result to confirm</span></h2>
-  <div id="tmdbList"></div>
-</div>
-
-<div class="card hidden" id="destCard">
-  <h2>Destination</h2>
-  <table class="kv"><tbody id="destBody"></tbody></table>
-  <div class="actions">
-    <button class="primary" id="btnSubmit">Add to qBittorrent (stopped, verify, start)</button>
-    <button id="btnCancel">Cancel</button>
-  </div>
-  <div id="submitResult"></div>
-</div>
+<div id="stack"></div>
 
 <div class="card hidden" id="historyCard">
   <h2>Recent submissions</h2>
@@ -104,7 +77,8 @@ input[type=number]{width:90px}
 </main>
 <script>
 const $=id=>document.getElementById(id);
-let intake=null;
+let intakes=[];
+const busy=new Set();
 
 const fmtBytes=n=>{
   if(n===0)return "0 B";
@@ -113,6 +87,7 @@ const fmtBytes=n=>{
   return v.toFixed(i?1:0)+" "+u[i];
 };
 const esc=s=>String(s??"").replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+const seasonLbl=m=>m.season?("S"+String(m.season).padStart(2,"0")):"—";
 
 async function api(path,opts={}){
   const r=await fetch(path,opts);
@@ -145,104 +120,111 @@ const drop=$("drop"),file=$("file");
 drop.addEventListener("click",()=>file.click());
 drop.addEventListener("dragover",e=>{e.preventDefault();drop.classList.add("drag")});
 drop.addEventListener("dragleave",()=>drop.classList.remove("drag"));
-drop.addEventListener("drop",e=>{e.preventDefault();drop.classList.remove("drag");if(e.dataTransfer.files[0])sendFile(e.dataTransfer.files[0])});
-file.addEventListener("change",()=>{if(file.files[0])sendFile(file.files[0])});
+drop.addEventListener("drop",e=>{e.preventDefault();drop.classList.remove("drag");if(e.dataTransfer.files.length)sendFiles(e.dataTransfer.files)});
+file.addEventListener("change",()=>{if(file.files.length)sendFiles(file.files);file.value=""});
 
-async function sendFile(f){
-  const fd=new FormData();fd.append("torrents",f);
-  try{
-    const j=await api("/api/intakes",{method:"POST",body:fd});
-    intake=j.intake;render();loadHistory();
-  }catch(e){alert(e.message)}
+async function sendFiles(list){
+  const fd=new FormData();
+  for(const f of list)fd.append("torrents",f);
+  try{await api("/api/intakes",{method:"POST",body:fd});await refresh()}catch(e){alert(e.message)}
 }
 
-// ---- analysis ----
-$("btnMovie").onclick=()=>setType("movie");
-$("btnTV").onclick=()=>setType("tv");
-async function setType(t){
-  try{const j=await postJSON("/api/intakes/"+intake.id+"/type",{media_type:t});intake=j.intake;render()}catch(e){alert(e.message)}
+// ---- actions ----
+async function setType(id,t){
+  try{await postJSON("/api/intakes/"+id+"/type",{media_type:t});await refresh()}catch(e){alert(e.message)}
 }
-$("btnSearch").onclick=async()=>{
-  const q=$("qTitle").value.trim();if(!q)return;
-  try{const j=await postJSON("/api/intakes/"+intake.id+"/search",{query:q,year:+$("qYear").value||0});intake=j.intake;render()}catch(e){alert(e.message)}
-};
-$("btnSubmit").onclick=async()=>{
-  const btn=$("btnSubmit");btn.disabled=true;btn.textContent="Submitting…";
-  $("submitResult").innerHTML="";
-  try{
-    const j=await postJSON("/api/intakes/"+intake.id+"/submit");
-    intake=j.intake;render();loadHistory();
-  }catch(e){
-    $("submitResult").innerHTML='<div class="errbox">'+esc(e.message)+"</div>";
-  }
-  btn.disabled=false;btn.textContent="Add to qBittorrent (stopped, verify, start)";
-};
-$("btnCancel").onclick=()=>{intake=null;location.reload()};
+async function search(id){
+  const q=$("qt"+id).value.trim();if(!q)return;
+  try{await postJSON("/api/intakes/"+id+"/search",{query:q,year:+$("qy"+id).value||0});await refresh()}catch(e){alert(e.message)}
+}
+async function pick(id,rid){
+  try{await postJSON("/api/intakes/"+id+"/match",{tmdb_id:rid});await refresh()}catch(e){alert(e.message)}
+}
+async function submit(id){
+  const g=intakes.find(x=>x.id===id);if(!g)return;
+  busy.add(g.group);render();
+  try{await postJSON("/api/intakes/"+id+"/submit")}catch(e){}
+  busy.delete(g.group);
+  await refresh();
+}
 
 // ---- render ----
+function refresh(){
+  api("/api/intakes").then(j=>{
+    intakes=j.intakes||[];
+    render();
+  }).catch(()=>{intakes=[];render()});
+}
+
+function groups(){
+  const m=new Map();
+  for(const x of intakes){
+    const k=x.group||x.id;
+    if(!m.has(k))m.set(k,[]);
+    m.get(k).push(x);
+  }
+  return [...m.values()].sort((a,b)=>(a[0].created_at||0)-(b[0].created_at||0));
+}
+
 function render(){
-  if(!intake)return;
-  $("uploadCard").classList.add("hidden");
-  const a=$("analysisCard");a.classList.remove("hidden");
-  $("analysisBody").innerHTML=[
-    ["Torrent",esc(intake.torrent_name)],
-    ["File",esc(intake.filename)],
-    ["Size",fmtBytes(intake.size)],
-    ["Layout",intake.kind==="single"?"Single file":intake.kind==="rooted-multi"?"Multi-file (rooted)":"Multi-file (rootless)"],
-    ["Root folder",intake.root_folder?"true":"false"],
-    ["Info hash",'<span class="mono">'+esc(intake.info_hash_v1||intake.info_hash_v2||"—")+"</span>"],
-    ["Files",intake.files],
-    ["Detected type",'<span class="badge '+(intake.media_type==="tv"?"ok":"")+'">'+esc(intake.media_type)+"</span> <span class='small'>("+esc(intake.confidence)+" confidence)</span>"],
-    ["Search title",esc(intake.title||"—")],
-    ["Year",intake.year||"—"],
-    ["Season",intake.season||"—"],
-  ].map(r=>"<tr><td>"+r[0]+"</td><td>"+r[1]+"</td></tr>").join("");
+  $("stack").innerHTML=groups().map(g=>g.length===1?cardSingle(g[0]):cardTV(g)).join("");
+}
 
-  $("btnMovie").classList.toggle("primary",intake.media_type==="movie");
-  $("btnTV").classList.toggle("primary",intake.media_type==="tv");
+const errBox=msg=>msg?'<div class="errbox">'+esc(msg)+"</div>":"";
+const statusBadge=m=>{
+  if(m.status==="submitted")return '<span class="badge ok">submitted</span>';
+  if(m.status==="failed")return '<span class="badge err">failed</span>';
+  if(m.status==="submitting")return '<span class="badge warn">submitting…</span>';
+  return '<span class="badge">'+(m.match?"matched":"pending match")+"</span>";
+};
 
-  $("qTitle").value=intake.title||"";
-  $("qYear").value=intake.year||"";
-  $("tmdbError").innerHTML="";
-  if(intake.tmdb_error)$("tmdbError").innerHTML='<div class="errbox">'+esc(intake.tmdb_error)+"</div>";
-
-  // TMDB results
-  const tc=$("tmdbCard"),tl=$("tmdbList");
-  if(intake.match){
-    tc.classList.add("hidden");
-    renderDest();
-  }else if(intake.tmdb&&intake.tmdb.length){
-    tc.classList.remove("hidden");
-    tl.innerHTML=intake.tmdb.map((r,i)=>{
+function tmdbHTML(in){
+  if(!in.tmdb||!in.tmdb.length)return "";
+  return '<div style="margin-top:14px"><h2>TMDB match <span class="small">— click a result to confirm</span></h2>'+
+    in.tmdb.map((r,i)=>{
       const title=r.title||r.name;const yr=(r.release_date||r.first_air_date||"").slice(0,4);
       const poster=r.poster_path?('<img src="https://image.tmdb.org/t/p/w92'+esc(r.poster_path)+'" alt="" loading="lazy">'):'<img alt="">';
       const sel=i===0?" selected":"";
-      return '<div class="tmdb-item'+sel+'" onclick="pick('+r.id+')">'+poster+'<div><div class="t">'+esc(title)+' <span class="y">('+esc(yr)+")</span></div>"+
+      return '<div class="tmdb-item'+sel+'" onclick="pick(\''+in.id+'\','+r.id+')">'+poster+'<div><div class="t">'+esc(title)+' <span class="y">('+esc(yr)+")</span></div>"+
         (r.overview?'<div class="d">'+esc(r.overview.slice(0,140))+"…</div>":"")+"</div></div>";
-    }).join("");
-  }else if(intake.status!=="submitting"){
-    tc.classList.add("hidden");
-    renderDest();
-  }
+    }).join("")+'</div>';
 }
 
-async function pick(id){
-  try{
-    const j=await postJSON("/api/intakes/"+intake.id+"/match",{tmdb_id:id});
-    intake=j.intake;render();
-  }catch(e){alert(e.message)}
+function cardSingle(in){
+  const btn=(t,l)=>'<button class="'+(in.media_type===t?"primary":"")+'" onclick="setType(\''+in.id+'\',\''+t+'\')">'+l+"</button>";
+  return '<div class="card">'+
+    '<h2>'+esc(in.torrent_name)+'</h2>'+
+    '<table class="kv"><tbody>'+[
+      ["File",esc(in.filename)],
+      ["Size",fmtBytes(in.size)],
+      ["Layout",in.kind==="single"?"Single file":in.kind==="rooted-multi"?"Multi-file (rooted)":"Multi-file (rootless)"],
+      ["Root folder",in.root_folder?"true":"false"],
+      ["Info hash",'<span class="mono">'+esc(in.info_hash_v1||in.info_hash_v2||"—")+"</span>"],
+      ["Files",in.files],
+      ["Detected type",'<span class="badge '+(in.media_type==="tv"?"ok":"")+'">'+esc(in.media_type)+"</span> <span class='small'>("+esc(in.confidence)+" confidence)</span>"],
+      ["Search title",esc(in.title||"—")],
+      ["Year",in.year||"—"],
+      ["Season",in.season||"—"],
+    ].map(r=>"<tr><td>"+r[0]+"</td><td>"+r[1]+"</td></tr>").join("")+'</tbody></table>'+
+    '<div class="row" style="margin-top:12px">'+
+      '<span class="small">Type:</span>'+btn("movie","Movie")+btn("tv","TV show")+
+      '<input type="text" id="qt'+in.id+'" placeholder="Search title" value="'+esc(in.title||"")+'">'+
+      '<input type="number" id="qy'+in.id+'" placeholder="Year" value="'+(in.year||"")+'">'+
+      '<button onclick="search(\''+in.id+'\')">Search TMDB</button>'+
+    '</div>'+
+    errBox(in.tmdb_error)+
+    (in.match?destHTML(in):tmdbHTML(in))+
+  '</div>';
 }
 
-function renderDest(){
-  const d=$("destCard");d.classList.remove("hidden");
-  const dest=intake.dest,err=intake.error;
-  $("submitResult").innerHTML="";
+function destHTML(in){
+  const dest=in.dest;
   let rows=[];
   if(dest){
     rows=[
-      ["Media type",esc(intake.media_type)],
-      ["TMDB title",esc((intake.match&&(intake.match.title||intake.match.name))||"")],
-      ["Year",intake.match?(intake.match.release_date||intake.match.first_air_date||"").slice(0,4):"—"],
+      ["Media type",esc(in.media_type)],
+      ["TMDB title",esc((in.match&&(in.match.title||in.match.name))||"")],
+      ["Year",in.match?(in.match.release_date||in.match.first_air_date||"").slice(0,4):"—"],
       ["Canonical folder",'<span class="mono">'+esc(dest.folder_name)+"</span>"],
       ["Drive",esc(dest.drive_id||"—")],
       ["Existing library folder",dest.existing?"yes":"no"],
@@ -253,31 +235,77 @@ function renderDest(){
       ["Usable space on drive",dest.usable_space?fmtBytes(dest.usable_space):"—"],
     ];
   }
-  $("destBody").innerHTML=rows.map(r=>"<tr><td>"+r[0]+"</td><td>"+r[1]+"</td></tr>").join("");
+  let html='<div style="margin-top:14px"><h2>Destination</h2>'+
+    '<table class="kv"><tbody>'+rows.map(r=>"<tr><td>"+r[0]+"</td><td>"+r[1]+"</td></tr>").join("")+'</tbody></table>';
   if(dest&&dest.warnings&&dest.warnings.length){
-    $("submitResult").innerHTML='<div class="errbox" style="background:#2b2412;border-color:#6b5214;color:#e3b341">'+esc(dest.warnings.join("\n"))+"</div>";
+    html+='<div class="errbox" style="background:#2b2412;border-color:#6b5214;color:#e3b341">'+esc(dest.warnings.join("\n"))+"</div>";
   }
   if(dest&&dest.existing_paths&&dest.existing_paths.length>1){
-    $("submitResult").innerHTML='<div class="errbox">'+esc("Title exists at:\n"+dest.existing_paths.join("\n"))+"<br>Resolve the duplicates in your library first.</div>";
-  }else if(err&&intake.status!=="submitted"){
-    $("submitResult").innerHTML='<div class="errbox">'+esc(err)+"</div>";
+    html+='<div class="errbox">'+esc("Title exists at:\n"+dest.existing_paths.join("\n"))+"<br>Resolve the duplicates in your library first.</div>";
+  }else if(in.error&&in.status!=="submitted"){
+    html+='<div class="errbox">'+esc(in.error)+"</div>";
   }
-  if(intake.status==="submitted"&&intake.result){
-    $("btnSubmit").style.display="none";
-    const r=intake.result;
-    $("submitResult").innerHTML='<div class="okbox"><strong>Torrent added and started</strong><br>'+
+  if(in.status==="submitted"&&in.result){
+    html+='<div class="okbox"><strong>Torrent added and started</strong><br>'+
       '<table class="kv" style="margin-top:8px"><tbody>'+
-      "<tr><td>qBittorrent name</td><td>"+esc(r.torrent_name)+"</td></tr>"+
-      "<tr><td>Save path</td><td class='mono'>"+esc(r.save_path)+"</td></tr>"+
-      "<tr><td>Content path</td><td class='mono'>"+esc(r.content_path)+"</td></tr>"+
-      "<tr><td>Category</td><td>"+esc(r.category)+"</td></tr>"+
-      "<tr><td>Drive</td><td>"+esc(r.drive_id)+"</td></tr>"+
-      "<tr><td>Hash</td><td class='mono'>"+esc(r.hash)+"</td></tr>"+
+      "<tr><td>qBittorrent name</td><td>"+esc(in.result.torrent_name)+"</td></tr>"+
+      "<tr><td>Save path</td><td class='mono'>"+esc(in.result.save_path)+"</td></tr>"+
+      "<tr><td>Content path</td><td class='mono'>"+esc(in.result.content_path)+"</td></tr>"+
+      "<tr><td>Category</td><td>"+esc(in.result.category)+"</td></tr>"+
+      "<tr><td>Drive</td><td>"+esc(in.result.drive_id)+"</td></tr>"+
+      "<tr><td>Hash</td><td class='mono'>"+esc(in.result.hash)+"</td></tr>"+
       "</tbody></table>"+
       '<span class="small">CineRoute will perform no further operations on this torrent.</span></div>';
-  }else if(intake.status==="submitting"){
-    $("submitResult").innerHTML='<div class="okbox">Adding stopped, verifying, starting…</div>';
+  }else if(in.status==="submitting"||busy.has(in.group)){
+    html+='<div class="okbox">Adding stopped, verifying, starting…</div>';
+  }else{
+    html+='<div class="actions"><button class="primary" onclick="submit(\''+in.id+'\')">Add to qBittorrent (stopped, verify, start)</button></div>';
   }
+  return html+'</div>';
+}
+
+function cardTV(g){
+  const rep=g[0];
+  const title=rep.title||rep.torrent_name;
+  const yr=rep.year?" ("+rep.year+")":"";
+  const busyKey=rep.group;
+  const allSubmitted=g.every(x=>x.status==="submitted");
+  const rows=g.map(m=>'<tr><td>'+seasonLbl(m)+'</td><td class="mono">'+esc(m.torrent_name)+'</td><td>'+fmtBytes(m.size)+'</td><td>'+statusBadge(m)+'</td></tr>').join("");
+  let html='<div class="card">'+
+    '<h2>TV show · '+esc(title)+yr+' <span class="small">('+g.length+' parts)</span></h2>'+
+    '<table><thead><tr><th>Season</th><th>Torrent</th><th>Size</th><th>Status</th></tr></thead><tbody>'+rows+'</tbody></table>'+
+    '<div class="row" style="margin-top:12px">'+
+      '<input type="text" id="qt'+rep.id+'" placeholder="Search title" value="'+esc(rep.title||"")+'">'+
+      '<input type="number" id="qy'+rep.id+'" placeholder="Year" value="'+(rep.year||"")+'">'+
+      '<button onclick="search(\''+rep.id+'\')">Search TMDB</button>'+
+    '</div>'+
+    errBox(rep.tmdb_error);
+  if(rep.match){
+    const dest=rep.dest;
+    html+='<div style="margin-top:14px"><h2>Destination</h2>'+
+      '<table class="kv"><tbody>'+
+      "<tr><td>TMDB title</td><td>"+esc(rep.match.title||rep.match.name)+"</td></tr>"+
+      "<tr><td>Canonical folder</td><td class='mono'>"+esc(dest.folder_name)+"</td></tr>"+
+      "<tr><td>Drive</td><td>"+esc(dest.drive_id||"—")+"</td></tr>"+
+      (dest.existing?"<tr><td>Existing library folder</td><td>yes</td></tr>":"")+
+      "<tr><td>Save path</td><td class='mono'>"+esc(dest.save_path)+"</td></tr>"+
+      '</tbody></table>';
+    const msgs=g.map(m=>{
+      if(m.status==="submitted"&&m.result)return "• "+seasonLbl(m)+": added and started — <span class='mono'>"+esc(m.result.hash)+"</span>";
+      if(m.status==="failed")return "• "+seasonLbl(m)+": <b>failed</b> — "+esc(m.error);
+      if(m.status==="submitting"||busy.has(busyKey))return "• "+seasonLbl(m)+": adding stopped, verifying, starting…";
+      if(m.error)return "• "+seasonLbl(m)+": "+esc(m.error);
+      return "";
+    }).filter(Boolean).join("<br>");
+    if(msgs)html+='<div class="'+(g.some(x=>x.status==="failed")?"errbox":"okbox")+'" style="margin-top:8px">'+msgs+"</div>";
+    if(!allSubmitted){
+      html+='<div class="actions"><button class="primary" onclick="submit(\''+rep.id+'\')">Add all '+g.length+' to qBittorrent (stopped, verify, start)</button></div>';
+    }
+    html+='</div>';
+  }else{
+    html+=tmdbHTML(rep);
+  }
+  return html+'</div>';
 }
 
 // ---- history ----
@@ -295,7 +323,7 @@ async function loadHistory(){
   }catch(e){}
 }
 
-loadStatus();loadHistory();
+loadStatus();loadHistory();refresh();
 setInterval(loadStatus,30000);
 </script>
 </body>

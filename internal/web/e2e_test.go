@@ -351,12 +351,14 @@ func newTestServer(t *testing.T) (*Server, *fakeQB, *httptest.Server, map[string
 	return srv, qb, httpSrv, roots
 }
 
-func uploadTorrent(t *testing.T, httpSrv *httptest.Server, name string, data []byte) *intakeJSON {
+func uploadMany(t *testing.T, httpSrv *httptest.Server, files map[string][]byte) []*intakeJSON {
 	t.Helper()
 	var buf bytes.Buffer
 	mw := multipart.NewWriter(&buf)
-	fw, _ := mw.CreateFormFile("torrents", name)
-	fw.Write(data)
+	for name, data := range files {
+		fw, _ := mw.CreateFormFile("torrents", name)
+		fw.Write(data)
+	}
 	mw.Close()
 	resp, err := http.Post(httpSrv.URL+"/api/intakes", mw.FormDataContentType(), &buf)
 	if err != nil {
@@ -365,8 +367,42 @@ func uploadTorrent(t *testing.T, httpSrv *httptest.Server, name string, data []b
 	defer resp.Body.Close()
 	var j apiResponse
 	json.NewDecoder(resp.Body).Decode(&j)
-	if j.Intake == nil {
+	if len(j.Intakes) == 0 {
 		t.Fatalf("upload failed: %+v", j)
+	}
+	return j.Intakes
+}
+
+func uploadTorrent(t *testing.T, httpSrv *httptest.Server, name string, data []byte) *intakeJSON {
+	t.Helper()
+	out := uploadMany(t, httpSrv, map[string][]byte{name: data})
+	return out[0]
+}
+
+func getIntakes(t *testing.T, httpSrv *httptest.Server) []*intakeJSON {
+	t.Helper()
+	resp, err := http.Get(httpSrv.URL + "/api/intakes")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	var j apiResponse
+	json.NewDecoder(resp.Body).Decode(&j)
+	return j.Intakes
+}
+
+func matchIntake(t *testing.T, httpSrv *httptest.Server, id string, tmdbID int) *intakeJSON {
+	t.Helper()
+	resp, err := http.Post(httpSrv.URL+"/api/intakes/"+id+"/match",
+		"application/json", strings.NewReader(fmt.Sprintf(`{"tmdb_id":%d}`, tmdbID)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	var j apiResponse
+	json.NewDecoder(resp.Body).Decode(&j)
+	if j.Error != "" || j.Intake == nil {
+		t.Fatalf("match failed: %+v", j)
 	}
 	return j.Intake
 }
@@ -725,5 +761,101 @@ func TestStatusFetchesTorrentsOnce(t *testing.T) {
 	defer fake.mu.Unlock()
 	if fake.infoRequests != 1 {
 		t.Fatalf("unfiltered torrents/info requests: got %d want 1", fake.infoRequests)
+	}
+}
+
+// Dropping several torrents at once stacks them as separate intakes: every
+// movie gets its own group, and GET /api/intakes returns them all.
+func TestUploadMultipleMoviesStack(t *testing.T) {
+	_, _, httpSrv, _ := newTestServer(t)
+
+	out := uploadMany(t, httpSrv, map[string][]byte{
+		"a.torrent": singleFileTorrent("Movie.A.2020.1080p.mkv", 100),
+		"b.torrent": singleFileTorrent("Movie.B.2021.1080p.mkv", 100),
+		"c.torrent": singleFileTorrent("Movie.C.2022.1080p.mkv", 100),
+	})
+	if len(out) != 3 {
+		t.Fatalf("intakes: %d", len(out))
+	}
+	for i := 0; i < 3; i++ {
+		for j := i + 1; j < 3; j++ {
+			if out[i].Group == out[j].Group {
+				t.Fatalf("movies must not share a group: %s == %s", out[i].Group, out[j].Group)
+			}
+		}
+	}
+	if len(getIntakes(t, httpSrv)) != 3 {
+		t.Fatal("GET /api/intakes should list all stacked intakes")
+	}
+}
+
+// TV parts of the same show (seasons or episode packs) are stacked into one
+// group: one match confirms them all and one submit adds them all.
+func TestTVShowPartsAddTogether(t *testing.T) {
+	_, fake, httpSrv, roots := newTestServer(t)
+
+	out := uploadMany(t, httpSrv, map[string][]byte{
+		"s1.torrent": singleFileTorrent("The.Office.S01.1080p.WEB-DL.mkv", 200),
+		"s2.torrent": singleFileTorrent("The.Office.S02.1080p.WEB-DL.mkv", 200),
+		"s3.torrent": singleFileTorrent("The.Office.S03.1080p.WEB-DL.mkv", 200),
+	})
+	if len(out) != 3 {
+		t.Fatalf("intakes: %d", len(out))
+	}
+	g := out[0].Group
+	for _, in := range out[1:] {
+		if in.Group != g {
+			t.Fatalf("same show must share a group: %q vs %q", in.Group, g)
+		}
+		if in.MediaType != "tv" {
+			t.Fatalf("expected tv: %+v", in)
+		}
+	}
+
+	matchIntake(t, httpSrv, out[0].ID, 4607)
+	for _, in := range getIntakes(t, httpSrv) {
+		if in.Match == nil || in.Dest == nil {
+			t.Fatalf("one match must confirm every part: %+v", in)
+		}
+	}
+
+	resp, _ := http.Post(httpSrv.URL+"/api/intakes/"+out[0].ID+"/submit",
+		"application/json", strings.NewReader(`{}`))
+	var j apiResponse
+	json.NewDecoder(resp.Body).Decode(&j)
+	resp.Body.Close()
+	if j.Intake.Status != "submitted" {
+		t.Fatalf("submit: %+v", j.Intake)
+	}
+	if len(j.Intakes) != 3 {
+		t.Fatalf("submit response should carry all group members, got %d", len(j.Intakes))
+	}
+	for _, m := range j.Intakes {
+		if m.Status != "submitted" {
+			t.Fatalf("every part must be submitted: %+v", m)
+		}
+	}
+
+	fake.mu.Lock()
+	defer fake.mu.Unlock()
+	if len(fake.added) != 3 {
+		t.Fatalf("adds: %d", len(fake.added))
+	}
+	for _, in := range j.Intakes {
+		if !fake.started[in.Result.Hash] {
+			t.Fatalf("part %s was never started", in.ID)
+		}
+		if !strings.HasPrefix(in.Result.SavePath, roots["/t1"]) {
+			t.Fatalf("tv save path should be under /t1: %s", in.Result.SavePath)
+		}
+	}
+	// All parts land in the same canonical folder, the first add creates it
+	// and the later ones reuse it.
+	dirs := map[string]bool{}
+	for _, call := range fake.added {
+		dirs[call.savepath] = true
+	}
+	if len(dirs) != 1 {
+		t.Fatalf("all parts must share one folder, got %v", dirs)
 	}
 }
