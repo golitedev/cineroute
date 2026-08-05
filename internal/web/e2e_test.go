@@ -394,15 +394,15 @@ func TestDeleteIntake(t *testing.T) {
 		t.Fatalf("expected the other part to remain: %+v", intakes)
 	}
 
-	// Submitted intakes cannot be deleted.
+	// Submitted intakes can be deleted: the torrent already lives in qBittorrent.
 	m := uploadTorrent(t, httpSrv, "y.torrent", singleFileTorrent("Movie.B.2021.1080p.mkv", 100))
 	resp, _ := http.Post(httpSrv.URL+"/api/intakes/"+m.ID+"/submit", "application/json", strings.NewReader(`{}`))
 	resp.Body.Close()
-	if code := deleteIntakeReq(t, httpSrv, m.ID); code != 409 {
-		t.Fatalf("delete submitted should 409, got %d", code)
+	if code := deleteIntakeReq(t, httpSrv, m.ID); code != 200 {
+		t.Fatalf("delete submitted should 200, got %d", code)
 	}
-	if intakes := getIntakes(t, httpSrv); len(intakes) != 2 {
-		t.Fatalf("submitted intake must survive delete: %d", len(intakes))
+	if intakes := getIntakes(t, httpSrv); len(intakes) != 1 {
+		t.Fatalf("submitted intake must be removable: %d remain", len(intakes))
 	}
 }
 

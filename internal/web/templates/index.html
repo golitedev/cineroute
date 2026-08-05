@@ -208,7 +208,7 @@ function cardSingle(x){
   const done=x.status==="submitted"||x.status==="submitting";
   const btn=(t,l)=>'<button class="'+(x.media_type===t?"primary":"")+'" onclick="setType(\''+x.id+'\',\''+t+'\')">'+l+"</button>";
   return '<div class="card">'+
-    '<button class="close" title="Remove" '+(done?"disabled":"onclick=\"removeGroup(\'"+x.group+"\')\"")+'>✕</button>'+
+    '<button class="close" title="Remove" '+(x.status==="submitting"||busy.has(x.group)?"disabled":"onclick=\"removeGroup(\'"+x.group+"\')\"")+'>✕</button>'+
     '<h2>'+esc(x.torrent_name)+'</h2>'+
     '<table class="kv"><tbody>'+[
       ["File",esc(x.filename)],
@@ -289,7 +289,7 @@ function cardTV(g){
   const allSubmitted=g.every(x=>x.status==="submitted");
   const rows=g.map(m=>'<tr><td>'+seasonLbl(m)+'</td><td class="mono">'+esc(m.torrent_name)+'</td><td>'+fmtBytes(m.size)+'</td><td>'+statusBadge(m)+'</td></tr>').join("");
   let html='<div class="card">'+
-    '<button class="close" title="Remove'+(g.length>1?" whole show":"")+'" '+(allSubmitted||busy.has(busyKey)?"disabled":"onclick=\"removeGroup(\'"+rep.group+"\')\"")+'>✕</button>'+
+    '<button class="close" title="Remove'+(g.length>1?" whole show":"")+'" '+(busy.has(busyKey)||g.some(x=>x.status==="submitting")?"disabled":"onclick=\"removeGroup(\'"+rep.group+"\')\"")+'>✕</button>'+
     '<h2>TV show · '+esc(title)+yr+' <span class="small">('+g.length+' parts)</span></h2>'+
     '<table><thead><tr><th>Season</th><th>Torrent</th><th>Size</th><th>Status</th></tr></thead><tbody>'+rows+'</tbody></table>'+
     (allSubmitted?"":'<div class="row" style="margin-top:12px">'+

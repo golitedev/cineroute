@@ -259,8 +259,9 @@ func (s *Server) listIntakes(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, apiResponse{Intakes: out})
 }
 
-// deleteIntake removes one intake from the stack. Intakes that are already
-// (or currently being) pushed to qBittorrent cannot be removed.
+// deleteIntake removes one intake from the stack. Intakes that are currently
+// being pushed to qBittorrent cannot be removed; submitted intakes can, since
+// the torrent already lives in qBittorrent.
 func (s *Server) deleteIntake(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
 	// Serialize against a running submit so an intake is never deleted while
@@ -274,8 +275,8 @@ func (s *Server) deleteIntake(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusNotFound, "intake not found")
 		return
 	}
-	if in.Status == "submitted" || in.Status == "submitting" {
-		writeErr(w, http.StatusConflict, "cannot delete an intake that is being or already was submitted")
+	if in.Status == "submitting" {
+		writeErr(w, http.StatusConflict, "cannot delete an intake while it is being submitted")
 		return
 	}
 	in.Bytes = nil
