@@ -282,13 +282,13 @@ func (s *Server) ready(ctx context.Context) error {
 	if prefs.TempPathEnabled {
 		return errors.New("qBittorrent incomplete torrent path is enabled; disable \"Keep incomplete torrents in\" before submitting")
 	}
+	cats, err := s.qb.Categories(ctx)
+	if err != nil {
+		return err
+	}
 	for _, cat := range []string{s.cfg.QBittorrent.MovieCategory, s.cfg.QBittorrent.TVCategory} {
 		if cat == "" {
 			continue
-		}
-		cats, err := s.qb.Categories(ctx)
-		if err != nil {
-			return err
 		}
 		if c, exists := cats[cat]; exists {
 			if strings.TrimSpace(c.SavePath) != "" {

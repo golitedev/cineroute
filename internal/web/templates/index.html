@@ -4,8 +4,10 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>CineRoute</title>
-<link rel="icon" type="image/png" href="/favicon.png">
-<link rel="icon" type="image/svg+xml" href="/favicon.svg">
+<!-- Only the PNG is declared: when both PNG and SVG icon links are present,
+     Firefox always picks the SVG, and SVG favicons do not render in the
+     Firefox bookmarks toolbar. The SVG is still served for the header logo. -->
+<link rel="icon" type="image/png" sizes="64x64" href="/favicon.png">
 <style>
 :root{--bg:#0f1115;--panel:#171a21;--border:#2a2f3a;--text:#e6e9ef;--dim:#8b93a3;--accent:#4c8dff;--ok:#3fb950;--warn:#d29922;--err:#f85149}
 *{box-sizing:border-box}

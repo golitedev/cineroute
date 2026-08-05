@@ -61,7 +61,9 @@ Secrets can also come from environment variables:
 | --- | --- |
 | TMDB API key | `CINEROUTE_TMDB_API_KEY` |
 | qBittorrent URL / user / password | `CINEROUTE_QBIT_URL` / `CINEROUTE_QBIT_USERNAME` / `CINEROUTE_QBIT_PASSWORD` |
-| Web UI password (basic auth, user `cineroute`) | `CINEROUTE_AUTH_PASSWORD` |
+| Web UI password (login form with a 90-day session cookie; basic auth is the fallback) | `CINEROUTE_AUTH_PASSWORD` |
+| Web UI basic-auth username (default `cineroute`) | `CINEROUTE_AUTH_USERNAME` |
+| Listen address | `CINEROUTE_LISTEN` |
 
 ```yaml
 listen: "127.0.0.1:8787"   # use 0.0.0.0:8787 inside a container

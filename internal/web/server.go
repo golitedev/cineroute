@@ -200,14 +200,14 @@ func (s *Server) serveAsset(name string) http.HandlerFunc {
 }
 
 // auth accepts a valid session cookie or Basic Auth credentials. Health
-// checks, favicons and the login endpoint are always public; the login form
-// is served as part of the page and only the API is gated.
+// checks, the logo assets and the login endpoint are always public (the
+// login page itself shows the header logo); only the API is gated.
 func (s *Server) auth(next http.Handler) http.Handler {
 	pass := s.cfg.AuthPassword
 	user := s.cfg.AuthUsername
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		p := r.URL.Path
-		if p == "/" || p == "/health" || p == "/favicon.png" || p == "/favicon.svg" || p == "/api/login" {
+		if p == "/" || p == "/health" || p == "/favicon.png" || p == "/favicon.svg" || p == "/logo.svg" || p == "/api/login" {
 			next.ServeHTTP(w, r)
 			return
 		}

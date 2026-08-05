@@ -394,6 +394,9 @@ func TestSessionAuth(t *testing.T) {
 	if code := unauth("/favicon.png"); code != 200 {
 		t.Fatalf("favicon: %d", code)
 	}
+	if code := unauth("/logo.svg"); code != 200 {
+		t.Fatalf("logo: %d", code)
+	}
 
 	// Everything else is gated.
 	if code := unauth("/api/status"); code != 401 {
