@@ -67,6 +67,9 @@ func TestParseMultiFile(t *testing.T) {
 	if len(got) != 2 || got[0] != want[0] || got[1] != want[1] {
 		t.Fatalf("rel paths: %v", got)
 	}
+	if got := mi.FullPaths(); len(got) != 2 || got[0] != "Movie.2026.GROUP/Movie.2026.GROUP.mkv" || got[1] != "Movie.2026.GROUP/Subtitles/en.srt" {
+		t.Fatalf("full paths: %v", got)
+	}
 	if got := mi.ContentPath("/m2/Movie Name (2026)"); got != "/m2/Movie Name (2026)/Movie.2026.GROUP" {
 		t.Fatalf("content path: %s", got)
 	}
@@ -83,6 +86,9 @@ func TestParseV2RootedAndRootless(t *testing.T) {
 	if got := rooted.RelPaths(); len(got) != 1 || got[0] != "Episode 1.mkv" {
 		t.Fatalf("rooted rel paths: %v", got)
 	}
+	if got := rooted.FullPaths(); len(got) != 1 || got[0] != "Subs/Episode 1.mkv" {
+		t.Fatalf("rooted full paths: %v", got)
+	}
 
 	rootless, err := Parse(makeV2Torrent("My.Show", "Subs", "Episode 1.mkv"))
 	if err != nil {
@@ -93,6 +99,9 @@ func TestParseV2RootedAndRootless(t *testing.T) {
 	}
 	if got := rootless.RelPaths(); len(got) != 1 || got[0] != "Subs/Episode 1.mkv" {
 		t.Fatalf("rootless rel paths: %v", got)
+	}
+	if got := rootless.FullPaths(); len(got) != 1 || got[0] != "Subs/Episode 1.mkv" {
+		t.Fatalf("rootless full paths: %v", got)
 	}
 	if got := rootless.ContentPath("/t1/My Show (2020)"); got != "/t1/My Show (2020)" {
 		t.Fatalf("rootless content path: %s", got)

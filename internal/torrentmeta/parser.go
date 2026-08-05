@@ -505,12 +505,24 @@ func (mi *MetaInfo) walkV2Tree(ft *bval, prefix []string) error {
 	return nil
 }
 
-// RelPaths returns each file's path relative to the qBittorrent content root,
-// joined with "/". This is the exact list expected from /api/v2/torrents/files.
+// RelPaths returns each file's path relative to the qBittorrent content root
+// (without the structural root folder), joined with "/". Used for classifying
+// content, not for comparing against /api/v2/torrents/files.
 func (mi *MetaInfo) RelPaths() []string {
 	out := make([]string, 0, len(mi.Files))
 	for _, f := range mi.Files {
 		out = append(out, strings.Join(f.RelPath, "/"))
+	}
+	return out
+}
+
+// FullPaths returns each file's path relative to the qBittorrent save path,
+// including the structural root folder for rooted torrents. This is the exact
+// list returned by /api/v2/torrents/files.
+func (mi *MetaInfo) FullPaths() []string {
+	out := make([]string, 0, len(mi.Files))
+	for _, f := range mi.Files {
+		out = append(out, strings.Join(f.FullPath, "/"))
 	}
 	return out
 }

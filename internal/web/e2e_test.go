@@ -136,7 +136,7 @@ func (f *fakeQB) handler() http.Handler {
 		contentPath := meta.ContentPath(savepath)
 		_ = rootFolder
 		files := []qbFile{}
-		for i, p := range meta.RelPaths() {
+		for i, p := range meta.FullPaths() {
 			files = append(files, qbFile{name: p, size: meta.Files[i].Length})
 		}
 		t := &qbTorrent{

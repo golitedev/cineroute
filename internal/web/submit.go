@@ -402,11 +402,8 @@ func (s *Server) verifyFiles(ctx context.Context, hash string, meta *torrentmeta
 		return fmt.Errorf("reading torrent files: %w", err)
 	}
 	want := map[string]int64{}
-	for _, p := range meta.RelPaths() {
-		want[p] = 0
-	}
-	for _, f := range meta.Files {
-		want[strings.Join(f.RelPath, "/")] = f.Length
+	for i, p := range meta.FullPaths() {
+		want[p] = meta.Files[i].Length
 	}
 	problems := []string{}
 	gotCount := 0
