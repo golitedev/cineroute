@@ -28,7 +28,7 @@ Extract likely title, year and season
         ↓
 Search TMDB
         ↓
-User confirms the TMDB result
+Auto-confirm the top result (pick another if wrong)
         ↓
 Search existing media folders
         ↓

@@ -263,6 +263,7 @@ func (s *Server) ingestFile(fh *multipart.FileHeader) (*Intake, error) {
 		Status: "parsed",
 	}
 	s.searchTMDB(in)
+	s.autoConfirm(in)
 	return in, nil
 }
 
@@ -306,6 +307,7 @@ func (s *Server) setType(w http.ResponseWriter, r *http.Request) {
 	in.Dest = nil
 	in.Error = ""
 	s.searchTMDB(in)
+	s.autoConfirm(in)
 	writeJSON(w, http.StatusOK, apiResponse{Intake: toJSON(in)})
 }
 
@@ -341,6 +343,7 @@ func (s *Server) search(w http.ResponseWriter, r *http.Request) {
 		m.Error = ""
 		s.searchTMDBWith(m, body.Query, body.Year)
 	}
+	s.autoConfirm(in)
 	writeJSON(w, http.StatusOK, apiResponse{Intake: toJSON(in)})
 }
 
@@ -393,6 +396,44 @@ func (s *Server) searchTMDBWith(in *Intake, query string, year int) {
 	}
 }
 
+// autoConfirm matches the top TMDB result for an intake and its group, so
+// the destination preview appears without a click. The user can still pick a
+// different result afterwards via the match endpoint.
+func (s *Server) autoConfirm(in *Intake) {
+	if in.Status == "submitted" || len(in.TMDBResults) == 0 || in.Match != nil {
+		return
+	}
+	s.confirmMatch(in, in.TMDBResults[0].ID)
+}
+
+// confirmMatch selects a TMDB result and computes the destination preview for
+// the intake and the whole group it belongs to, so every part of the same
+// show is matched in one go.
+func (s *Server) confirmMatch(in *Intake, tmdbID int) {
+	if findResult(in.TMDBResults, tmdbID) == nil {
+		return
+	}
+	seen := map[*Intake]bool{}
+	for _, m := range append([]*Intake{in}, s.groupMembers(groupKey(in))...) {
+		if seen[m] || m.Status == "submitted" {
+			continue
+		}
+		seen[m] = true
+		found := findResult(m.TMDBResults, tmdbID)
+		if found == nil {
+			continue
+		}
+		m.Match = found
+		m.Dest = nil
+		m.Error = ""
+		dest, warn := s.planDestination(m)
+		m.Dest = dest
+		if warn != "" {
+			m.Error = warn
+		}
+	}
+}
+
 // match selects a TMDB result and computes the destination preview for the
 // whole group the intake belongs to, so every part of the same show is
 // matched in one click.
@@ -413,23 +454,7 @@ func (s *Server) match(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusBadRequest, "tmdb result not found")
 		return
 	}
-	for _, m := range s.groupMembers(groupKey(in)) {
-		if m.Status == "submitted" {
-			continue
-		}
-		found := findResult(m.TMDBResults, body.TMDBID)
-		if found == nil {
-			continue
-		}
-		m.Match = found
-		m.Dest = nil
-		m.Error = ""
-		dest, warn := s.planDestination(m)
-		m.Dest = dest
-		if warn != "" {
-			m.Error = warn
-		}
-	}
+	s.confirmMatch(in, body.TMDBID)
 	writeJSON(w, http.StatusOK, apiResponse{Intake: toJSON(in)})
 }
 

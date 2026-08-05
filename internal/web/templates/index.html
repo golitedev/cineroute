@@ -181,11 +181,12 @@ const statusBadge=m=>{
 
 function tmdbHTML(x){
   if(!x.tmdb||!x.tmdb.length)return "";
-  return '<div style="margin-top:14px"><h2>TMDB match <span class="small">— click a result to confirm</span></h2>'+
+  const mid=x.match&&x.match.id;
+  return '<div style="margin-top:14px"><h2>TMDB match <span class="small">— first result auto-confirmed, click another to change</span></h2>'+
     x.tmdb.map((r,i)=>{
       const title=r.title||r.name;const yr=(r.release_date||r.first_air_date||"").slice(0,4);
       const poster=r.poster_path?('<img src="https://image.tmdb.org/t/p/w92'+esc(r.poster_path)+'" alt="" loading="lazy">'):'<img alt="">';
-      const sel=i===0?" selected":"";
+      const sel=r.id===mid?" selected":"";
       return '<div class="tmdb-item'+sel+'" onclick="pick(\''+x.id+'\','+r.id+')">'+poster+'<div><div class="t">'+esc(title)+' <span class="y">('+esc(yr)+")</span></div>"+
         (r.overview?'<div class="d">'+esc(r.overview.slice(0,140))+"…</div>":"")+"</div></div>";
     }).join("")+'</div>';
@@ -214,7 +215,8 @@ function cardSingle(x){
       '<button onclick="search(\''+x.id+'\')">Search TMDB</button>'+
     '</div>'+
     errBox(x.tmdb_error)+
-    (x.match?destHTML(x):tmdbHTML(x))+
+    tmdbHTML(x)+
+    (x.match?destHTML(x):"")+
   '</div>';
 }
 
@@ -280,7 +282,8 @@ function cardTV(g){
       '<input type="number" id="qy'+rep.id+'" placeholder="Year" value="'+(rep.year||"")+'">'+
       '<button onclick="search(\''+rep.id+'\')">Search TMDB</button>'+
     '</div>'+
-    errBox(rep.tmdb_error);
+    errBox(rep.tmdb_error)+
+    tmdbHTML(rep);
   if(rep.match){
     const dest=rep.dest;
     html+='<div style="margin-top:14px"><h2>Destination</h2>'+
@@ -303,8 +306,6 @@ function cardTV(g){
       html+='<div class="actions"><button class="primary" onclick="submit(\''+rep.id+'\')">Add all '+g.length+' to qBittorrent (stopped, verify, start)</button></div>';
     }
     html+='</div>';
-  }else{
-    html+=tmdbHTML(rep);
   }
   return html+'</div>';
 }

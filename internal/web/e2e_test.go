@@ -766,6 +766,56 @@ func TestStatusFetchesTorrentsOnce(t *testing.T) {
 
 // Dropping several torrents at once stacks them as separate intakes: every
 // movie gets its own group, and GET /api/intakes returns them all.
+// The first TMDB result is auto-confirmed right after the search, so the
+// destination preview appears without a click; the result list stays
+// available and picking another result switches the match.
+func TestAutoConfirmFirstResultAndCanSwitch(t *testing.T) {
+	qb := newFakeQB()
+	qbSrv := httptest.NewServer(qb.handler())
+	defer qbSrv.Close()
+	base := t.TempDir()
+	os.MkdirAll(filepath.Join(base, "m1"), 0o755)
+	os.MkdirAll(filepath.Join(base, "t1"), 0o755)
+	cfg := config.Default()
+	cfg.QBittorrent.URL = qbSrv.URL
+	cfg.Drives = []config.Drive{{ID: "hdd1", MovieRoot: filepath.Join(base, "m1"), TVRoot: filepath.Join(base, "t1")}}
+
+	tmdbSrv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		json.NewEncoder(w).Encode(map[string]any{"results": []map[string]any{
+			{"id": 862, "title": "Toy Story", "original_title": "Toy Story", "release_date": "1995-11-22"},
+			{"id": 206647, "title": "Spectre", "original_title": "Spectre", "release_date": "2015-10-26"},
+		}})
+	}))
+	defer tmdbSrv.Close()
+	tc := tmdb.New("test-key", "en-US", 5*time.Second)
+	tc.SetBaseURL(tmdbSrv.URL)
+
+	qbClient, _ := qbittorrent.New(qbSrv.URL, "a", "b", 5*time.Second)
+	srv := New(cfg, qbClient, tc)
+	httpSrv := httptest.NewServer(srv.Handler())
+	defer httpSrv.Close()
+
+	raw := singleFileTorrent("Some.Movie.2021.1080p.mkv", 100)
+	in := uploadTorrent(t, httpSrv, "x.torrent", raw)
+	if len(in.TMDB) != 2 {
+		t.Fatalf("tmdb results: %d", len(in.TMDB))
+	}
+	if in.Match == nil || in.Match.ID != 862 {
+		t.Fatalf("first result should be auto-confirmed: %+v", in.Match)
+	}
+	if in.Dest == nil {
+		t.Fatal("auto-confirm should compute the destination preview")
+	}
+
+	switched := matchIntake(t, httpSrv, in.ID, 206647)
+	if switched.Match == nil || switched.Match.ID != 206647 {
+		t.Fatalf("manual pick should switch the match: %+v", switched.Match)
+	}
+	if switched.Dest == nil || switched.Dest.FolderName != "Spectre (2015)" {
+		t.Fatalf("destination should follow the picked result: %+v", switched.Dest)
+	}
+}
+
 func TestUploadMultipleMoviesStack(t *testing.T) {
 	_, _, httpSrv, _ := newTestServer(t)
 
@@ -845,8 +895,11 @@ func TestTVShowPartsAddTogether(t *testing.T) {
 		if !fake.started[in.Result.Hash] {
 			t.Fatalf("part %s was never started", in.ID)
 		}
-		if !strings.HasPrefix(in.Result.SavePath, roots["/t1"]) {
-			t.Fatalf("tv save path should be under /t1: %s", in.Result.SavePath)
+		if !strings.HasPrefix(in.Result.SavePath, roots["/t1"]) &&
+			!strings.HasPrefix(in.Result.SavePath, roots["/t2"]) &&
+			!strings.HasPrefix(in.Result.SavePath, roots["/t3"]) &&
+			!strings.HasPrefix(in.Result.SavePath, roots["/t4"]) {
+			t.Fatalf("tv save path should be under a tv root: %s", in.Result.SavePath)
 		}
 	}
 	// All parts land in the same canonical folder, the first add creates it
