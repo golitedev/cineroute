@@ -63,6 +63,15 @@ input[type=number]{width:90px}
 </header>
 <main>
 
+<div class="card hidden" id="loginCard">
+  <h2>Sign in</h2>
+  <div class="row">
+    <input type="password" id="loginPass" placeholder="Password" autocomplete="current-password">
+    <button class="primary" onclick="login()">Sign in</button>
+  </div>
+  <div id="loginErr" class="errbox hidden"></div>
+</div>
+
 <div class="card" id="uploadCard">
   <div id="drop">
     <p><strong>Drop .torrent files here</strong><br>one or many at once — or click to browse</p>
@@ -96,11 +105,36 @@ const seasonLbl=m=>m.season?("S"+String(m.season).padStart(2,"0")):"—";
 async function api(path,opts={}){
   const r=await fetch(path,opts);
   const j=await r.json().catch(()=>({}));
+  if(r.status===401&&path!=="/api/login")showLogin();
   if(!r.ok&&!j.intake)throw new Error(j.error||("HTTP "+r.status));
   return j;
 }
 function postJSON(path,body){
   return api(path,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(body)});
+}
+
+// ---- login ----
+async function login(){
+  const pass=$("loginPass").value;
+  $("loginErr").classList.add("hidden");
+  try{
+    await postJSON("/api/login",{password:pass});
+    $("loginCard").classList.add("hidden");
+    loadStatus();refresh();
+  }catch(e){
+    $("loginErr").textContent=e.message;
+    $("loginErr").classList.remove("hidden");
+  }
+}
+$("loginPass").addEventListener("keydown",e=>{if(e.key==="Enter")login()});
+function showLogin(){
+  if($("loginCard").classList.contains("hidden")){
+    $("uploadCard").classList.add("hidden");
+    $("stack").innerHTML="";
+    $("historyCard").classList.add("hidden");
+    $("loginCard").classList.remove("hidden");
+    $("loginPass").focus();
+  }
 }
 
 // ---- status ----

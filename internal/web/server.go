@@ -4,12 +4,17 @@
 package web
 
 import (
+	"crypto/hmac"
+	"crypto/sha256"
 	"crypto/subtle"
 	"embed"
+	"encoding/base64"
+	"encoding/json"
 	"fmt"
 	"html/template"
 	"net/http"
 	"sort"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -27,6 +32,31 @@ import (
 var assetsFS embed.FS
 
 const intakeTTL = 2 * time.Hour
+
+const sessionCookie = "cineroute_session"
+const sessionTTL = 90 * 24 * time.Hour
+
+// sessionToken signs an expiry timestamp with the auth password as the key,
+// so sessions survive restarts but are invalidated when the password changes.
+func sessionToken(pass string, expires time.Time) string {
+	mac := hmac.New(sha256.New, []byte(pass))
+	fmt.Fprintf(mac, "cineroute-session:%d", expires.Unix())
+	return fmt.Sprintf("%d.%s", expires.Unix(), base64.RawURLEncoding.EncodeToString(mac.Sum(nil)))
+}
+
+// validSession checks the expiry and recomputes the HMAC signature.
+func validSession(pass, token string) bool {
+	i := strings.IndexByte(token, '.')
+	if i <= 0 {
+		return false
+	}
+	exp, err := strconv.ParseInt(token[:i], 10, 64)
+	if err != nil || time.Now().Unix() > exp {
+		return false
+	}
+	want := sessionToken(pass, time.Unix(exp, 0))
+	return subtle.ConstantTimeCompare([]byte(token), []byte(want)) == 1
+}
 
 type Intake struct {
 	ID          string
@@ -137,6 +167,8 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /favicon.svg", s.serveAsset("logo/favicon.svg"))
 	mux.HandleFunc("GET /logo.svg", s.serveAsset("logo/logo.svg"))
 	mux.HandleFunc("GET /health", s.health)
+	mux.HandleFunc("POST /api/login", s.login)
+	mux.HandleFunc("POST /api/logout", s.logout)
 	mux.HandleFunc("GET /api/status", s.status)
 	mux.HandleFunc("GET /api/history", s.historyHandler)
 	mux.HandleFunc("GET /api/intakes", s.listIntakes)
@@ -167,14 +199,22 @@ func (s *Server) serveAsset(name string) http.HandlerFunc {
 	}
 }
 
+// auth accepts a valid session cookie or Basic Auth credentials. Health
+// checks, favicons and the login endpoint are always public; the login form
+// is served as part of the page and only the API is gated.
 func (s *Server) auth(next http.Handler) http.Handler {
 	pass := s.cfg.AuthPassword
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path == "/health" || r.URL.Path == "/favicon.png" || r.URL.Path == "/favicon.svg" {
+		p := r.URL.Path
+		if p == "/" || p == "/health" || p == "/favicon.png" || p == "/favicon.svg" || p == "/api/login" {
 			next.ServeHTTP(w, r)
 			return
 		}
 		if pass != "" {
+			if c, err := r.Cookie(sessionCookie); err == nil && validSession(pass, c.Value) {
+				next.ServeHTTP(w, r)
+				return
+			}
 			user, pw, ok := r.BasicAuth()
 			if !ok || user != "cineroute" ||
 				subtle.ConstantTimeCompare([]byte(pw), []byte(pass)) != 1 {
@@ -185,6 +225,52 @@ func (s *Server) auth(next http.Handler) http.Handler {
 		}
 		next.ServeHTTP(w, r)
 	})
+}
+
+// login authenticates with the configured password and sets a session cookie
+// valid for sessionTTL. Logging in while auth is disabled is a no-op.
+func (s *Server) login(w http.ResponseWriter, r *http.Request) {
+	pass := s.cfg.AuthPassword
+	if pass == "" {
+		writeJSON(w, http.StatusOK, apiResponse{})
+		return
+	}
+	var body struct {
+		Password string `json:"password"`
+	}
+	r.Body = http.MaxBytesReader(w, r.Body, 1<<20)
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		writeErr(w, http.StatusBadRequest, "invalid body")
+		return
+	}
+	if subtle.ConstantTimeCompare([]byte(body.Password), []byte(pass)) != 1 {
+		writeErr(w, http.StatusUnauthorized, "invalid password")
+		return
+	}
+	expires := time.Now().Add(sessionTTL)
+	http.SetCookie(w, &http.Cookie{
+		Name:     sessionCookie,
+		Value:    sessionToken(pass, expires),
+		Path:     "/",
+		HttpOnly: true,
+		SameSite: http.SameSiteLaxMode,
+		Expires:  expires,
+		MaxAge:   int(sessionTTL / time.Second),
+	})
+	writeJSON(w, http.StatusOK, apiResponse{})
+}
+
+// logout clears the session cookie.
+func (s *Server) logout(w http.ResponseWriter, r *http.Request) {
+	http.SetCookie(w, &http.Cookie{
+		Name:     sessionCookie,
+		Value:    "",
+		Path:     "/",
+		HttpOnly: true,
+		SameSite: http.SameSiteLaxMode,
+		MaxAge:   -1,
+	})
+	writeJSON(w, http.StatusOK, apiResponse{})
 }
 
 func (s *Server) getIntake(id string) (*Intake, bool) {

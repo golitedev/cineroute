@@ -364,6 +364,102 @@ func deleteIntakeReq(t *testing.T, httpSrv *httptest.Server, id string) int {
 	return resp.StatusCode
 }
 
+func TestSessionAuth(t *testing.T) {
+	cfg := config.Default()
+	cfg.AuthPassword = "secret"
+	cfg.QBittorrent.URL = "http://unused:1"
+	cfg.Drives = nil
+	srv := New(cfg, nil, nil)
+	httpSrv := httptest.NewServer(srv.Handler())
+	defer httpSrv.Close()
+
+	client := &http.Client{}
+	unauth := func(path string) int {
+		resp, err := client.Get(httpSrv.URL + path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer resp.Body.Close()
+		return resp.StatusCode
+	}
+
+	// Public endpoints do not require auth.
+	if code := unauth("/"); code != 200 {
+		t.Fatalf("page: %d", code)
+	}
+	if code := unauth("/health"); code != 200 {
+		t.Fatalf("health: %d", code)
+	}
+	if code := unauth("/favicon.png"); code != 200 {
+		t.Fatalf("favicon: %d", code)
+	}
+
+	// Everything else is gated.
+	if code := unauth("/api/status"); code != 401 {
+		t.Fatalf("status without auth: %d", code)
+	}
+
+	// Wrong password is rejected.
+	resp, err := client.Post(httpSrv.URL+"/api/login", "application/json", strings.NewReader(`{"password":"wrong"}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	resp.Body.Close()
+	if resp.StatusCode != 401 {
+		t.Fatalf("login wrong password: %d", resp.StatusCode)
+	}
+
+	// Correct password sets a session cookie.
+	resp, err = client.Post(httpSrv.URL+"/api/login", "application/json", strings.NewReader(`{"password":"secret"}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	resp.Body.Close()
+	if resp.StatusCode != 200 {
+		t.Fatalf("login: %d", resp.StatusCode)
+	}
+	cookies := resp.Cookies()
+	var sess *http.Cookie
+	for _, c := range cookies {
+		if c.Name == "cineroute_session" {
+			sess = c
+		}
+	}
+	if sess == nil {
+		t.Fatal("no session cookie set")
+	}
+	if sess.MaxAge != int((90 * 24 * time.Hour) / time.Second) {
+		t.Fatalf("session max age: %d", sess.MaxAge)
+	}
+	if !sess.HttpOnly {
+		t.Fatal("session cookie must be HttpOnly")
+	}
+
+	// The session cookie unlocks the API.
+	req, _ := http.NewRequest("GET", httpSrv.URL+"/api/status", nil)
+	req.AddCookie(sess)
+	resp2, err := client.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	resp2.Body.Close()
+	if resp2.StatusCode != 200 {
+		t.Fatalf("status with session: %d", resp2.StatusCode)
+	}
+
+	// Basic Auth still works as a fallback.
+	req, _ = http.NewRequest("GET", httpSrv.URL+"/api/status", nil)
+	req.SetBasicAuth("cineroute", "secret")
+	resp2, err = client.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	resp2.Body.Close()
+	if resp2.StatusCode != 200 {
+		t.Fatalf("status with basic auth: %d", resp2.StatusCode)
+	}
+}
+
 func TestDeleteIntake(t *testing.T) {
 	srv, fake, httpSrv, _ := newTestServer(t)
 	_ = srv
