@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"net/url"
 	"os"
 	"strings"
 	"time"
@@ -170,6 +171,13 @@ func (s *Server) submitLocked(ctx context.Context, in *Intake) error {
 	if err != nil {
 		return err
 	}
+	// qBittorrent may still be in a transitional state (checkingResumeData,
+	// checkingDL, allocating, moving) right after the add becomes visible;
+	// wait until it settles into a stopped state before verifying.
+	tor, err = s.waitStopped(ctx, tor.Hash)
+	if err != nil {
+		return err
+	}
 	expectedContent := in.Meta.ContentPath(savePath)
 	if err := s.verify(ctx, tor, in, savePath, expectedContent, cat, tag); err != nil {
 		return err
@@ -250,6 +258,38 @@ func (s *Server) waitForTag(ctx context.Context, tag string) (*qbittorrent.Torre
 		}
 		if time.Now().After(deadline) {
 			return nil, fmt.Errorf("qBittorrent did not confirm the add within 30s")
+		}
+		select {
+		case <-time.After(500 * time.Millisecond):
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		}
+	}
+}
+
+// waitStopped polls until the torrent leaves transitional states and is
+// stopped. On deadline it returns the last-seen torrent so the caller can
+// still run verification and report the actual state.
+func (s *Server) waitStopped(ctx context.Context, hash string) (*qbittorrent.Torrent, error) {
+	deadline := time.Now().Add(2 * time.Minute)
+	var last *qbittorrent.Torrent
+	for {
+		ts, err := s.qb.Torrents(ctx, url.Values{"hashes": {hash}})
+		if err != nil {
+			return nil, err
+		}
+		if len(ts) > 0 {
+			t := ts[0]
+			last = &t
+			if len(ts) == 1 && ts[0].Stopped() {
+				return last, nil
+			}
+		}
+		if time.Now().After(deadline) {
+			if last == nil {
+				return nil, fmt.Errorf("torrent %s not found in qBittorrent", hash)
+			}
+			return last, nil
 		}
 		select {
 		case <-time.After(500 * time.Millisecond):

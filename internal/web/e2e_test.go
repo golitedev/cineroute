@@ -29,6 +29,14 @@ type fakeQB struct {
 	started    map[string]bool
 	added      []addCall
 	categories map[string]string
+	// transitionalPolls maps a torrent hash to the number of remaining
+	// /api/v2/torrents/info polls that should report "checkingResumeData"
+	// before the torrent settles into its real (stopped) state. Used to
+	// exercise the settling wait before verification.
+	transitionalPolls map[string]int
+	// infoRequests counts /api/v2/torrents/info requests with no hashes/tag
+	// filter (unfiltered full-list polls).
+	infoRequests int
 }
 
 type qbTorrent struct {
@@ -59,9 +67,10 @@ type addCall struct {
 
 func newFakeQB() *fakeQB {
 	return &fakeQB{
-		torrents:   map[string]*qbTorrent{},
-		started:    map[string]bool{},
-		categories: map[string]string{},
+		torrents:          map[string]*qbTorrent{},
+		started:           map[string]bool{},
+		categories:        map[string]string{},
+		transitionalPolls: map[string]int{},
 	}
 }
 
@@ -153,6 +162,9 @@ func (f *fakeQB) handler() http.Handler {
 		hashes := r.URL.Query().Get("hashes")
 		f.mu.Lock()
 		defer f.mu.Unlock()
+		if tag == "" && hashes == "" {
+			f.infoRequests++
+		}
 		out := []map[string]any{}
 		for _, t := range f.torrents {
 			if tag != "" && !strings.Contains(t.tags, tag) {
@@ -164,6 +176,9 @@ func (f *fakeQB) handler() http.Handler {
 			state := t.state
 			if f.started[t.hash] {
 				state = "downloading"
+			} else if n := f.transitionalPolls[t.hash]; n > 0 {
+				f.transitionalPolls[t.hash] = n - 1
+				state = "checkingResumeData"
 			}
 			out = append(out, map[string]any{
 				"hash":         t.hash,
@@ -647,4 +662,68 @@ func TestPlanDestinationUsesMostSpace(t *testing.T) {
 		t.Fatalf("tv save path should be under /t1: %s", d.SavePath)
 	}
 	_ = url.Values{}
+}
+
+// qBittorrent can report a newly added torrent as "checkingResumeData" (or
+// other transitional states) before it settles into the stopped state. The
+// submit pipeline must wait for that settling before verification, so a
+// perfect add is not reported as a false verification failure.
+func TestEndToEndTransitionalStateSettles(t *testing.T) {
+	srv, fake, httpSrv, _ := newTestServer(t)
+	_ = srv
+
+	raw := singleFileTorrent("Transient.Movie.2022.2160p.mkv", 400)
+	in := uploadTorrent(t, httpSrv, "transient.torrent", raw)
+
+	// Make the fake report "checkingResumeData" for the first several
+	// torrents/info polls of the new torrent before settling into
+	// "stoppedDL".
+	meta, err := torrentmeta.Parse(raw)
+	if err != nil {
+		t.Fatal(err)
+	}
+	fake.mu.Lock()
+	fake.transitionalPolls[meta.PrimaryHash()] = 5
+	fake.mu.Unlock()
+
+	resp, _ := http.Post(httpSrv.URL+"/api/intakes/"+in.ID+"/match",
+		"application/json", strings.NewReader(`{"tmdb_id":862}`))
+	j := apiResponse{}
+	json.NewDecoder(resp.Body).Decode(&j)
+	resp.Body.Close()
+	if j.Error != "" || j.Intake.Dest == nil {
+		t.Fatalf("match failed: %+v", j)
+	}
+
+	resp, _ = http.Post(httpSrv.URL+"/api/intakes/"+in.ID+"/submit",
+		"application/json", strings.NewReader(`{}`))
+	j = apiResponse{}
+	json.NewDecoder(resp.Body).Decode(&j)
+	resp.Body.Close()
+	if j.Intake.Status != "submitted" || j.Intake.Result == nil {
+		t.Fatalf("submit should succeed once the torrent settles: %+v", j.Intake)
+	}
+	fake.mu.Lock()
+	defer fake.mu.Unlock()
+	if !fake.started[j.Intake.Result.Hash] {
+		t.Fatal("torrent was never started")
+	}
+}
+
+// One GET /api/status must fetch the full torrent list exactly once even with
+// four drives configured (a single snapshot shared by every drive status).
+func TestStatusFetchesTorrentsOnce(t *testing.T) {
+	_, fake, httpSrv, _ := newTestServer(t)
+
+	resp, err := http.Get(httpSrv.URL + "/api/status")
+	if err != nil {
+		t.Fatal(err)
+	}
+	resp.Body.Close()
+
+	fake.mu.Lock()
+	defer fake.mu.Unlock()
+	if fake.infoRequests != 1 {
+		t.Fatalf("unfiltered torrents/info requests: got %d want 1", fake.infoRequests)
+	}
 }

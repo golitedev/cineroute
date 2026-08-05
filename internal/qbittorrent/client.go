@@ -90,7 +90,11 @@ func (c *Client) get(ctx context.Context, path string, q url.Values) ([]byte, er
 		}
 		body, _ := io.ReadAll(resp.Body)
 		resp.Body.Close()
-		if resp.StatusCode == http.StatusForbidden && !c.authed {
+		if resp.StatusCode == http.StatusForbidden {
+			// The session cookie (SID) may have expired or qBittorrent may
+			// have restarted; always re-authenticate and retry regardless of
+			// the cached authed flag.
+			c.authed = false
 			if err := c.login(ctx); err != nil {
 				return nil, err
 			}
@@ -134,7 +138,11 @@ func (c *Client) postBody(ctx context.Context, path string, rebuild func() (io.R
 		}
 		body2, _ := io.ReadAll(resp.Body)
 		resp.Body.Close()
-		if resp.StatusCode == http.StatusForbidden && !c.authed {
+		if resp.StatusCode == http.StatusForbidden {
+			// The session cookie (SID) may have expired or qBittorrent may
+			// have restarted; always re-authenticate and retry regardless of
+			// the cached authed flag.
+			c.authed = false
 			if err := c.login(ctx); err != nil {
 				return nil, err
 			}
@@ -307,12 +315,10 @@ func (c *Client) Start(ctx context.Context, hash string) error {
 }
 
 // IncompleteBytesUnder sums amount_left of incomplete torrents whose save
-// path is under any of the given roots.
-func (c *Client) IncompleteBytesUnder(ctx context.Context, roots ...string) (int64, error) {
-	ts, err := c.Torrents(ctx, nil)
-	if err != nil {
-		return 0, err
-	}
+// path is under any of the given roots. It operates on an already-fetched
+// snapshot of the torrent list so callers can compute every drive's
+// incomplete bytes from a single /api/v2/torrents/info request.
+func IncompleteBytesUnder(ts []Torrent, roots ...string) int64 {
 	var sum int64
 	for _, t := range ts {
 		if t.AmountLeft <= 0 {
@@ -322,7 +328,7 @@ func (c *Client) IncompleteBytesUnder(ctx context.Context, roots ...string) (int
 			sum += t.AmountLeft
 		}
 	}
-	return sum, nil
+	return sum
 }
 
 func underRoot(path string, roots []string) bool {
