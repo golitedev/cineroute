@@ -213,10 +213,11 @@ function render(){
     renderDest();
   }else if(intake.tmdb&&intake.tmdb.length){
     tc.classList.remove("hidden");
-    tl.innerHTML=intake.tmdb.map(r=>{
+    tl.innerHTML=intake.tmdb.map((r,i)=>{
       const title=r.title||r.name;const yr=(r.release_date||r.first_air_date||"").slice(0,4);
       const poster=r.poster_path?('<img src="https://image.tmdb.org/t/p/w92'+esc(r.poster_path)+'" alt="" loading="lazy">'):'<img alt="">';
-      return '<div class="tmdb-item" onclick="pick('+r.id+')">'+poster+'<div><div class="t">'+esc(title)+' <span class="y">('+esc(yr)+")</span></div>"+
+      const sel=i===0?" selected":"";
+      return '<div class="tmdb-item'+sel+'" onclick="pick('+r.id+')">'+poster+'<div><div class="t">'+esc(title)+' <span class="y">('+esc(yr)+")</span></div>"+
         (r.overview?'<div class="d">'+esc(r.overview.slice(0,140))+"…</div>":"")+"</div></div>";
     }).join("");
   }else if(intake.status!=="submitting"){
