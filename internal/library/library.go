@@ -76,7 +76,7 @@ func Normalize(name string) string {
 		if r == '\u2019' || r == '\u2018' || r == '`' {
 			r = '\''
 		}
-		if r == ':' || strings.ContainsRune("<>\"\\|?*", r) {
+		if r == ':' || r == '/' || strings.ContainsRune("<>\"\\|?*", r) {
 			continue
 		}
 		b.WriteRune(unicode.ToLower(r))
@@ -99,7 +99,8 @@ func FolderName(format, title string, year int) string {
 // SanitizeTitle makes a title safe as a single Linux path component. It only
 // removes characters that cannot appear in a path.
 func SanitizeTitle(title string) string {
-	for _, r := range "<>:\"/\\|?*" {
+	title = strings.ReplaceAll(title, "/", "-")
+	for _, r := range "<>:\"\\|?*" {
 		title = strings.ReplaceAll(title, string(r), "")
 	}
 	title = strings.ReplaceAll(title, "\x00", "")
