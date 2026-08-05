@@ -6,7 +6,7 @@ straight into a multi-drive media library.
 Drop a torrent, CineRoute parses it (without downloading anything), detects
 whether it is a movie or TV show, extracts a search title, finds the canonical
 title on TMDB, reuses the existing TV-show folder across four HDDs or picks
-the drive with the most usable free space, creates only the parent folder
+the drive with the most free space, creates only the parent folder
 (`Title (Year)`), adds the torrent to qBittorrent in the **stopped** state,
 verifies the save path, content layout, category and settings exactly, then
 starts it.
@@ -82,7 +82,6 @@ drives:
   - id: "hdd1"
     movie_root: "/m1"      # movie root
     tv_root: "/t1"         # TV root on the same physical drive
-    reserve_bytes: 107374182400   # 100 GiB safety reserve
   # hdd2..hdd4: /m2-/t2, /m3-/t3, /m4-/t4
 ```
 
@@ -146,8 +145,7 @@ category, size, state).
 * **Existing TV show** is always kept on its drive — every season goes into
   the same `Title (Year)` folder regardless of free space. If that drive is
   tight, a warning is shown but the submission is never blocked.
-* **New titles** go to the drive with the most usable space
-  (free − reserve − qBittorrent incomplete bytes).
+* **New titles** go to the drive with the most plain free space.
 * **Forgiving TMDB search:** if the year filter returns nothing (a year
   that is part of the title, like *Blade Runner 2049*, or a season pack
   carrying the season's air year instead of the show's first-air year), the

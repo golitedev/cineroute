@@ -101,41 +101,24 @@ func (s *Server) health(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
 }
 
-type driveStatusJSON struct {
-	ID          string `json:"id"`
-	Root        string `json:"root"`
-	Total       int64  `json:"total"`
-	Available   int64  `json:"available"`
-	TVTotal     int64  `json:"tv_total"`
-	TVAvailable int64  `json:"tv_available"`
-	Reserve     int64  `json:"reserve"`
-	Incomplete  int64  `json:"incomplete"`
-	Usable      int64  `json:"usable"`
-	TVUsable    int64  `json:"tv_usable"`
-	Healthy     bool   `json:"healthy"`
-	Err         string `json:"err"`
-}
-
-// aggregateStatusJSON totals usable space across all drives for one media
-// type. Each drive is measured via the movie root for movies and via the tv
-// root for tv, so the two aggregates reflect their own volumes.
-type aggregateStatusJSON struct {
-	Usable  int64 `json:"usable"`
-	Healthy bool  `json:"healthy"`
+// storageJSON totals the plain free space of all drives, with no movie/tv
+// distinction: each drive is a single volume, so its free bytes count once.
+type storageJSON struct {
+	Free    int64  `json:"free"`
+	Healthy bool   `json:"healthy"`
+	Err     string `json:"err"`
 }
 
 func (s *Server) status(w http.ResponseWriter, r *http.Request) {
 	out := struct {
-		TMDB        string              `json:"tmdb"`
-		QBittorrent string              `json:"qbittorrent"`
-		QBVersion   string              `json:"qb_version"`
-		QBWebAPI    string              `json:"qb_webapi"`
-		Preallocate string              `json:"preallocate"`
-		TempPath    string              `json:"temp_path"`
-		Drives      []driveStatusJSON   `json:"drives"`
-		Movies      aggregateStatusJSON `json:"movies"`
-		TV          aggregateStatusJSON `json:"tv"`
-		Auth        bool                `json:"auth"`
+		TMDB        string      `json:"tmdb"`
+		QBittorrent string      `json:"qbittorrent"`
+		QBVersion   string      `json:"qb_version"`
+		QBWebAPI    string      `json:"qb_webapi"`
+		Preallocate string      `json:"preallocate"`
+		TempPath    string      `json:"temp_path"`
+		Storage     storageJSON `json:"storage"`
+		Auth        bool        `json:"auth"`
 	}{TMDB: "not configured", QBittorrent: "not checked"}
 	if s.tmdb != nil {
 		out.TMDB = "configured"
@@ -168,25 +151,17 @@ func (s *Server) status(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 	}
-	movies := aggregateStatusJSON{Healthy: true}
-	tv := aggregateStatusJSON{Healthy: true}
-	for _, st := range s.alloc.Statuses(r.Context(), s.cfg.Drives) {
-		out.Drives = append(out.Drives, driveStatusJSON{
-			ID: st.ID, Root: st.MovieRoot, Total: st.Total, Available: st.Available,
-			TVTotal: st.TVTotal, TVAvailable: st.TVAvailable,
-			Reserve: st.Reserve, Incomplete: st.Incomplete,
-			Usable: st.Usable, TVUsable: st.TVUsable,
-			Healthy: st.Healthy, Err: st.Err,
-		})
-		movies.Usable += st.Usable
-		tv.Usable += st.TVUsable
+	storage := storageJSON{Healthy: true}
+	for _, st := range s.alloc.Statuses(s.cfg.Drives) {
+		storage.Free += st.Available
 		if !st.Healthy {
-			movies.Healthy = false
-			tv.Healthy = false
+			storage.Healthy = false
+			if storage.Err == "" {
+				storage.Err = st.Err
+			}
 		}
 	}
-	out.Movies = movies
-	out.TV = tv
+	out.Storage = storage
 	out.Auth = s.cfg.AuthPassword != ""
 	writeJSON(w, http.StatusOK, out)
 }
@@ -498,14 +473,14 @@ func (s *Server) planDestination(in *Intake) (*Destination, string) {
 		d.EnoughSpace = true
 		// The title stays on its drive regardless of free space; a tight
 		// drive only produces a warning.
-		if st, ok := s.driveStatus(context.Background(), m.DriveID); ok {
-			d.UsableSpace = st.Usable
-			d.EnoughSpace = st.Usable >= in.Meta.Size
-			d.Shortfall = in.Meta.Size - st.Usable
+		if st, ok := s.driveStatus(m.DriveID); ok {
+			d.UsableSpace = st.Available
+			d.EnoughSpace = st.Available >= in.Meta.Size
+			d.Shortfall = in.Meta.Size - st.Available
 			if !d.EnoughSpace {
 				d.Warnings = append(d.Warnings, fmt.Sprintf(
-					"%s has only %s usable (torrent needs %s); adding anyway to keep the title on its drive",
-					m.DriveID, humanBytes(st.Usable), humanBytes(in.Meta.Size)))
+					"%s has only %s free (torrent needs %s); adding anyway to keep the title on its drive",
+					m.DriveID, humanBytes(st.Available), humanBytes(in.Meta.Size)))
 			}
 		}
 		return d, ""
@@ -520,9 +495,9 @@ func (s *Server) planDestination(in *Intake) (*Destination, string) {
 		return d, "this title exists on multiple drives; resolve the duplicates before submitting"
 	}
 
-	// New title: choose the drive with the most usable space.
+	// New title: choose the drive with the most free space.
 	pending := s.pendingReservations()
-	sel, err := s.alloc.Select(context.Background(), s.cfg.Drives, pending, in.Meta.Size)
+	sel, err := s.alloc.Select(s.cfg.Drives, pending, in.Meta.Size)
 	if err != nil {
 		d.EnoughSpace = false
 		d.Shortfall = in.Meta.Size
@@ -536,15 +511,15 @@ func (s *Server) planDestination(in *Intake) (*Destination, string) {
 	d.DriveName = sel.Drive.ID
 	d.SavePath = root + "/" + folder
 	d.ContentPath = in.Meta.ContentPath(d.SavePath)
-	d.UsableSpace = sel.Status.Usable
+	d.UsableSpace = sel.Status.Available
 	d.EnoughSpace = d.UsableSpace >= in.Meta.Size
 	d.Shortfall = in.Meta.Size - d.UsableSpace
 	return d, ""
 }
 
-// driveStatus reports the current status of one drive.
-func (s *Server) driveStatus(ctx context.Context, id string) (allocator.DriveStatus, bool) {
-	for _, st := range s.alloc.Statuses(ctx, s.cfg.Drives) {
+// driveStatus reports the plain free space of one drive.
+func (s *Server) driveStatus(id string) (allocator.DriveStatus, bool) {
+	for _, st := range s.alloc.Statuses(s.cfg.Drives) {
 		if st.ID == id {
 			return st, true
 		}

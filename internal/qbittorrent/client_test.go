@@ -109,27 +109,3 @@ func TestWrongCredentialsStillFail(t *testing.T) {
 		t.Fatalf("logins: got %d want 1", got)
 	}
 }
-
-// TestIncompleteBytesUnder verifies the pure snapshot helper sums amount_left
-// only for torrents whose save path is under one of the given roots.
-func TestIncompleteBytesUnder(t *testing.T) {
-	ts := []Torrent{
-		{Hash: "a", SavePath: "/m1/folder", AmountLeft: 10},
-		{Hash: "b", SavePath: "/m1/folder2", AmountLeft: 0}, // complete: skipped
-		{Hash: "c", SavePath: "/m2/folder", AmountLeft: 25},
-		{Hash: "d", SavePath: "/elsewhere", AmountLeft: 100},
-		{Hash: "e", SavePath: "/m1", AmountLeft: 5}, // exactly at root
-	}
-	if got := IncompleteBytesUnder(ts, "/m1"); got != 15 {
-		t.Fatalf("IncompleteBytesUnder(/m1): got %d want 15", got)
-	}
-	if got := IncompleteBytesUnder(ts, "/m2"); got != 25 {
-		t.Fatalf("IncompleteBytesUnder(/m2): got %d want 25", got)
-	}
-	if got := IncompleteBytesUnder(ts, "/m1", "/m2"); got != 40 {
-		t.Fatalf("IncompleteBytesUnder(/m1,/m2): got %d want 40", got)
-	}
-	if got := IncompleteBytesUnder(nil, "/m1"); got != 0 {
-		t.Fatalf("IncompleteBytesUnder(nil): got %d want 0", got)
-	}
-}

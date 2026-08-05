@@ -314,36 +314,6 @@ func (c *Client) Start(ctx context.Context, hash string) error {
 	return err
 }
 
-// IncompleteBytesUnder sums amount_left of incomplete torrents whose save
-// path is under any of the given roots. It operates on an already-fetched
-// snapshot of the torrent list so callers can compute every drive's
-// incomplete bytes from a single /api/v2/torrents/info request.
-func IncompleteBytesUnder(ts []Torrent, roots ...string) int64 {
-	var sum int64
-	for _, t := range ts {
-		if t.AmountLeft <= 0 {
-			continue
-		}
-		if underRoot(t.SavePath, roots) {
-			sum += t.AmountLeft
-		}
-	}
-	return sum
-}
-
-func underRoot(path string, roots []string) bool {
-	for _, r := range roots {
-		r = strings.TrimRight(r, "/")
-		if r == "" {
-			continue
-		}
-		if path == r || strings.HasPrefix(path, r+"/") {
-			return true
-		}
-	}
-	return false
-}
-
 func (t *Torrent) Stopped() bool {
 	return StoppedStates[t.State]
 }

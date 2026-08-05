@@ -106,7 +106,7 @@ func New(cfg *config.Config, qb *qbittorrent.Client, tmdbClient *tmdb.Client) *S
 		cfg:     cfg,
 		qb:      qb,
 		tmdb:    tmdbClient,
-		alloc:   allocator.New(qb),
+		alloc:   allocator.New(),
 		lib:     library.NewScan(drives),
 		intakes: map[string]*Intake{},
 	}

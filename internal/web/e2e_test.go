@@ -316,10 +316,10 @@ func newTestServer(t *testing.T) (*Server, *fakeQB, *httptest.Server, map[string
 	cfg.Listen = "127.0.0.1:0"
 	cfg.QBittorrent.URL = qbSrv.URL
 	cfg.Drives = []config.Drive{
-		{ID: "hdd1", MovieRoot: roots["/m1"], TVRoot: roots["/t1"], ReserveBytes: 0},
-		{ID: "hdd2", MovieRoot: roots["/m2"], TVRoot: roots["/t2"], ReserveBytes: 0},
-		{ID: "hdd3", MovieRoot: roots["/m3"], TVRoot: roots["/t3"], ReserveBytes: 0},
-		{ID: "hdd4", MovieRoot: roots["/m4"], TVRoot: roots["/t4"], ReserveBytes: 0},
+		{ID: "hdd1", MovieRoot: roots["/m1"], TVRoot: roots["/t1"]},
+		{ID: "hdd2", MovieRoot: roots["/m2"], TVRoot: roots["/t2"]},
+		{ID: "hdd3", MovieRoot: roots["/m3"], TVRoot: roots["/t3"]},
+		{ID: "hdd4", MovieRoot: roots["/m4"], TVRoot: roots["/t4"]},
 	}
 
 	tmdbSrv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -746,21 +746,38 @@ func TestEndToEndTransitionalStateSettles(t *testing.T) {
 	}
 }
 
-// One GET /api/status must fetch the full torrent list exactly once even with
-// four drives configured (a single snapshot shared by every drive status).
-func TestStatusFetchesTorrentsOnce(t *testing.T) {
+// /api/status reports the total free space of all drives as a single number
+// (no movie/tv split) and must not need to query the qBittorrent torrent
+// list for it.
+func TestStatusReportsTotalFreeSpace(t *testing.T) {
 	_, fake, httpSrv, _ := newTestServer(t)
 
 	resp, err := http.Get(httpSrv.URL + "/api/status")
 	if err != nil {
 		t.Fatal(err)
 	}
-	resp.Body.Close()
+	defer resp.Body.Close()
+	var s struct {
+		Storage struct {
+			Free    int64  `json:"free"`
+			Healthy bool   `json:"healthy"`
+			Err     string `json:"err"`
+		} `json:"storage"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&s); err != nil {
+		t.Fatal(err)
+	}
+	if !s.Storage.Healthy {
+		t.Fatalf("storage should be healthy: %+v", s.Storage)
+	}
+	if s.Storage.Free <= 0 {
+		t.Fatalf("storage free should be positive: %+v", s.Storage)
+	}
 
 	fake.mu.Lock()
 	defer fake.mu.Unlock()
-	if fake.infoRequests != 1 {
-		t.Fatalf("unfiltered torrents/info requests: got %d want 1", fake.infoRequests)
+	if fake.infoRequests != 0 {
+		t.Fatalf("status must not fetch the torrent list, got %d requests", fake.infoRequests)
 	}
 }
 

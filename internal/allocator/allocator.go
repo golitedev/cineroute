@@ -1,31 +1,22 @@
 // Package allocator selects the physical drive for a new title based on the
-// most usable free space, accounting for configured reserves and qBittorrent's
-// committed incomplete bytes on each drive.
+// most free space, and reports the plain statfs free bytes of every drive.
 package allocator
 
 import (
-	"context"
 	"fmt"
 	"syscall"
 
 	"cineroute/internal/config"
-	"cineroute/internal/qbittorrent"
 )
 
 type DriveStatus struct {
-	ID          string
-	MovieRoot   string
-	TVRoot      string
-	Total       int64
-	Available   int64
-	TVTotal     int64
-	TVAvailable int64
-	Reserve     int64
-	Incomplete  int64
-	Usable      int64
-	TVUsable    int64
-	Healthy     bool
-	Err         string
+	ID        string
+	MovieRoot string
+	TVRoot    string
+	Total     int64
+	Available int64
+	Healthy   bool
+	Err       string
 }
 
 type Selection struct {
@@ -33,12 +24,10 @@ type Selection struct {
 	Status DriveStatus
 }
 
-type Allocator struct {
-	qb *qbittorrent.Client
-}
+type Allocator struct{}
 
-func New(qb *qbittorrent.Client) *Allocator {
-	return &Allocator{qb: qb}
+func New() *Allocator {
+	return &Allocator{}
 }
 
 func statfs(path string) (*syscall.Statfs_t, error) {
@@ -49,31 +38,14 @@ func statfs(path string) (*syscall.Statfs_t, error) {
 	return &st, nil
 }
 
-// torrentSnapshot fetches the full qBittorrent torrent list once per
-// Statuses/Select invocation. On error it returns a nil slice so callers can
-// treat incomplete bytes as 0 for every drive (the previous lenient behavior
-// where the per-drive fetch error was ignored).
-func (a *Allocator) torrentSnapshot(ctx context.Context) ([]qbittorrent.Torrent, error) {
-	if a.qb == nil {
-		return nil, nil
-	}
-	ts, err := a.qb.Torrents(ctx, nil)
-	if err != nil {
-		return nil, err
-	}
-	return ts, nil
-}
-
-// driveStatus computes the status of one drive from a shared torrent snapshot
-// (so the full torrent list is only fetched once per Statuses/Select) and a
-// per-drive statfs. Both roots are measured separately so the movies and tv
-// aggregates reflect their own volumes even if a drive hosts them elsewhere.
-func (a *Allocator) driveStatus(d config.Drive, incomplete int64) DriveStatus {
+// driveStatus reports the plain free space of one drive. The movie root and
+// the tv root of a drive sit on the same volume, so one statfs on the movie
+// root yields the free space of the whole drive.
+func (a *Allocator) driveStatus(d config.Drive) DriveStatus {
 	st := DriveStatus{
 		ID:        d.ID,
 		MovieRoot: d.MovieRoot,
 		TVRoot:    d.TVRoot,
-		Reserve:   d.ReserveBytes,
 	}
 	if d.MovieRoot == "" || d.TVRoot == "" {
 		st.Err = "configured roots are empty"
@@ -86,61 +58,41 @@ func (a *Allocator) driveStatus(d config.Drive, incomplete int64) DriveStatus {
 	}
 	st.Total = int64(fs.Blocks) * fs.Bsize
 	st.Available = int64(fs.Bavail) * fs.Bsize
-	fsTV, err := statfs(d.TVRoot)
-	if err != nil {
-		st.Err = fmt.Sprintf("statfs tv root: %v", err)
-		return st
-	}
-	st.TVTotal = int64(fsTV.Blocks) * fsTV.Bsize
-	st.TVAvailable = int64(fsTV.Bavail) * fsTV.Bsize
-	st.Incomplete = incomplete
-	st.Usable = st.Available - st.Reserve - st.Incomplete
-	if st.Usable < 0 {
-		st.Usable = 0
-	}
-	st.TVUsable = st.TVAvailable - st.Reserve - st.Incomplete
-	if st.TVUsable < 0 {
-		st.TVUsable = 0
-	}
 	st.Healthy = true
 	return st
 }
 
-// Statuses reports the current state of every drive.
-func (a *Allocator) Statuses(ctx context.Context, drives []config.Drive) []DriveStatus {
-	ts, _ := a.torrentSnapshot(ctx) // lenient: a failed fetch counts as 0 incomplete
+// Statuses reports the plain free space of every drive.
+func (a *Allocator) Statuses(drives []config.Drive) []DriveStatus {
 	out := make([]DriveStatus, 0, len(drives))
 	for _, d := range drives {
-		inc := qbittorrent.IncompleteBytesUnder(ts, d.MovieRoot, d.TVRoot)
-		out = append(out, a.driveStatus(d, inc))
+		out = append(out, a.driveStatus(d))
 	}
 	return out
 }
 
-// Select picks the drive with the most usable space for a new title.
+// Select picks the drive with the most free space for a new title.
 // pending is the bytes already reserved by other intakes.
-func (a *Allocator) Select(ctx context.Context, drives []config.Drive, pending map[string]int64, need int64) (Selection, error) {
-	ts, _ := a.torrentSnapshot(ctx) // lenient: a failed fetch counts as 0 incomplete
+func (a *Allocator) Select(drives []config.Drive, pending map[string]int64, need int64) (Selection, error) {
 	var best *Selection
-	var bestUsable int64
+	var bestFree int64
 	for _, d := range drives {
-		inc := qbittorrent.IncompleteBytesUnder(ts, d.MovieRoot, d.TVRoot)
-		st := a.driveStatus(d, inc)
+		st := a.driveStatus(d)
 		if !st.Healthy {
 			continue
 		}
-		usable := st.Usable - pending[d.ID]
-		if usable < 0 {
-			usable = 0
+		free := st.Available - pending[d.ID]
+		if free < 0 {
+			free = 0
 		}
-		if usable >= need && (best == nil || usable > bestUsable) {
+		if free >= need && (best == nil || free > bestFree) {
 			sel := Selection{Drive: d, Status: st}
 			best = &sel
-			bestUsable = usable
+			bestFree = free
 		}
 	}
 	if best == nil {
-		return Selection{}, fmt.Errorf("no drive has enough usable space for %d bytes", need)
+		return Selection{}, fmt.Errorf("no drive has enough free space for %d bytes", need)
 	}
 	return *best, nil
 }

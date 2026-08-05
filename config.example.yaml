@@ -37,19 +37,15 @@ drives:
   - id: "hdd1"
     movie_root: "/m1"
     tv_root: "/t1"
-    reserve_bytes: 107374182400
 
   - id: "hdd2"
     movie_root: "/m2"
     tv_root: "/t2"
-    reserve_bytes: 107374182400
 
   - id: "hdd3"
     movie_root: "/m3"
     tv_root: "/t3"
-    reserve_bytes: 107374182400
 
   - id: "hdd4"
     movie_root: "/m4"
     tv_root: "/t4"
-    reserve_bytes: 107374182400

@@ -126,7 +126,7 @@ func (s *Server) submitLocked(ctx context.Context, in *Intake) error {
 		return errors.New("this title exists on multiple drives; resolve the duplicates before submitting")
 	default:
 		pending := s.pendingReservations()
-		sel, err := s.alloc.Select(ctx, s.cfg.Drives, pending, in.Meta.Size)
+		sel, err := s.alloc.Select(s.cfg.Drives, pending, in.Meta.Size)
 		if err != nil {
 			return err
 		}
@@ -149,14 +149,14 @@ func (s *Server) submitLocked(ctx context.Context, in *Intake) error {
 		NeededBytes: in.Meta.Size,
 		EnoughSpace: true,
 	}
-	if st, ok := s.driveStatus(ctx, driveID); ok {
-		dest.UsableSpace = st.Usable
-		dest.EnoughSpace = st.Usable >= in.Meta.Size
-		dest.Shortfall = in.Meta.Size - st.Usable
+	if st, ok := s.driveStatus(driveID); ok {
+		dest.UsableSpace = st.Available
+		dest.EnoughSpace = st.Available >= in.Meta.Size
+		dest.Shortfall = in.Meta.Size - st.Available
 		if !dest.EnoughSpace && dest.Existing {
 			dest.Warnings = append(dest.Warnings, fmt.Sprintf(
-				"%s has only %s usable (torrent needs %s); adding anyway to keep the title on its drive",
-				driveID, humanBytes(st.Usable), humanBytes(in.Meta.Size)))
+				"%s has only %s free (torrent needs %s); adding anyway to keep the title on its drive",
+				driveID, humanBytes(st.Available), humanBytes(in.Meta.Size)))
 		}
 	}
 	in.Dest = dest

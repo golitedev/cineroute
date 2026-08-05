@@ -36,10 +36,9 @@ type Library struct {
 }
 
 type Drive struct {
-	ID           string `yaml:"id"`
-	MovieRoot    string `yaml:"movie_root"`
-	TVRoot       string `yaml:"tv_root"`
-	ReserveBytes int64  `yaml:"reserve_bytes"`
+	ID        string `yaml:"id"`
+	MovieRoot string `yaml:"movie_root"`
+	TVRoot    string `yaml:"tv_root"`
 }
 
 func Default() *Config {
@@ -57,10 +56,10 @@ func Default() *Config {
 		},
 		Library: Library{FolderFormat: "{title} ({year})"},
 		Drives: []Drive{
-			{ID: "hdd1", MovieRoot: "/m1", TVRoot: "/t1", ReserveBytes: 100 << 30},
-			{ID: "hdd2", MovieRoot: "/m2", TVRoot: "/t2", ReserveBytes: 100 << 30},
-			{ID: "hdd3", MovieRoot: "/m3", TVRoot: "/t3", ReserveBytes: 100 << 30},
-			{ID: "hdd4", MovieRoot: "/m4", TVRoot: "/t4", ReserveBytes: 100 << 30},
+			{ID: "hdd1", MovieRoot: "/m1", TVRoot: "/t1"},
+			{ID: "hdd2", MovieRoot: "/m2", TVRoot: "/t2"},
+			{ID: "hdd3", MovieRoot: "/m3", TVRoot: "/t3"},
+			{ID: "hdd4", MovieRoot: "/m4", TVRoot: "/t4"},
 		},
 	}
 }
@@ -129,9 +128,6 @@ func (c *Config) validate() error {
 		seen[d.ID] = true
 		if d.MovieRoot == "" || d.TVRoot == "" {
 			return fmt.Errorf("drive %s: movie_root and tv_root are required", d.ID)
-		}
-		if d.ReserveBytes < 0 {
-			return fmt.Errorf("drive %s: reserve_bytes must not be negative", d.ID)
 		}
 	}
 	return nil
