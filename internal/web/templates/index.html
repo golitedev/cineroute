@@ -55,6 +55,20 @@ input[type=number]{width:90px}
 .row{display:flex;gap:10px;align-items:center;flex-wrap:wrap}
 .small{color:var(--dim);font-size:12px}
 #files{max-height:160px;overflow:auto}
+/* sign-in page */
+#loginCard{max-width:380px;margin:8vh auto 0;padding:36px 30px;text-align:center}
+#loginCard .login-title{font-size:20px;color:var(--text);text-transform:none;letter-spacing:normal;margin:0 0 6px}
+#loginCard .login-sub{color:var(--dim);font-size:13px;margin:0 0 26px}
+.login-label{display:block;text-align:left;color:var(--dim);font-size:12px;text-transform:uppercase;letter-spacing:.05em;margin:0 0 6px}
+.login-field{position:relative;margin-bottom:16px;text-align:left}
+#loginCard input[type=password]{width:100%;background:#0f1115;border:1px solid var(--border);border-radius:8px;color:var(--text);font-size:14px;padding:11px 54px 11px 12px;outline:none;transition:border-color .15s}
+#loginCard input[type=password]:focus{border-color:var(--accent)}
+#loginCard input[type=password]::placeholder{color:var(--dim)}
+.login-toggle{position:absolute;right:6px;top:50%;transform:translateY(-50%);background:none;border:none;color:var(--dim);font-size:12px;padding:6px;cursor:pointer}
+.login-toggle:hover{color:var(--accent)}
+#loginCard .login-btn{width:100%;padding:11px;font-size:14px;border-radius:8px}
+#loginCard .login-btn:disabled{opacity:.6;cursor:not-allowed}
+#loginCard .errbox{margin-top:16px;text-align:left}
 </style>
 </head>
 <body>
@@ -66,11 +80,14 @@ input[type=number]{width:90px}
 <main>
 
 <div class="card hidden" id="loginCard">
-  <h2>Sign in</h2>
-  <div class="row">
-    <input type="password" id="loginPass" placeholder="Password" autocomplete="current-password">
-    <button class="primary" onclick="login()">Sign in</button>
+  <h2 class="login-title">Sign in to CineRoute</h2>
+  <p class="login-sub">Enter your password to continue.</p>
+  <label class="login-label" for="loginPass">Password</label>
+  <div class="login-field">
+    <input type="password" id="loginPass" placeholder="Enter password" autocomplete="current-password" name="password">
+    <button type="button" class="login-toggle" id="loginToggle" onclick="togglePass()">Show</button>
   </div>
+  <button class="primary login-btn" id="loginBtn" onclick="login()">Sign in</button>
   <div id="loginErr" class="errbox hidden"></div>
 </div>
 
@@ -119,23 +136,39 @@ function postJSON(path,body){
 async function login(){
   const pass=$("loginPass").value;
   $("loginErr").classList.add("hidden");
+  const btn=$("loginBtn");
+  btn.disabled=true;btn.textContent="Signing in…";
   try{
     await postJSON("/api/login",{password:pass});
     $("loginCard").classList.add("hidden");
     $("uploadCard").classList.remove("hidden");
-    loadStatus();refresh();
+    $("statusbar").style.display="";
+    loadStatus();loadHistory();refresh();
   }catch(e){
     $("loginErr").textContent=e.message;
     $("loginErr").classList.remove("hidden");
+    $("loginPass").focus();
+    $("loginPass").select();
+  }finally{
+    btn.disabled=false;btn.textContent="Sign in";
   }
 }
 $("loginPass").addEventListener("keydown",e=>{if(e.key==="Enter")login()});
+function togglePass(){
+  const i=$("loginPass");
+  const show=i.type==="password";
+  i.type=show?"text":"password";
+  $("loginToggle").textContent=show?"Hide":"Show";
+  i.focus();
+}
 function showLogin(){
   if($("loginCard").classList.contains("hidden")){
     $("uploadCard").classList.add("hidden");
     $("stack").innerHTML="";
     $("historyCard").classList.add("hidden");
     $("loginCard").classList.remove("hidden");
+    $("statusbar").style.display="none";
+    $("loginPass").value="";
     $("loginPass").focus();
   }
 }
