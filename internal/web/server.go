@@ -170,7 +170,7 @@ func (s *Server) serveAsset(name string) http.HandlerFunc {
 func (s *Server) auth(next http.Handler) http.Handler {
 	pass := s.cfg.AuthPassword
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path == "/health" {
+		if r.URL.Path == "/health" || r.URL.Path == "/favicon.png" || r.URL.Path == "/favicon.svg" {
 			next.ServeHTTP(w, r)
 			return
 		}
