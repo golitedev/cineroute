@@ -366,6 +366,7 @@ func deleteIntakeReq(t *testing.T, httpSrv *httptest.Server, id string) int {
 
 func TestSessionAuth(t *testing.T) {
 	cfg := config.Default()
+	cfg.AuthUsername = "alice"
 	cfg.AuthPassword = "secret"
 	cfg.QBittorrent.URL = "http://unused:1"
 	cfg.Drives = nil
@@ -449,7 +450,7 @@ func TestSessionAuth(t *testing.T) {
 
 	// Basic Auth still works as a fallback.
 	req, _ = http.NewRequest("GET", httpSrv.URL+"/api/status", nil)
-	req.SetBasicAuth("cineroute", "secret")
+	req.SetBasicAuth("alice", "secret")
 	resp2, err = client.Do(req)
 	if err != nil {
 		t.Fatal(err)

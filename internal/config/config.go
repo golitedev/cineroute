@@ -10,6 +10,7 @@ import (
 
 type Config struct {
 	Listen         string      `yaml:"listen"`
+	AuthUsername   string      `yaml:"auth_username"`
 	AuthPassword   string      `yaml:"auth_password"`
 	MaxUploadBytes int64       `yaml:"max_upload_bytes"`
 	TMDB           TMDB        `yaml:"tmdb"`
@@ -44,6 +45,7 @@ type Drive struct {
 func Default() *Config {
 	return &Config{
 		Listen:         "127.0.0.1:8787",
+		AuthUsername:   "cineroute",
 		MaxUploadBytes: 64 << 20,
 		TMDB: TMDB{
 			Language: "en-US",
@@ -89,6 +91,9 @@ func Load(path string) (*Config, error) {
 func applyEnv(cfg *Config) {
 	if v := os.Getenv("CINEROUTE_LISTEN"); v != "" {
 		cfg.Listen = v
+	}
+	if v := os.Getenv("CINEROUTE_AUTH_USERNAME"); v != "" {
+		cfg.AuthUsername = v
 	}
 	if v := os.Getenv("CINEROUTE_AUTH_PASSWORD"); v != "" {
 		cfg.AuthPassword = v

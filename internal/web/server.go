@@ -204,6 +204,7 @@ func (s *Server) serveAsset(name string) http.HandlerFunc {
 // is served as part of the page and only the API is gated.
 func (s *Server) auth(next http.Handler) http.Handler {
 	pass := s.cfg.AuthPassword
+	user := s.cfg.AuthUsername
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		p := r.URL.Path
 		if p == "/" || p == "/health" || p == "/favicon.png" || p == "/favicon.svg" || p == "/api/login" {
@@ -215,8 +216,8 @@ func (s *Server) auth(next http.Handler) http.Handler {
 				next.ServeHTTP(w, r)
 				return
 			}
-			user, pw, ok := r.BasicAuth()
-			if !ok || user != "cineroute" ||
+			gotUser, pw, ok := r.BasicAuth()
+			if !ok || gotUser != user ||
 				subtle.ConstantTimeCompare([]byte(pw), []byte(pass)) != 1 {
 				w.Header().Set("WWW-Authenticate", `Basic realm="cineroute"`)
 				http.Error(w, "unauthorized", http.StatusUnauthorized)
