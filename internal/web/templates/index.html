@@ -15,7 +15,9 @@ header #brand{height:26px;display:block}
 header #brandIcon{height:26px;width:26px;border-radius:5px}
 header .tag{color:var(--dim);font-size:12px}
 main{max-width:760px;margin:0 auto;padding:20px}
-.card{background:var(--panel);border:1px solid var(--border);border-radius:10px;padding:16px;margin-bottom:16px}
+.card{background:var(--panel);border:1px solid var(--border);border-radius:10px;padding:16px;margin-bottom:16px;position:relative}
+.card .close{position:absolute;top:10px;right:12px;background:none;border:none;color:var(--dim);font-size:15px;line-height:1;cursor:pointer;padding:4px}
+.card .close:hover{color:var(--err)}
 .card h2{font-size:14px;margin:0 0 12px;color:var(--dim);text-transform:uppercase;letter-spacing:.05em}
 #drop{border:2px dashed var(--border);border-radius:10px;padding:48px 20px;text-align:center;cursor:pointer;transition:.15s}
 #drop.drag{border-color:var(--accent);background:#121a2e}
@@ -152,6 +154,12 @@ async function submit(id){
   busy.delete(g.group);
   await refresh();
 }
+async function removeGroup(key){
+  if(busy.has(key))return;
+  const members=intakes.filter(x=>x.group===key);
+  await Promise.all(members.map(m=>api("/api/intakes/"+m.id,{method:"DELETE"}).catch(()=>{})));
+  await refresh();
+}
 
 // ---- render ----
 function refresh(){
@@ -199,6 +207,7 @@ function tmdbHTML(x){
 function cardSingle(x){
   const btn=(t,l)=>'<button class="'+(x.media_type===t?"primary":"")+'" onclick="setType(\''+x.id+'\',\''+t+'\')">'+l+"</button>";
   return '<div class="card">'+
+    '<button class="close" title="Remove" '+(x.status==="submitted"||x.status==="submitting"?"disabled":"onclick=\"removeGroup(\'"+x.group+"\')\"")+'>✕</button>'+
     '<h2>'+esc(x.torrent_name)+'</h2>'+
     '<table class="kv"><tbody>'+[
       ["File",esc(x.filename)],
@@ -279,6 +288,7 @@ function cardTV(g){
   const allSubmitted=g.every(x=>x.status==="submitted");
   const rows=g.map(m=>'<tr><td>'+seasonLbl(m)+'</td><td class="mono">'+esc(m.torrent_name)+'</td><td>'+fmtBytes(m.size)+'</td><td>'+statusBadge(m)+'</td></tr>').join("");
   let html='<div class="card">'+
+    '<button class="close" title="Remove'+(g.length>1?" whole show":"")+'" '+(allSubmitted||busy.has(busyKey)?"disabled":"onclick=\"removeGroup(\'"+rep.group+"\')\"")+'>✕</button>'+
     '<h2>TV show · '+esc(title)+yr+' <span class="small">('+g.length+' parts)</span></h2>'+
     '<table><thead><tr><th>Season</th><th>Torrent</th><th>Size</th><th>Status</th></tr></thead><tbody>'+rows+'</tbody></table>'+
     '<div class="row" style="margin-top:12px">'+

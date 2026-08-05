@@ -140,6 +140,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /api/intakes", s.listIntakes)
 	mux.HandleFunc("POST /api/intakes", s.upload)
 	mux.HandleFunc("POST /api/intakes/{id}/type", s.setType)
+	mux.HandleFunc("DELETE /api/intakes/{id}", s.deleteIntake)
 	mux.HandleFunc("POST /api/intakes/{id}/search", s.search)
 	mux.HandleFunc("POST /api/intakes/{id}/match", s.match)
 	mux.HandleFunc("POST /api/intakes/{id}/submit", s.submit)

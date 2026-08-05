@@ -259,6 +259,24 @@ func (s *Server) listIntakes(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, apiResponse{Intakes: out})
 }
 
+// deleteIntake removes one intake from the stack. Intakes that are already
+// (or currently being) pushed to qBittorrent cannot be removed.
+func (s *Server) deleteIntake(w http.ResponseWriter, r *http.Request) {
+	in, ok := s.getIntake(r.PathValue("id"))
+	if !ok {
+		writeErr(w, http.StatusNotFound, "intake not found")
+		return
+	}
+	if in.Status == "submitted" || in.Status == "submitting" {
+		writeErr(w, http.StatusConflict, "cannot delete an intake that is being or already was submitted")
+		return
+	}
+	s.mu.Lock()
+	delete(s.intakes, in.ID)
+	s.mu.Unlock()
+	writeJSON(w, http.StatusOK, apiResponse{Intake: toJSON(in)})
+}
+
 // setType re-classifies the intake as movie or tv and re-runs the TMDB search.
 func (s *Server) setType(w http.ResponseWriter, r *http.Request) {
 	in, ok := s.getIntake(r.PathValue("id"))

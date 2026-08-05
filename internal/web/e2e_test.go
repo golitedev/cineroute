@@ -351,6 +351,59 @@ func newTestServer(t *testing.T) (*Server, *fakeQB, *httptest.Server, map[string
 	return srv, qb, httpSrv, roots
 }
 
+func deleteIntakeReq(t *testing.T, httpSrv *httptest.Server, id string) int {
+	t.Helper()
+	req, _ := http.NewRequest("DELETE", httpSrv.URL+"/api/intakes/"+id, nil)
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	return resp.StatusCode
+}
+
+func TestDeleteIntake(t *testing.T) {
+	srv, fake, httpSrv, _ := newTestServer(t)
+	_ = srv
+	_ = fake
+
+	// A lone movie is removed from the stack entirely.
+	in := uploadTorrent(t, httpSrv, "x.torrent", singleFileTorrent("Movie.A.2020.1080p.mkv", 100))
+	if code := deleteIntakeReq(t, httpSrv, in.ID); code != 200 {
+		t.Fatalf("delete movie: %d", code)
+	}
+	if intakes := getIntakes(t, httpSrv); len(intakes) != 0 {
+		t.Fatalf("intakes after delete: %d", len(intakes))
+	}
+	if code := deleteIntakeReq(t, httpSrv, in.ID); code != 404 {
+		t.Fatalf("second delete should 404, got %d", code)
+	}
+
+	// A TV part is removed on its own; the rest of the group stays.
+	out := uploadMany(t, httpSrv, map[string][]byte{
+		"s1.torrent": singleFileTorrent("The.Office.S01.1080p.WEB-DL.mkv", 200),
+		"s2.torrent": singleFileTorrent("The.Office.S02.1080p.WEB-DL.mkv", 200),
+	})
+	if code := deleteIntakeReq(t, httpSrv, out[0].ID); code != 200 {
+		t.Fatalf("delete tv part: %d", code)
+	}
+	intakes := getIntakes(t, httpSrv)
+	if len(intakes) != 1 || intakes[0].ID != out[1].ID {
+		t.Fatalf("expected the other part to remain: %+v", intakes)
+	}
+
+	// Submitted intakes cannot be deleted.
+	m := uploadTorrent(t, httpSrv, "y.torrent", singleFileTorrent("Movie.B.2021.1080p.mkv", 100))
+	resp, _ := http.Post(httpSrv.URL+"/api/intakes/"+m.ID+"/submit", "application/json", strings.NewReader(`{}`))
+	resp.Body.Close()
+	if code := deleteIntakeReq(t, httpSrv, m.ID); code != 409 {
+		t.Fatalf("delete submitted should 409, got %d", code)
+	}
+	if intakes := getIntakes(t, httpSrv); len(intakes) != 2 {
+		t.Fatalf("submitted intake must survive delete: %d", len(intakes))
+	}
+}
+
 func uploadMany(t *testing.T, httpSrv *httptest.Server, files map[string][]byte) []*intakeJSON {
 	t.Helper()
 	var buf bytes.Buffer
