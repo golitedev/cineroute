@@ -133,6 +133,7 @@ func (s *Server) cleanupLoop() {
 func (s *Server) Handler() http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /", s.pageIndex)
+	mux.HandleFunc("GET /favicon.png", s.serveAsset("logo/favicon.png"))
 	mux.HandleFunc("GET /favicon.svg", s.serveAsset("logo/favicon.svg"))
 	mux.HandleFunc("GET /logo.svg", s.serveAsset("logo/logo.svg"))
 	mux.HandleFunc("GET /health", s.health)
@@ -155,8 +156,12 @@ func (s *Server) serveAsset(name string) http.HandlerFunc {
 	if err != nil {
 		panic("embedded asset missing: " + name)
 	}
+	ct := "image/svg+xml"
+	if strings.HasSuffix(name, ".png") {
+		ct = "image/png"
+	}
 	return func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Content-Type", "image/svg+xml")
+		w.Header().Set("Content-Type", ct)
 		w.Header().Set("Cache-Control", "public, max-age=86400")
 		w.Write(data)
 	}
