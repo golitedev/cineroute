@@ -132,10 +132,8 @@ async function loadStatus(){
     if(s.tmdb==="configured")add("tmdb: ok","ok");else add("tmdb: "+s.tmdb,"warn");
     if(s.preallocate&&s.preallocate.includes("enabled"))add("prealloc: on","warn");
     if(s.temp_path&&s.temp_path.includes("enabled"))add("temp path: on","warn");
-    for(const d of s.drives){
-      const h=d.healthy&&d.usable>=0;
-      add(d.id+": "+fmtBytes(d.usable)+" free",h?"ok":"err");
-    }
+    add("movies: "+fmtBytes(s.movies.usable)+" free",s.movies.healthy?"ok":"err");
+    add("tv: "+fmtBytes(s.tv.usable)+" free",s.tv.healthy?"ok":"err");
   }catch(e){$("statusbar").textContent="status: "+e.message;}
 }
 

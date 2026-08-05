@@ -108,16 +108,27 @@ type driveStatusJSON struct {
 	Err        string `json:"err"`
 }
 
+// aggregateStatusJSON totals usable space across all drives for one media
+// type. Each HDD hosts both its movie and tv root, so the per-drive usable
+// figure (measured via the movie root) applies to both; the movies and tv
+// aggregates are therefore the same sum.
+type aggregateStatusJSON struct {
+	Usable  int64 `json:"usable"`
+	Healthy bool  `json:"healthy"`
+}
+
 func (s *Server) status(w http.ResponseWriter, r *http.Request) {
 	out := struct {
-		TMDB        string            `json:"tmdb"`
-		QBittorrent string            `json:"qbittorrent"`
-		QBVersion   string            `json:"qb_version"`
-		QBWebAPI    string            `json:"qb_webapi"`
-		Preallocate string            `json:"preallocate"`
-		TempPath    string            `json:"temp_path"`
-		Drives      []driveStatusJSON `json:"drives"`
-		Auth        bool              `json:"auth"`
+		TMDB        string               `json:"tmdb"`
+		QBittorrent string               `json:"qbittorrent"`
+		QBVersion   string               `json:"qb_version"`
+		QBWebAPI    string               `json:"qb_webapi"`
+		Preallocate string               `json:"preallocate"`
+		TempPath    string               `json:"temp_path"`
+		Drives      []driveStatusJSON    `json:"drives"`
+		Movies      aggregateStatusJSON  `json:"movies"`
+		TV          aggregateStatusJSON  `json:"tv"`
+		Auth        bool                 `json:"auth"`
 	}{TMDB: "not configured", QBittorrent: "not checked"}
 	if s.tmdb != nil {
 		out.TMDB = "configured"
@@ -150,13 +161,20 @@ func (s *Server) status(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 	}
+	agg := aggregateStatusJSON{Healthy: true}
 	for _, st := range s.alloc.Statuses(r.Context(), s.cfg.Drives) {
 		out.Drives = append(out.Drives, driveStatusJSON{
 			ID: st.ID, Root: st.MovieRoot, Total: st.Total, Available: st.Available,
 			Reserve: st.Reserve, Incomplete: st.Incomplete, Usable: st.Usable,
 			Healthy: st.Healthy, Err: st.Err,
 		})
+		agg.Usable += st.Usable
+		if !st.Healthy {
+			agg.Healthy = false
+		}
 	}
+	out.Movies = agg
+	out.TV = agg
 	out.Auth = s.cfg.AuthPassword != ""
 	writeJSON(w, http.StatusOK, out)
 }
