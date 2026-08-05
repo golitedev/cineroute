@@ -117,7 +117,7 @@ async function loadStatus(){
     const el=document.createElement("span");
     el.className="badge "+(st.healthy?"ok":"err");
     el.innerHTML='<svg viewBox="0 0 24 24" width="13" height="13" fill="currentColor" style="vertical-align:-2px;margin-right:5px" aria-hidden="true"><path d="M5 3h14a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2zm0 2v2h14V5H5zm0 6v6h14v-6H5zm2 2a1 1 0 1 0 0 2 1 1 0 0 0 0-2z"/></svg>'+
-      (st.healthy?fmtBytes(st.free)+" free":(st.err||"storage unavailable"));
+      (st.healthy?fmtBytes(st.free)+" free":esc(st.err||"storage unavailable"));
     b.appendChild(el);
   }catch(e){$("statusbar").textContent="status: "+e.message;}
 }
@@ -205,9 +205,10 @@ function tmdbHTML(x){
 }
 
 function cardSingle(x){
+  const done=x.status==="submitted"||x.status==="submitting";
   const btn=(t,l)=>'<button class="'+(x.media_type===t?"primary":"")+'" onclick="setType(\''+x.id+'\',\''+t+'\')">'+l+"</button>";
   return '<div class="card">'+
-    '<button class="close" title="Remove" '+(x.status==="submitted"||x.status==="submitting"?"disabled":"onclick=\"removeGroup(\'"+x.group+"\')\"")+'>✕</button>'+
+    '<button class="close" title="Remove" '+(done?"disabled":"onclick=\"removeGroup(\'"+x.group+"\')\"")+'>✕</button>'+
     '<h2>'+esc(x.torrent_name)+'</h2>'+
     '<table class="kv"><tbody>'+[
       ["File",esc(x.filename)],
@@ -221,14 +222,14 @@ function cardSingle(x){
       ["Year",x.year||"—"],
       ["Season",x.season||"—"],
     ].map(r=>"<tr><td>"+r[0]+"</td><td>"+r[1]+"</td></tr>").join("")+'</tbody></table>'+
-    '<div class="row" style="margin-top:12px">'+
+    (done?"":'<div class="row" style="margin-top:12px">'+
       '<span class="small">Type:</span>'+btn("movie","Movie")+btn("tv","TV show")+
       '<input type="text" id="qt'+x.id+'" placeholder="Search title" value="'+esc(x.title||"")+'">'+
       '<input type="number" id="qy'+x.id+'" placeholder="Year" value="'+(x.year||"")+'">'+
       '<button onclick="search(\''+x.id+'\')">Search TMDB</button>'+
-    '</div>'+
+    '</div>')+
     errBox(x.tmdb_error)+
-    tmdbHTML(x)+
+    (done?"":tmdbHTML(x))+
     (x.match?destHTML(x):"")+
   '</div>';
 }
@@ -248,7 +249,7 @@ function destHTML(x){
       ["Content path",'<span class="mono">'+esc(dest.content_path)+"</span>"],
       ["root_folder",String(dest.root_folder)],
       ["Torrent size",fmtBytes(dest.needed_bytes)],
-      ["Usable space on drive",dest.usable_space?fmtBytes(dest.usable_space):"—"],
+      ["Free space on drive",dest.usable_space?fmtBytes(dest.usable_space):"—"],
     ];
   }
   let html='<div style="margin-top:14px"><h2>Destination</h2>'+
@@ -291,13 +292,13 @@ function cardTV(g){
     '<button class="close" title="Remove'+(g.length>1?" whole show":"")+'" '+(allSubmitted||busy.has(busyKey)?"disabled":"onclick=\"removeGroup(\'"+rep.group+"\')\"")+'>✕</button>'+
     '<h2>TV show · '+esc(title)+yr+' <span class="small">('+g.length+' parts)</span></h2>'+
     '<table><thead><tr><th>Season</th><th>Torrent</th><th>Size</th><th>Status</th></tr></thead><tbody>'+rows+'</tbody></table>'+
-    '<div class="row" style="margin-top:12px">'+
+    (allSubmitted?"":'<div class="row" style="margin-top:12px">'+
       '<input type="text" id="qt'+rep.id+'" placeholder="Search title" value="'+esc(rep.title||"")+'">'+
       '<input type="number" id="qy'+rep.id+'" placeholder="Year" value="'+(rep.year||"")+'">'+
       '<button onclick="search(\''+rep.id+'\')">Search TMDB</button>'+
-    '</div>'+
+    '</div>')+
     errBox(rep.tmdb_error)+
-    tmdbHTML(rep);
+    (allSubmitted?"":tmdbHTML(rep));
   if(rep.match){
     const dest=rep.dest;
     html+='<div style="margin-top:14px"><h2>Destination</h2>'+

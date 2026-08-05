@@ -167,7 +167,6 @@ type Torrent struct {
 	Tags        string `json:"tags"`
 	AutoTMM     bool   `json:"auto_tmm"`
 	TotalSize   int64  `json:"total_size"`
-	AmountLeft  int64  `json:"amount_left"`
 	State       string `json:"state"`
 }
 

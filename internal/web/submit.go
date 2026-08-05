@@ -12,6 +12,7 @@ import (
 
 	"cineroute/internal/library"
 	"cineroute/internal/qbittorrent"
+	"cineroute/internal/torrentmeta"
 )
 
 // pendingReservations returns the bytes each drive has already reserved by
@@ -38,48 +39,66 @@ func (s *Server) submit(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusNotFound, "intake not found")
 		return
 	}
+	s.mu.RLock()
 	if in.Match == nil {
+		s.mu.RUnlock()
 		writeErr(w, http.StatusBadRequest, "a TMDB match is required before submitting")
 		return
 	}
+	key := groupKey(in)
+	s.mu.RUnlock()
 
 	s.allocMu.Lock()
 	defer s.allocMu.Unlock()
 
 	members := []*Intake{}
-	for _, m := range s.groupMembers(groupKey(in)) {
-		if m.Status == "submitted" || m.Match == nil {
+	for _, m := range s.groupMembers(key) {
+		s.mu.RLock()
+		skip := m.Status == "submitted" || m.Match == nil
+		s.mu.RUnlock()
+		if skip {
 			continue
 		}
 		members = append(members, m)
 	}
 	if len(members) == 0 {
-		writeJSON(w, http.StatusOK, apiResponse{Intake: toJSON(in)})
+		s.mu.RLock()
+		out := apiResponse{Intake: toJSON(in)}
+		s.mu.RUnlock()
+		writeJSON(w, http.StatusOK, out)
 		return
 	}
 
 	failed := false
 	for _, m := range members {
+		s.mu.Lock()
 		m.Status = "submitting"
 		m.Error = ""
 		m.Dest = nil
+		s.mu.Unlock()
 		if err := s.submitLocked(r.Context(), m); err != nil {
+			s.mu.Lock()
 			m.Status = "failed"
 			m.Error = err.Error()
+			s.mu.Unlock()
 			s.pushHistory(m)
 			if m.ID == in.ID {
 				failed = true
 			}
 			continue
 		}
+		s.mu.Lock()
 		m.Status = "submitted"
+		s.mu.Unlock()
 		s.pushHistory(m)
 	}
 
+	s.mu.RLock()
 	out := apiResponse{Intake: toJSON(in)}
-	for _, m := range s.groupMembers(groupKey(in)) {
+	for _, m := range s.groupMembersLocked(key) {
 		out.Intakes = append(out.Intakes, toJSON(m))
 	}
+	s.mu.RUnlock()
 	status := http.StatusOK
 	if failed {
 		status = http.StatusConflict
@@ -88,13 +107,28 @@ func (s *Server) submit(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) submitLocked(ctx context.Context, in *Intake) error {
+	// Snapshot everything the transaction needs so a concurrent listing or
+	// other request can never race with the long-running submit.
+	s.mu.RLock()
+	if in.Match == nil {
+		s.mu.RUnlock()
+		return errors.New("the TMDB match was reset before submitting; match the intake again")
+	}
+	match := *in.Match
+	meta := in.Meta
+	class := in.Class
+	bytes := in.Bytes
+	filename := in.Filename
+	id := in.ID
+	s.mu.RUnlock()
+
 	// 1. Readiness gate: versions, preferences, categories.
 	if err := s.ready(ctx); err != nil {
 		return err
 	}
 
 	// 2. Duplicate check against qBittorrent.
-	if hashes := in.Meta.QueryHashes(); hashes != "" {
+	if hashes := meta.QueryHashes(); hashes != "" {
 		ts, err := s.qb.Torrents(ctx, map[string][]string{"hashes": {hashes}})
 		if err != nil {
 			return fmt.Errorf("duplicate check failed: %w", err)
@@ -105,8 +139,8 @@ func (s *Server) submitLocked(ctx context.Context, in *Intake) error {
 	}
 
 	// 3. Authoritative destination: fresh library scan + fresh space.
-	isTV := in.Class.MediaType == "tv"
-	folder := library.FolderName(s.cfg.Library.FolderFormat, in.Match.DisplayTitle(), in.Match.Year())
+	isTV := class.MediaType == "tv"
+	folder := library.FolderName(s.cfg.Library.FolderFormat, match.DisplayTitle(), match.Year())
 	var matches []library.Folder
 	if isTV {
 		matches = s.lib.FindTV(folder)
@@ -126,7 +160,7 @@ func (s *Server) submitLocked(ctx context.Context, in *Intake) error {
 		return errors.New("this title exists on multiple drives; resolve the duplicates before submitting")
 	default:
 		pending := s.pendingReservations()
-		sel, err := s.alloc.Select(s.cfg.Drives, pending, in.Meta.Size)
+		sel, err := s.alloc.Select(s.cfg.Drives, pending, meta.Size)
 		if err != nil {
 			return err
 		}
@@ -144,22 +178,24 @@ func (s *Server) submitLocked(ctx context.Context, in *Intake) error {
 		SavePath:    savePath,
 		FolderName:  folder,
 		Existing:    len(matches) > 0,
-		ContentPath: in.Meta.ContentPath(savePath),
-		RootFolder:  in.Meta.RootFolder,
-		NeededBytes: in.Meta.Size,
+		ContentPath: meta.ContentPath(savePath),
+		RootFolder:  meta.RootFolder,
+		NeededBytes: meta.Size,
 		EnoughSpace: true,
 	}
 	if st, ok := s.driveStatus(driveID); ok {
 		dest.UsableSpace = st.Available
-		dest.EnoughSpace = st.Available >= in.Meta.Size
-		dest.Shortfall = in.Meta.Size - st.Available
+		dest.EnoughSpace = st.Available >= meta.Size
+		dest.Shortfall = meta.Size - st.Available
 		if !dest.EnoughSpace && dest.Existing {
 			dest.Warnings = append(dest.Warnings, fmt.Sprintf(
 				"%s has only %s free (torrent needs %s); adding anyway to keep the title on its drive",
-				driveID, humanBytes(st.Available), humanBytes(in.Meta.Size)))
+				driveID, humanBytes(st.Available), humanBytes(meta.Size)))
 		}
 	}
+	s.mu.Lock()
 	in.Dest = dest
+	s.mu.Unlock()
 
 	// 4. Create only the canonical parent folder.
 	if err := os.Mkdir(savePath, 0o755); err != nil && !errors.Is(err, os.ErrExist) {
@@ -167,22 +203,19 @@ func (s *Server) submitLocked(ctx context.Context, in *Intake) error {
 	}
 
 	// 5. Add stopped with a unique tag.
-	tag := "cineroute-" + in.ID
-	cat := s.cfg.CategoryFor(in.Class.MediaType)
-	tags := "cineroute," + tag
-	if in.Match != nil {
-		tags += fmt.Sprintf(",tmdb-%d", in.Match.ID)
-	}
+	tag := "cineroute-" + id
+	cat := s.cfg.CategoryFor(class.MediaType)
+	tags := "cineroute," + tag + fmt.Sprintf(",tmdb-%d", match.ID)
 	if driveID != "" {
 		tags += "," + driveID
 	}
-	if err := s.qb.AddTorrent(ctx, in.Bytes, qbittorrent.AddOptions{
+	if err := s.qb.AddTorrent(ctx, bytes, qbittorrent.AddOptions{
 		SavePath:   savePath,
 		Category:   cat,
 		Tags:       tags,
-		RootFolder: in.Meta.RootFolder,
+		RootFolder: meta.RootFolder,
 		Stopped:    true,
-		Filename:   in.Filename,
+		Filename:   filename,
 	}); err != nil {
 		return fmt.Errorf("adding torrent to qBittorrent: %w", err)
 	}
@@ -199,8 +232,8 @@ func (s *Server) submitLocked(ctx context.Context, in *Intake) error {
 	if err != nil {
 		return err
 	}
-	expectedContent := in.Meta.ContentPath(savePath)
-	if err := s.verify(ctx, tor, in, savePath, expectedContent, cat, tag); err != nil {
+	expectedContent := meta.ContentPath(savePath)
+	if err := s.verify(ctx, tor, meta, savePath, expectedContent, cat, tag); err != nil {
 		return err
 	}
 
@@ -212,6 +245,8 @@ func (s *Server) submitLocked(ctx context.Context, in *Intake) error {
 		return err
 	}
 
+	s.mu.Lock()
+	in.Bytes = nil
 	in.Result = &SubmitResult{
 		Hash:        tor.Hash,
 		TorrentName: tor.Name,
@@ -219,10 +254,11 @@ func (s *Server) submitLocked(ctx context.Context, in *Intake) error {
 		ContentPath: tor.ContentPath,
 		Category:    tor.Category,
 		DriveID:     driveID,
-		RootFolder:  in.Meta.RootFolder,
-		Files:       len(in.Meta.Files),
+		RootFolder:  meta.RootFolder,
+		Files:       len(meta.Files),
 		SubmittedAt: time.Now(),
 	}
+	s.mu.Unlock()
 	return nil
 }
 
@@ -323,9 +359,9 @@ func (s *Server) waitStopped(ctx context.Context, hash string) (*qbittorrent.Tor
 // verify checks every invariant of the stopped torrent against the parsed
 // torrent and the expected destination. The torrent is never started on
 // failure.
-func (s *Server) verify(ctx context.Context, tor *qbittorrent.Torrent, in *Intake, wantSave, wantContent, wantCat, tag string) error {
+func (s *Server) verify(ctx context.Context, tor *qbittorrent.Torrent, meta *torrentmeta.MetaInfo, wantSave, wantContent, wantCat, tag string) error {
 	problems := []string{}
-	if want := in.Meta.PrimaryHash(); want != "" && !strings.EqualFold(tor.Hash, want) {
+	if want := meta.PrimaryHash(); want != "" && !strings.EqualFold(tor.Hash, want) {
 		problems = append(problems, fmt.Sprintf("hash: got %s want %s", tor.Hash, want))
 	}
 	if strings.TrimRight(tor.SavePath, "/") != strings.TrimRight(wantSave, "/") {
@@ -340,8 +376,8 @@ func (s *Server) verify(ctx context.Context, tor *qbittorrent.Torrent, in *Intak
 	if tor.AutoTMM {
 		problems = append(problems, "auto_tmm is true")
 	}
-	if tor.TotalSize != in.Meta.Size {
-		problems = append(problems, fmt.Sprintf("total_size: got %d want %d", tor.TotalSize, in.Meta.Size))
+	if tor.TotalSize != meta.Size {
+		problems = append(problems, fmt.Sprintf("total_size: got %d want %d", tor.TotalSize, meta.Size))
 	}
 	if !tor.Stopped() {
 		problems = append(problems, fmt.Sprintf("state: got %q, expected stopped", tor.State))
@@ -350,7 +386,7 @@ func (s *Server) verify(ctx context.Context, tor *qbittorrent.Torrent, in *Intak
 		problems = append(problems, fmt.Sprintf("tags: got %q, missing %s", tor.Tags, tag))
 	}
 	if len(problems) == 0 {
-		if err := s.verifyFiles(ctx, tor.Hash, in); err != nil {
+		if err := s.verifyFiles(ctx, tor.Hash, meta); err != nil {
 			return err
 		}
 	}
@@ -360,16 +396,16 @@ func (s *Server) verify(ctx context.Context, tor *qbittorrent.Torrent, in *Intak
 	return nil
 }
 
-func (s *Server) verifyFiles(ctx context.Context, hash string, in *Intake) error {
+func (s *Server) verifyFiles(ctx context.Context, hash string, meta *torrentmeta.MetaInfo) error {
 	files, err := s.qb.Files(ctx, hash)
 	if err != nil {
 		return fmt.Errorf("reading torrent files: %w", err)
 	}
 	want := map[string]int64{}
-	for _, p := range in.Meta.RelPaths() {
+	for _, p := range meta.RelPaths() {
 		want[p] = 0
 	}
-	for _, f := range in.Meta.Files {
+	for _, f := range meta.Files {
 		want[strings.Join(f.RelPath, "/")] = f.Length
 	}
 	problems := []string{}
@@ -386,8 +422,8 @@ func (s *Server) verifyFiles(ctx context.Context, hash string, in *Intake) error
 		}
 		delete(want, f.Name)
 	}
-	if gotCount != len(in.Meta.Files) {
-		problems = append(problems, fmt.Sprintf("file count: got %d want %d", gotCount, len(in.Meta.Files)))
+	if gotCount != len(meta.Files) {
+		problems = append(problems, fmt.Sprintf("file count: got %d want %d", gotCount, len(meta.Files)))
 	}
 	for name := range want {
 		problems = append(problems, fmt.Sprintf("missing file %q", name))

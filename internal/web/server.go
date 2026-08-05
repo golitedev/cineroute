@@ -92,7 +92,7 @@ type Server struct {
 	allocMu sync.Mutex
 	page    *template.Template
 
-	mu      sync.Mutex
+	mu      sync.RWMutex
 	intakes map[string]*Intake
 	recent  []*Intake
 }
@@ -122,6 +122,7 @@ func (s *Server) cleanupLoop() {
 		cutoff := time.Now().Add(-intakeTTL)
 		for id, in := range s.intakes {
 			if in.CreatedAt.Before(cutoff) {
+				in.Bytes = nil
 				delete(s.intakes, id)
 			}
 		}
@@ -182,8 +183,8 @@ func (s *Server) auth(next http.Handler) http.Handler {
 }
 
 func (s *Server) getIntake(id string) (*Intake, bool) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
+	s.mu.RLock()
+	defer s.mu.RUnlock()
 	in, ok := s.intakes[id]
 	return in, ok
 }
@@ -212,6 +213,12 @@ func groupKey(in *Intake) string {
 func (s *Server) groupMembers(key string) []*Intake {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	return s.groupMembersLocked(key)
+}
+
+// groupMembersLocked is groupMembers for callers that already hold s.mu
+// (read or write).
+func (s *Server) groupMembersLocked(key string) []*Intake {
 	out := []*Intake{}
 	for _, in := range s.intakes {
 		if groupKey(in) == key {

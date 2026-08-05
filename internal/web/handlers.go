@@ -167,8 +167,8 @@ func (s *Server) status(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) historyHandler(w http.ResponseWriter, r *http.Request) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
+	s.mu.RLock()
+	defer s.mu.RUnlock()
 	out := make([]*intakeJSON, 0, len(s.recent))
 	for _, in := range s.recent {
 		out = append(out, toJSON(in))
@@ -245,8 +245,8 @@ func (s *Server) ingestFile(fh *multipart.FileHeader) (*Intake, error) {
 // listIntakes reports every active intake, oldest first, so the frontend can
 // render the whole stack (grouped by show) after any action.
 func (s *Server) listIntakes(w http.ResponseWriter, r *http.Request) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
+	s.mu.RLock()
+	defer s.mu.RUnlock()
 	all := make([]*Intake, 0, len(s.intakes))
 	for _, in := range s.intakes {
 		all = append(all, in)
@@ -262,7 +262,14 @@ func (s *Server) listIntakes(w http.ResponseWriter, r *http.Request) {
 // deleteIntake removes one intake from the stack. Intakes that are already
 // (or currently being) pushed to qBittorrent cannot be removed.
 func (s *Server) deleteIntake(w http.ResponseWriter, r *http.Request) {
-	in, ok := s.getIntake(r.PathValue("id"))
+	id := r.PathValue("id")
+	// Serialize against a running submit so an intake is never deleted while
+	// its torrent is being added to qBittorrent.
+	s.allocMu.Lock()
+	defer s.allocMu.Unlock()
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	in, ok := s.intakes[id]
 	if !ok {
 		writeErr(w, http.StatusNotFound, "intake not found")
 		return
@@ -271,9 +278,8 @@ func (s *Server) deleteIntake(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusConflict, "cannot delete an intake that is being or already was submitted")
 		return
 	}
-	s.mu.Lock()
-	delete(s.intakes, in.ID)
-	s.mu.Unlock()
+	in.Bytes = nil
+	delete(s.intakes, id)
 	writeJSON(w, http.StatusOK, apiResponse{Intake: toJSON(in)})
 }
 
@@ -287,6 +293,7 @@ func (s *Server) setType(w http.ResponseWriter, r *http.Request) {
 	var body struct {
 		MediaType string `json:"media_type"`
 	}
+	r.Body = http.MaxBytesReader(w, r.Body, 1<<20)
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 		writeErr(w, http.StatusBadRequest, "invalid body")
 		return
@@ -295,10 +302,17 @@ func (s *Server) setType(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusBadRequest, "media_type must be movie or tv")
 		return
 	}
+	s.mu.Lock()
+	if in.Status == "submitted" || in.Status == "submitting" {
+		s.mu.Unlock()
+		writeErr(w, http.StatusConflict, "cannot change a submitted intake")
+		return
+	}
 	in.Class.MediaType = body.MediaType
 	in.Match = nil
 	in.Dest = nil
 	in.Error = ""
+	s.mu.Unlock()
 	s.searchTMDB(in)
 	s.autoConfirm(in)
 	writeJSON(w, http.StatusOK, apiResponse{Intake: toJSON(in)})
@@ -316,6 +330,7 @@ func (s *Server) search(w http.ResponseWriter, r *http.Request) {
 		Query string `json:"query"`
 		Year  int    `json:"year"`
 	}
+	r.Body = http.MaxBytesReader(w, r.Body, 1<<20)
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 		writeErr(w, http.StatusBadRequest, "invalid body")
 		return
@@ -325,8 +340,18 @@ func (s *Server) search(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusBadRequest, "query must not be empty")
 		return
 	}
-	for _, m := range s.groupMembers(groupKey(in)) {
+	s.mu.RLock()
+	if in.Status == "submitted" || in.Status == "submitting" {
+		s.mu.RUnlock()
+		writeErr(w, http.StatusConflict, "cannot re-search a submitted intake")
+		return
+	}
+	key := groupKey(in)
+	s.mu.RUnlock()
+	for _, m := range s.groupMembers(key) {
+		s.mu.Lock()
 		if m.Status == "submitted" {
+			s.mu.Unlock()
 			continue
 		}
 		m.SearchQuery = body.Query
@@ -334,6 +359,7 @@ func (s *Server) search(w http.ResponseWriter, r *http.Request) {
 		m.Match = nil
 		m.Dest = nil
 		m.Error = ""
+		s.mu.Unlock()
 		s.searchTMDBWith(m, body.Query, body.Year)
 	}
 	s.autoConfirm(in)
@@ -347,83 +373,103 @@ func (s *Server) searchTMDB(in *Intake) {
 // searchTMDBWith queries TMDB with a fallback chain so a wrong guessed year
 // or a year that is part of the title ("Blade Runner 2049") still finds the
 // right title: (1) query+year, (2) alternate title without year,
-// (3) query without year.
+// (3) query without year. Only the result assignment takes the intake lock;
+// the HTTP calls run outside it.
 func (s *Server) searchTMDBWith(in *Intake, query string, year int) {
-	in.TMDBResults = nil
-	in.TMDBError = ""
+	var results []tmdb.Result
+	errStr := ""
 	if s.tmdb == nil {
-		in.TMDBError = "TMDB is not configured (set tmdb.api_key or CINEROUTE_TMDB_API_KEY)"
-		return
-	}
-	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
-	defer cancel()
+		errStr = "TMDB is not configured (set tmdb.api_key or CINEROUTE_TMDB_API_KEY)"
+	} else {
+		ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+		defer cancel()
 
-	type attempt struct {
-		q string
-		y int
-	}
-	attempts := []attempt{{query, year}}
-	if in.Class.AltTitle != "" && !strings.EqualFold(in.Class.AltTitle, query) {
-		attempts = append(attempts, attempt{in.Class.AltTitle, 0})
-	}
-	if year > 0 {
-		attempts = append(attempts, attempt{query, 0})
-	}
+		type attempt struct {
+			q string
+			y int
+		}
+		attempts := []attempt{{query, year}}
+		if in.Class.AltTitle != "" && !strings.EqualFold(in.Class.AltTitle, query) {
+			attempts = append(attempts, attempt{in.Class.AltTitle, 0})
+		}
+		if year > 0 {
+			attempts = append(attempts, attempt{query, 0})
+		}
 
-	for _, a := range attempts {
-		var results []tmdb.Result
-		var err error
-		if in.Class.MediaType == "tv" {
-			results, err = s.tmdb.SearchTV(ctx, a.q, a.y)
-		} else {
-			results, err = s.tmdb.SearchMovie(ctx, a.q, a.y)
-		}
-		if err != nil {
-			in.TMDBError = err.Error()
-			return
-		}
-		if len(results) > 0 {
-			in.TMDBResults = results
-			return
+		for _, a := range attempts {
+			var err error
+			if in.Class.MediaType == "tv" {
+				results, err = s.tmdb.SearchTV(ctx, a.q, a.y)
+			} else {
+				results, err = s.tmdb.SearchMovie(ctx, a.q, a.y)
+			}
+			if err != nil {
+				errStr = err.Error()
+				break
+			}
+			if len(results) > 0 {
+				break
+			}
 		}
 	}
+	s.mu.Lock()
+	in.TMDBResults = results
+	in.TMDBError = errStr
+	s.mu.Unlock()
 }
 
 // autoConfirm matches the top TMDB result for an intake and its group, so
 // the destination preview appears without a click. The user can still pick a
 // different result afterwards via the match endpoint.
 func (s *Server) autoConfirm(in *Intake) {
+	s.mu.RLock()
 	if in.Status == "submitted" || len(in.TMDBResults) == 0 || in.Match != nil {
+		s.mu.RUnlock()
 		return
 	}
-	s.confirmMatch(in, in.TMDBResults[0].ID)
+	first := in.TMDBResults[0].ID
+	s.mu.RUnlock()
+	s.confirmMatch(in, first)
 }
 
 // confirmMatch selects a TMDB result and computes the destination preview for
 // the intake and the whole group it belongs to, so every part of the same
 // show is matched in one go.
 func (s *Server) confirmMatch(in *Intake, tmdbID int) {
-	if findResult(in.TMDBResults, tmdbID) == nil {
+	s.mu.RLock()
+	key := groupKey(in)
+	has := findResult(in.TMDBResults, tmdbID) != nil
+	s.mu.RUnlock()
+	if !has {
 		return
 	}
 	seen := map[*Intake]bool{}
-	for _, m := range append([]*Intake{in}, s.groupMembers(groupKey(in))...) {
-		if seen[m] || m.Status == "submitted" {
+	for _, m := range append([]*Intake{in}, s.groupMembers(key)...) {
+		if seen[m] {
 			continue
 		}
 		seen[m] = true
+		s.mu.Lock()
+		if m.Status == "submitted" {
+			s.mu.Unlock()
+			continue
+		}
 		found := findResult(m.TMDBResults, tmdbID)
 		if found == nil {
+			s.mu.Unlock()
 			continue
 		}
 		m.Match = found
 		m.Dest = nil
 		m.Error = ""
+		s.mu.Unlock()
 		dest, warn := s.planDestination(m)
+		s.mu.Lock()
 		m.Dest = dest
 		if warn != "" {
 			m.Error = warn
 		}
+		s.mu.Unlock()
 	}
 }
 
@@ -439,14 +485,23 @@ func (s *Server) match(w http.ResponseWriter, r *http.Request) {
 	var body struct {
 		TMDBID int `json:"tmdb_id"`
 	}
+	r.Body = http.MaxBytesReader(w, r.Body, 1<<20)
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 		writeErr(w, http.StatusBadRequest, "invalid body")
 		return
 	}
+	s.mu.RLock()
+	if in.Status == "submitted" || in.Status == "submitting" {
+		s.mu.RUnlock()
+		writeErr(w, http.StatusConflict, "cannot re-match a submitted intake")
+		return
+	}
 	if findResult(in.TMDBResults, body.TMDBID) == nil {
+		s.mu.RUnlock()
 		writeErr(w, http.StatusBadRequest, "tmdb result not found")
 		return
 	}
+	s.mu.RUnlock()
 	s.confirmMatch(in, body.TMDBID)
 	writeJSON(w, http.StatusOK, apiResponse{Intake: toJSON(in)})
 }

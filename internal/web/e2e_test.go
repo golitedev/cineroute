@@ -158,6 +158,9 @@ func (f *fakeQB) handler() http.Handler {
 		w.WriteHeader(200)
 	})
 	mux.HandleFunc("/api/v2/torrents/info", func(w http.ResponseWriter, r *http.Request) {
+		// Slow down the poll slightly so concurrent tests exercise the
+		// submit-vs-list race window.
+		time.Sleep(2 * time.Millisecond)
 		tag := r.URL.Query().Get("tag")
 		hashes := r.URL.Query().Get("hashes")
 		f.mu.Lock()
@@ -189,7 +192,6 @@ func (f *fakeQB) handler() http.Handler {
 				"tags":         t.tags,
 				"auto_tmm":     false,
 				"total_size":   t.totalSize,
-				"amount_left":  t.totalSize,
 				"state":        state,
 			})
 		}
@@ -401,6 +403,38 @@ func TestDeleteIntake(t *testing.T) {
 	}
 	if intakes := getIntakes(t, httpSrv); len(intakes) != 2 {
 		t.Fatalf("submitted intake must survive delete: %d", len(intakes))
+	}
+}
+
+// After a torrent is submitted, the intake must be immutable: no re-type,
+// re-search, re-match or re-submit.
+func TestSubmittedIntakeIsImmutable(t *testing.T) {
+	_, _, httpSrv, _ := newTestServer(t)
+	in := uploadTorrent(t, httpSrv, "x.torrent", singleFileTorrent("Movie.A.2020.1080p.mkv", 100))
+	resp, _ := http.Post(httpSrv.URL+"/api/intakes/"+in.ID+"/submit",
+		"application/json", strings.NewReader(`{}`))
+	resp.Body.Close()
+
+	guard := func(endpoint, body string) int {
+		t.Helper()
+		req, _ := http.NewRequest("POST", httpSrv.URL+"/api/intakes/"+in.ID+endpoint,
+			strings.NewReader(body))
+		req.Header.Set("Content-Type", "application/json")
+		resp, err := http.DefaultClient.Do(req)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer resp.Body.Close()
+		return resp.StatusCode
+	}
+	if code := guard("/type", `{"media_type":"tv"}`); code != 409 {
+		t.Fatalf("setType on submitted: %d", code)
+	}
+	if code := guard("/search", `{"query":"Lost","year":0}`); code != 409 {
+		t.Fatalf("search on submitted: %d", code)
+	}
+	if code := guard("/match", `{"tmdb_id":862}`); code != 409 {
+		t.Fatalf("match on submitted: %d", code)
 	}
 }
 
