@@ -119,16 +119,16 @@ type aggregateStatusJSON struct {
 
 func (s *Server) status(w http.ResponseWriter, r *http.Request) {
 	out := struct {
-		TMDB        string               `json:"tmdb"`
-		QBittorrent string               `json:"qbittorrent"`
-		QBVersion   string               `json:"qb_version"`
-		QBWebAPI    string               `json:"qb_webapi"`
-		Preallocate string               `json:"preallocate"`
-		TempPath    string               `json:"temp_path"`
-		Drives      []driveStatusJSON    `json:"drives"`
-		Movies      aggregateStatusJSON  `json:"movies"`
-		TV          aggregateStatusJSON  `json:"tv"`
-		Auth        bool                 `json:"auth"`
+		TMDB        string              `json:"tmdb"`
+		QBittorrent string              `json:"qbittorrent"`
+		QBVersion   string              `json:"qb_version"`
+		QBWebAPI    string              `json:"qb_webapi"`
+		Preallocate string              `json:"preallocate"`
+		TempPath    string              `json:"temp_path"`
+		Drives      []driveStatusJSON   `json:"drives"`
+		Movies      aggregateStatusJSON `json:"movies"`
+		TV          aggregateStatusJSON `json:"tv"`
+		Auth        bool                `json:"auth"`
 	}{TMDB: "not configured", QBittorrent: "not checked"}
 	if s.tmdb != nil {
 		out.TMDB = "configured"

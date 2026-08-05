@@ -20,7 +20,8 @@ import (
 )
 
 //go:embed templates
-var templatesFS embed.FS
+//go:embed logo
+var assetsFS embed.FS
 
 const intakeTTL = 2 * time.Hour
 
@@ -106,7 +107,7 @@ func New(cfg *config.Config, qb *qbittorrent.Client, tmdbClient *tmdb.Client) *S
 		lib:     library.NewScan(drives),
 		intakes: map[string]*Intake{},
 	}
-	s.page = template.Must(template.New("index.html").ParseFS(templatesFS, "templates/index.html"))
+	s.page = template.Must(template.New("index.html").ParseFS(assetsFS, "templates/index.html"))
 	go s.cleanupLoop()
 	return s
 }
@@ -128,6 +129,8 @@ func (s *Server) cleanupLoop() {
 func (s *Server) Handler() http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /", s.pageIndex)
+	mux.HandleFunc("GET /favicon.svg", s.serveAsset("logo/favicon.svg"))
+	mux.HandleFunc("GET /logo.svg", s.serveAsset("logo/logo.svg"))
 	mux.HandleFunc("GET /health", s.health)
 	mux.HandleFunc("GET /api/status", s.status)
 	mux.HandleFunc("GET /api/history", s.historyHandler)
@@ -137,6 +140,20 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("POST /api/intakes/{id}/match", s.match)
 	mux.HandleFunc("POST /api/intakes/{id}/submit", s.submit)
 	return s.auth(mux)
+}
+
+// serveAsset serves an embedded static file (logo images) with a cache
+// header, since the assets never change between builds.
+func (s *Server) serveAsset(name string) http.HandlerFunc {
+	data, err := assetsFS.ReadFile(name)
+	if err != nil {
+		panic("embedded asset missing: " + name)
+	}
+	return func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "image/svg+xml")
+		w.Header().Set("Cache-Control", "public, max-age=86400")
+		w.Write(data)
+	}
 }
 
 func (s *Server) auth(next http.Handler) http.Handler {
