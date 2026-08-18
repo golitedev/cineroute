@@ -57,16 +57,19 @@ func TestCompanionRankingPrefersWebDLAndCompatibleBluRay(t *testing.T) {
 
 func TestExactProwlarrTitlesAreEligible(t *testing.T) {
 	seeders := []int{5, 8, 1, 8}
-	policy := Policy{MaxBytes: 15 << 30, MinSeeders: 1, TargetIndexerID: 7}
+	policy := Policy{MaxBytes: 15 << 30, MinSeeders: 1, TargetIndexerID: 5}
 	releases := []prowlarr.Release{
-		{Title: "12.Angry.Men.1957.1957.1080p.AMZN.WEB-DL.DDP2.0.H.264-LatTeam.mkv SPANISH", Size: 7 << 30, IndexerID: 7, Indexer: "Lat-Team (API)", Seeders: &seeders[0], DownloadURL: "/api/v1/indexer/7/download"},
-		{Guid: "bluray-flac", Title: "12.Angry.Men.1957.BluRay.1080p.DD2.0.x264-ARV.mkv SPANISH", Size: 14 << 30, IndexerID: 7, Seeders: &seeders[1]},
-		{Guid: "bluray-x265", Title: "12 Angry Men 1957 1080p BluRay AAC 1.0 x265 SPANISH", Size: 1 << 30, IndexerID: 7, Seeders: &seeders[2]},
-		{Guid: "spanish-title", Title: "12 hombres en pugna 1957 1080p DD 2.0 MKV x264 BDRip LatTeam.mkv SPANISH", Size: 3 << 30, IndexerID: 7, Seeders: &seeders[3]},
+		{Title: "12.Angry.Men.1957.1957.1008p.AMZN.WEB-DL.DDP2.0.H.264-LatTeam.mkv SPANiSH", Size: 7503189132, IndexerID: 5, Indexer: "Lat-Team (API)", Seeders: &seeders[0], DownloadURL: "/api/v1/indexer/5/download"},
+		{Guid: "bluray-flac", Title: "12.Angry.Men.1957.BluRay.1080p.DD2.0.x264-ARV.mkv SPANiSH", Size: 15813099620, IndexerID: 5, Seeders: &seeders[1]},
+		{Guid: "bluray-x265", Title: "12 Angry Men 1957 1080p BluRay AAC 1.0 x265 SPANiSH", Size: 1422567022, IndexerID: 5, Seeders: &seeders[2]},
+		{Guid: "spanish-title", Title: "12 hombres en pugna 1957 1080p DD 2.0 MKV x264 BDRip LatTeam.mkv SPANiSH", Size: 3328724014, IndexerID: 5, Seeders: &seeders[3]},
 	}
 	got := FilterAndRank(releases, "12 Angry Men", 1957, 0, policy)
 	if len(got) != 4 || got[0].Title != releases[0].Title || got[0].Guid == "" {
 		t.Fatalf("exact Prowlarr titles: %+v", got)
+	}
+	if !strings.Contains(strings.Join(got[0].Reasons, " "), "1008p") {
+		t.Fatalf("1008p tracker typo was not explained: %+v", got[0].Reasons)
 	}
 	again := FilterAndRank(releases, "12 Angry Men", 1957, 0, policy)
 	if got[0].Guid != again[0].Guid {

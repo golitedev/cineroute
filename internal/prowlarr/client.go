@@ -7,7 +7,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"log/slog"
 	"net/http"
 	"net/url"
 	"strconv"
@@ -98,29 +97,6 @@ func (c *Client) Search(ctx context.Context, indexerID int, query string, limit 
 	var out []Release
 	if err := c.getJSON(ctx, "/api/v1/search", q, &out); err != nil {
 		return nil, fmt.Errorf("Prowlarr search failed: %w", err)
-	}
-	slog.Info("companion search diagnostics",
-		"stage", "prowlarr_raw",
-		"query", query,
-		"indexer_id", indexerID,
-		"limit", limit,
-		"result_count", len(out),
-	)
-	for i, release := range out {
-		seeders := any("unknown")
-		if release.Seeders != nil {
-			seeders = *release.Seeders
-		}
-		slog.Info("companion search result",
-			"stage", "prowlarr_raw",
-			"query", query,
-			"result_index", i,
-			"title", release.Title,
-			"size_bytes", release.Size,
-			"seeders", seeders,
-			"indexer_id", release.IndexerID,
-			"indexer", release.Indexer,
-		)
 	}
 	return out, nil
 }

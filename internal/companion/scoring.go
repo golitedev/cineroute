@@ -45,7 +45,7 @@ const (
 	underTenGiB    = 10 << 30
 )
 
-var resolutionRe = regexp.MustCompile(`(?i)\b(?:480|576|720|1080|2160)p\b`)
+var resolutionRe = regexp.MustCompile(`(?i)\b(?:480|576|720|1008|1080|2160)p\b`)
 var webDLRe = regexp.MustCompile(`(?i)\bweb[. _-]*dl\b`)
 var webRipRe = regexp.MustCompile(`(?i)\bweb[. _-]*rip\b`)
 var hevcRe = regexp.MustCompile(`(?i)\b(?:hevc|h[. _-]*265|x265)\b`)
@@ -103,7 +103,8 @@ func scoreRelease(release prowlarr.Release, title string, year, tmdbID int, poli
 	if policy.MinSeeders > 0 && release.Seeders != nil && *release.Seeders < policy.MinSeeders {
 		return Candidate{}, false
 	}
-	if !hasResolution(release.Title, "1080p") || hasAny(release.Title, "2160p", "4k", "uhd", "720p", "480p") {
+	tracker1008pTypo := hasResolution(release.Title, "1008p")
+	if (!hasResolution(release.Title, "1080p") && !tracker1008pTypo) || hasAny(release.Title, "2160p", "4k", "uhd", "720p", "480p") {
 		return Candidate{}, false
 	}
 	if hasAny(release.Title, "remux", "cam", "camrip", "telesync", "telecine", "ts", "tc") {
@@ -127,6 +128,9 @@ func scoreRelease(release prowlarr.Release, title string, year, tmdbID int, poli
 		PublishDate: release.PublishDate,
 		downloadURL: release.DownloadURL,
 		sourceGuid:  strings.TrimSpace(release.Guid),
+	}
+	if tracker1008pTypo {
+		c.Reasons = append(c.Reasons, "tracker labels 1008p — treated as 1080p")
 	}
 	if exactTMDB {
 		c.Score += 100

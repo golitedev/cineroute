@@ -7,7 +7,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"log/slog"
 	"sort"
 	"strings"
 	"sync"
@@ -478,50 +477,7 @@ func (m *Manager) searchMovie(ctx context.Context, movie *Movie) ([]Candidate, e
 		}
 		results = mergeReleases(results, found)
 	}
-	slog.Info("companion search diagnostics",
-		"stage", "merged",
-		"movie_id", movie.ID,
-		"queries", strings.Join(queries, " | "),
-		"result_count", len(results),
-	)
-	for i, release := range results {
-		seeders := any("unknown")
-		if release.Seeders != nil {
-			seeders = *release.Seeders
-		}
-		slog.Info("companion search result",
-			"stage", "merged",
-			"movie_id", movie.ID,
-			"result_index", i,
-			"title", release.Title,
-			"size_bytes", release.Size,
-			"seeders", seeders,
-		)
-	}
 	candidates := FilterAndRank(results, movie.Title, movie.Year, movie.TmdbID, policy)
-	slog.Info("companion search diagnostics",
-		"stage", "filtered",
-		"movie_id", movie.ID,
-		"result_count", len(candidates),
-		"max_size_bytes", policy.MaxBytes,
-		"min_seeders", policy.MinSeeders,
-		"target_indexer_id", policy.TargetIndexerID,
-	)
-	for i, candidate := range candidates {
-		seeders := any("unknown")
-		if candidate.Seeders != nil {
-			seeders = *candidate.Seeders
-		}
-		slog.Info("companion search result",
-			"stage", "filtered",
-			"movie_id", movie.ID,
-			"result_index", i,
-			"title", candidate.Title,
-			"size_bytes", candidate.Size,
-			"seeders", seeders,
-			"score", candidate.Score,
-		)
-	}
 	return candidates, nil
 }
 
