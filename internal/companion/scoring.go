@@ -310,12 +310,11 @@ func containsAnyToken(tokens []string, wants ...string) bool {
 }
 
 func normalizedWords(value string) []string {
-	words := releaseTokens(value)
-	return words
+	return titleTokens(value)
 }
 
 func releaseTitleAndYear(value string) ([]string, int) {
-	words := releaseTokens(value)
+	words := titleTokens(value)
 	year := 0
 	yearIndex := len(words)
 	for i, word := range words {
@@ -333,6 +332,14 @@ func releaseTitleAndYear(value string) ([]string, int) {
 		}
 	}
 	return words[:yearIndex], year
+}
+
+// titleTokens treats apostrophes as spelling punctuation inside a word.
+// Trackers commonly write possessives as either "Schindler's" or
+// "Schindlers", and both should match the same library title.
+func titleTokens(value string) []string {
+	value = strings.NewReplacer("'", "", "’", "", "‘", "").Replace(value)
+	return releaseTokens(value)
 }
 
 func wordSequenceMatch(have, want []string) bool {

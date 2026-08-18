@@ -30,6 +30,28 @@ func TestFilterAndRankCompanionReleases(t *testing.T) {
 	}
 }
 
+func TestPossessiveTitleSpellingsRemainEligible(t *testing.T) {
+	seeders := 36
+	release := prowlarr.Release{
+		Guid:      "schindlers-max",
+		Title:     "Schindlers.List.1993.1080p.MAX.WEB-DL.DDP2.0.H.264-LatTeam.mkv SPANiSH",
+		Size:      11 << 30,
+		IndexerID: 7,
+		Seeders:   &seeders,
+	}
+	got := FilterAndRank([]prowlarr.Release{release}, "Schindler's List", 1993, 0, Policy{
+		MaxBytes:        15 << 30,
+		MinSeeders:      1,
+		TargetIndexerID: 7,
+	})
+	if len(got) != 1 || got[0].Guid != release.Guid {
+		t.Fatalf("possessive title spelling was filtered: %+v", got)
+	}
+	if got[0].Source != "WEB-DL" {
+		t.Fatalf("MAX release source = %q, want WEB-DL", got[0].Source)
+	}
+}
+
 func TestUnrelatedTitleAndYearAreNotCompanionCandidates(t *testing.T) {
 	seeders := 10
 	got := FilterAndRank([]prowlarr.Release{
