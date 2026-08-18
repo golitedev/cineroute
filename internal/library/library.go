@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"sort"
 	"strconv"
 	"strings"
 	"unicode"
@@ -21,7 +22,13 @@ type Drive struct {
 type Folder struct {
 	DriveID string
 	Path    string
+	Name    string
 }
+
+// MovieFolder is an immediate child of a configured movie root. It is kept
+// separate from Folder so callers scanning the library can retain the folder
+// name without parsing it back out of the path.
+type MovieFolder = Folder
 
 // Scan holds the roots to search. ReadDir is called per lookup so results are
 // always fresh; there is no cached index.
@@ -41,6 +48,38 @@ func (s *Scan) FindTV(canonical string) []Folder {
 	return s.find(canonical, func(d Drive) string { return d.TVRoot })
 }
 
+// Movies lists only immediate movie-root children in deterministic order.
+// Unreadable roots are skipped just like FindMovie; the caller can still
+// reconcile the healthy roots it can see.
+func (s *Scan) Movies() []MovieFolder {
+	var out []MovieFolder
+	for _, d := range s.drives {
+		if d.MovieRoot == "" {
+			continue
+		}
+		ents, err := os.ReadDir(d.MovieRoot)
+		if err != nil {
+			continue
+		}
+		for _, e := range ents {
+			if e.IsDir() {
+				out = append(out, MovieFolder{
+					DriveID: d.ID,
+					Path:    filepath.Join(d.MovieRoot, e.Name()),
+					Name:    e.Name(),
+				})
+			}
+		}
+	}
+	sort.Slice(out, func(i, j int) bool {
+		if out[i].DriveID != out[j].DriveID {
+			return out[i].DriveID < out[j].DriveID
+		}
+		return out[i].Name < out[j].Name
+	})
+	return out
+}
+
 func (s *Scan) find(canonical string, rootOf func(Drive) string) []Folder {
 	var out []Folder
 	want := Normalize(canonical)
@@ -58,11 +97,27 @@ func (s *Scan) find(canonical string, rootOf func(Drive) string) []Folder {
 				continue
 			}
 			if Normalize(e.Name()) == want {
-				out = append(out, Folder{DriveID: d.ID, Path: filepath.Join(root, e.Name())})
+				out = append(out, Folder{DriveID: d.ID, Path: filepath.Join(root, e.Name()), Name: e.Name()})
 			}
 		}
 	}
 	return out
+}
+
+var canonicalMovieRe = regexp.MustCompile(`^(.*?)\s*\((\d{4})\)$`)
+
+// ParseMovieFolder parses the final four-digit year suffix of a canonical
+// movie folder. Numbers earlier in the title remain part of the title.
+func ParseMovieFolder(name string) (title string, year int, ok bool) {
+	m := canonicalMovieRe.FindStringSubmatch(strings.TrimSpace(name))
+	if m == nil || strings.TrimSpace(m[1]) == "" {
+		return "", 0, false
+	}
+	y, err := strconv.Atoi(m[2])
+	if err != nil || y < 1800 || y > 2999 {
+		return "", 0, false
+	}
+	return strings.TrimSpace(m[1]), y, true
 }
 
 var wsRe = regexp.MustCompile(`\s+`)

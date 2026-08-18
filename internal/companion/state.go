@@ -1,0 +1,153 @@
+package companion
+
+import (
+	"crypto/sha256"
+	"encoding/hex"
+	"encoding/json"
+	"fmt"
+	"os"
+	"path/filepath"
+	"sort"
+	"time"
+)
+
+const stateVersion = 1
+
+const (
+	StatusPending      = "pending"
+	StatusSearching    = "searching"
+	StatusReview       = "review"
+	StatusNoMatch      = "no_match"
+	StatusAlready1080p = "already_has_1080p"
+	StatusNeedsReview  = "needs_review"
+	StatusSkipped      = "skipped"
+	StatusSubmitting   = "submitting"
+	StatusComplete     = "complete"
+	StatusError        = "error"
+)
+
+// Movie is the durable workflow record for one canonical movie folder.
+// Search results deliberately do not live here: Prowlarr download URLs can
+// contain the API key and are short-lived, so results stay in memory.
+type Movie struct {
+	ID              string    `json:"id"`
+	DriveID         string    `json:"drive_id"`
+	Path            string    `json:"path"`
+	FolderName      string    `json:"folder_name"`
+	Title           string    `json:"title"`
+	Year            int       `json:"year"`
+	TmdbID          int       `json:"tmdb_id"`
+	Status          string    `json:"status"`
+	Error           string    `json:"error,omitempty"`
+	QBHash          string    `json:"qb_hash,omitempty"`
+	ExistingCopy    string    `json:"existing_copy,omitempty"`
+	JellyfinWarning string    `json:"jellyfin_warning,omitempty"`
+	Missing         bool      `json:"missing,omitempty"`
+	CreatedAt       time.Time `json:"created_at"`
+	UpdatedAt       time.Time `json:"updated_at"`
+}
+
+type stateFile struct {
+	Version int      `json:"version"`
+	Movies  []*Movie `json:"movies"`
+}
+
+type BatchStatus struct {
+	Running bool   `json:"running"`
+	Done    int    `json:"done"`
+	Total   int    `json:"total"`
+	Error   string `json:"error,omitempty"`
+}
+
+func movieID(driveID, folderName string) string {
+	h := sha256.Sum256([]byte(driveID + "\x00" + folderName))
+	return "c_" + hex.EncodeToString(h[:])[:16]
+}
+
+func loadState(path string) (stateFile, error) {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return stateFile{Version: stateVersion}, nil
+		}
+		return stateFile{}, fmt.Errorf("read companion state: %w", err)
+	}
+	var st stateFile
+	if err := json.Unmarshal(data, &st); err != nil {
+		return stateFile{}, fmt.Errorf("parse companion state: %w", err)
+	}
+	if st.Version != 0 && st.Version != stateVersion {
+		return stateFile{}, fmt.Errorf("unsupported companion state version %d", st.Version)
+	}
+	if st.Version == 0 {
+		st.Version = stateVersion
+	}
+	for _, movie := range st.Movies {
+		if movie == nil {
+			return stateFile{}, fmt.Errorf("companion state contains a null movie")
+		}
+		if movie.ID == "" {
+			return stateFile{}, fmt.Errorf("companion state contains a movie without an id")
+		}
+	}
+	sort.SliceStable(st.Movies, func(i, j int) bool {
+		return st.Movies[i].ID < st.Movies[j].ID
+	})
+	return st, nil
+}
+
+func saveState(path string, st stateFile) error {
+	if path == "" {
+		return fmt.Errorf("companion state path is empty")
+	}
+	st.Version = stateVersion
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		return fmt.Errorf("create companion state directory: %w", err)
+	}
+	data, err := json.MarshalIndent(st, "", "  ")
+	if err != nil {
+		return fmt.Errorf("encode companion state: %w", err)
+	}
+	tmp, err := os.CreateTemp(filepath.Dir(path), ".companions-*.tmp")
+	if err != nil {
+		return fmt.Errorf("create companion state temporary file: %w", err)
+	}
+	tmpName := tmp.Name()
+	removeTemp := true
+	defer func() {
+		_ = tmp.Close()
+		if removeTemp {
+			_ = os.Remove(tmpName)
+		}
+	}()
+	if _, err := tmp.Write(data); err != nil {
+		return fmt.Errorf("write companion state: %w", err)
+	}
+	if err := tmp.Sync(); err != nil {
+		return fmt.Errorf("sync companion state: %w", err)
+	}
+	if err := tmp.Close(); err != nil {
+		return fmt.Errorf("close companion state: %w", err)
+	}
+	if err := os.Rename(tmpName, path); err != nil {
+		return fmt.Errorf("replace companion state: %w", err)
+	}
+	removeTemp = false
+	return nil
+}
+
+func cloneMovie(movie *Movie) *Movie {
+	if movie == nil {
+		return nil
+	}
+	copy := *movie
+	return &copy
+}
+
+func cloneMovies(movies []*Movie) []*Movie {
+	out := make([]*Movie, 0, len(movies))
+	for _, movie := range movies {
+		out = append(out, cloneMovie(movie))
+	}
+	return out
+}

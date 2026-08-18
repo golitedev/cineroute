@@ -17,10 +17,15 @@ services:
       CINEROUTE_QBIT_URL: ${CINEROUTE_QBIT_URL:-http://qbittorrent:8080}
       CINEROUTE_QBIT_USERNAME: ${CINEROUTE_QBIT_USERNAME:-}
       CINEROUTE_QBIT_PASSWORD: ${CINEROUTE_QBIT_PASSWORD:-}
+      CINEROUTE_PROWLARR_URL: ${CINEROUTE_PROWLARR_URL:-http://prowlarr:9696}
+      CINEROUTE_PROWLARR_API_KEY: ${CINEROUTE_PROWLARR_API_KEY:-}
+      CINEROUTE_PROWLARR_INDEXER: ${CINEROUTE_PROWLARR_INDEXER:-LAT-Team}
       CINEROUTE_AUTH_PASSWORD: ${CINEROUTE_AUTH_PASSWORD:-}
     volumes:
       # Config lives on the SSD:
       - /volume2/docker/cineroute/config.yaml:/config/config.yaml:ro
+      # Companion state (must be writable by UID 1001 / GID 10):
+      - /volume2/docker/cineroute/data:/data
       # Movie roots (same aliases qBittorrent uses):
       - /volume1/hdd1/movies:/m1
       - /volume3/hdd2/movies:/m2

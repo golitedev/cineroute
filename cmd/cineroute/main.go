@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"cineroute/internal/config"
+	"cineroute/internal/prowlarr"
 	"cineroute/internal/qbittorrent"
 	"cineroute/internal/tmdb"
 	"cineroute/internal/web"
@@ -39,6 +40,9 @@ func main() {
 	if cfg.AuthPassword == "" {
 		slog.Warn("no auth password configured; the web interface is unauthenticated")
 	}
+	if cfg.Companion.Enabled && cfg.Prowlarr.APIKey == "" {
+		slog.Warn("1080p companion search is enabled but Prowlarr is not configured")
+	}
 
 	qb, err := qbittorrent.New(cfg.QBittorrent.URL, cfg.QBittorrent.Username, cfg.QBittorrent.Password, 20*time.Second)
 	if err != nil {
@@ -49,8 +53,12 @@ func main() {
 	if cfg.TMDB.APIKey != "" {
 		tmdbClient = tmdb.New(cfg.TMDB.APIKey, cfg.TMDB.Language, 15*time.Second)
 	}
+	var prowlarrClient *prowlarr.Client
+	if cfg.Companion.Enabled {
+		prowlarrClient = prowlarr.New(cfg.Prowlarr.URL, cfg.Prowlarr.APIKey, 30*time.Second, cfg.MaxUploadBytes)
+	}
 
-	srv := web.New(cfg, qb, tmdbClient)
+	srv := web.New(cfg, qb, tmdbClient, prowlarrClient)
 	httpSrv := &http.Server{
 		Addr:              cfg.Listen,
 		Handler:           srv.Handler(),

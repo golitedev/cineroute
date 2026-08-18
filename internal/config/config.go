@@ -15,6 +15,8 @@ type Config struct {
 	MaxUploadBytes int64       `yaml:"max_upload_bytes"`
 	TMDB           TMDB        `yaml:"tmdb"`
 	QBittorrent    QBittorrent `yaml:"qbittorrent"`
+	Prowlarr       Prowlarr    `yaml:"prowlarr"`
+	Companion      Companion   `yaml:"companion"`
 	Library        Library     `yaml:"library"`
 	Drives         []Drive     `yaml:"drives"`
 }
@@ -28,6 +30,21 @@ type QBittorrent struct {
 	URL      string `yaml:"url"`
 	Username string `yaml:"username"`
 	Password string `yaml:"password"`
+}
+
+type Prowlarr struct {
+	URL         string `yaml:"url"`
+	APIKey      string `yaml:"api_key"`
+	IndexerName string `yaml:"indexer_name"`
+}
+
+type Companion struct {
+	Enabled       bool   `yaml:"enabled"`
+	StatePath     string `yaml:"state_path"`
+	MaxSizeGiB    int64  `yaml:"max_size_gib"`
+	MinSeeders    int    `yaml:"min_seeders"`
+	SearchLimit   int    `yaml:"search_limit"`
+	SearchDelayMS int    `yaml:"search_delay_ms"`
 }
 
 type Library struct {
@@ -51,6 +68,18 @@ func Default() *Config {
 		QBittorrent: QBittorrent{
 			URL:      "http://localhost:8080",
 			Username: "admin",
+		},
+		Prowlarr: Prowlarr{
+			URL:         "http://localhost:9696",
+			IndexerName: "LAT-Team",
+		},
+		Companion: Companion{
+			Enabled:       true,
+			StatePath:     "/data/companions.json",
+			MaxSizeGiB:    15,
+			MinSeeders:    1,
+			SearchLimit:   50,
+			SearchDelayMS: 750,
 		},
 		Library: Library{FolderFormat: "{title} ({year})"},
 		Drives: []Drive{
@@ -106,6 +135,15 @@ func applyEnv(cfg *Config) {
 	if v := os.Getenv("CINEROUTE_QBIT_PASSWORD"); v != "" {
 		cfg.QBittorrent.Password = v
 	}
+	if v := os.Getenv("CINEROUTE_PROWLARR_URL"); v != "" {
+		cfg.Prowlarr.URL = v
+	}
+	if v := os.Getenv("CINEROUTE_PROWLARR_API_KEY"); v != "" {
+		cfg.Prowlarr.APIKey = v
+	}
+	if v := os.Getenv("CINEROUTE_PROWLARR_INDEXER"); v != "" {
+		cfg.Prowlarr.IndexerName = v
+	}
 }
 
 func (c *Config) validate() error {
@@ -114,6 +152,21 @@ func (c *Config) validate() error {
 	}
 	if c.QBittorrent.URL == "" {
 		return errors.New("qbittorrent.url must not be empty")
+	}
+	if c.Companion.StatePath == "" {
+		return errors.New("companion.state_path must not be empty")
+	}
+	if c.Companion.MaxSizeGiB <= 0 {
+		return errors.New("companion.max_size_gib must be greater than zero")
+	}
+	if c.Companion.MinSeeders < 0 {
+		return errors.New("companion.min_seeders must not be negative")
+	}
+	if c.Companion.SearchLimit <= 0 {
+		return errors.New("companion.search_limit must be greater than zero")
+	}
+	if c.Companion.SearchDelayMS < 0 {
+		return errors.New("companion.search_delay_ms must not be negative")
 	}
 	seen := map[string]bool{}
 	for _, d := range c.Drives {

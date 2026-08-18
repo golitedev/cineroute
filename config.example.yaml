@@ -28,6 +28,22 @@ qbittorrent:
   username: "admin"
   password: ""
 
+prowlarr:
+  # LAT-Team must already be configured inside Prowlarr.
+  # Alternatively: CINEROUTE_PROWLARR_URL, CINEROUTE_PROWLARR_API_KEY,
+  # CINEROUTE_PROWLARR_INDEXER
+  url: "http://localhost:9696"
+  api_key: ""
+  indexer_name: "LAT-Team"
+
+companion:
+  enabled: true
+  state_path: "/data/companions.json"
+  max_size_gib: 15
+  min_seeders: 1
+  search_limit: 50
+  search_delay_ms: 750
+
 library:
   folder_format: "{title} ({year})"
 

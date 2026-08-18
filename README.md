@@ -50,7 +50,7 @@ Done
 * **Go 1.24+** to build, or use the Docker image.
 * **qBittorrent 5.x** (Web API 2.11+) with the WebUI enabled.
 * Four HDDs with movie/TV roots (see config below). CineRoute and
-  qBittorrent must see the **same** paths.
+qBittorrent must see the **same** paths.
 
 ## Configuration
 
@@ -61,6 +61,7 @@ Secrets can also come from environment variables:
 | --- | --- |
 | TMDB API key | `CINEROUTE_TMDB_API_KEY` |
 | qBittorrent URL / user / password | `CINEROUTE_QBIT_URL` / `CINEROUTE_QBIT_USERNAME` / `CINEROUTE_QBIT_PASSWORD` |
+| Prowlarr URL / API key / indexer | `CINEROUTE_PROWLARR_URL` / `CINEROUTE_PROWLARR_API_KEY` / `CINEROUTE_PROWLARR_INDEXER` |
 | Web UI username (login form and basic auth, default `cineroute`) | `CINEROUTE_AUTH_USERNAME` |
 | Web UI password (login form with a 90-day session cookie; basic auth is the fallback) | `CINEROUTE_AUTH_PASSWORD` |
 | Listen address | `CINEROUTE_LISTEN` |
@@ -158,3 +159,38 @@ content path, file tree, empty category/tags, size, state).
 
 SQLite history, intake recovery after crash, singleton lease, archives,
 auto-submit mode.
+
+## 1080p companion copies
+
+CineRoute can optionally search one Prowlarr indexer (normally `LAT-Team`) for
+smaller 1080p companion releases for movies already in the library. Use the
+**1080p companions** view to scan the four movie roots, then search the queue
+or open one movie at a time. The list is paginated and candidate details are
+loaded only for the movie being reviewed, which keeps a large backfill queue
+manageable.
+
+Search results are filtered and ranked for 1080p, WEB-DL/WEBRip, size,
+seeders, codec and title-language evidence. Language is shown as evidence,
+not a guarantee; open the tracker details and manually approve a candidate.
+CineRoute never downloads a companion automatically. Approved torrents use
+the same stopped-add, verification and explicit-start transaction as normal
+intake and must go into the movie's one existing canonical folder.
+
+The feature uses a small atomically-written `/data/companions.json` state file.
+Mount `/data` writable when running in Docker and configure Prowlarr with:
+
+```text
+CINEROUTE_PROWLARR_URL
+CINEROUTE_PROWLARR_API_KEY
+CINEROUTE_PROWLARR_INDEXER
+```
+
+Prowlarr remains optional; normal torrent routing works without it. The
+configured LAT-Team indexer must already exist and be enabled in Prowlarr.
+After a normal movie submission, **Find 1080p companion** opens the same
+review flow for that movie.
+
+CineRoute preserves original torrent filenames. Jellyfin may need filenames
+beginning with the parent `Title (Year)` folder name to group multiple movie
+versions automatically; the companion scan displays a warning when that
+may be needed. It does not rename seeded files.

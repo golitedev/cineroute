@@ -12,8 +12,23 @@ import (
 
 	"cineroute/internal/library"
 	"cineroute/internal/qbittorrent"
+	"cineroute/internal/tmdb"
 	"cineroute/internal/torrentmeta"
 )
+
+type submissionRequest struct {
+	Bytes           []byte
+	Filename        string
+	Meta            *torrentmeta.MetaInfo
+	MediaType       string
+	Match           tmdb.Result
+	RequireExisting bool
+}
+
+type submissionOutcome struct {
+	Dest   *Destination
+	Result *SubmitResult
+}
 
 // pendingReservations returns the bytes each drive has already reserved by
 // intakes that are not yet submitted.
@@ -120,31 +135,71 @@ func (s *Server) submitLocked(ctx context.Context, in *Intake) error {
 	bytes := in.Bytes
 	filename := in.Filename
 	s.mu.RUnlock()
+	outcome, err := s.submitTorrentLocked(ctx, submissionRequest{
+		Bytes:     bytes,
+		Filename:  filename,
+		Meta:      meta,
+		MediaType: class.MediaType,
+		Match:     match,
+	})
+	if outcome != nil {
+		s.mu.Lock()
+		in.Dest = outcome.Dest
+		if outcome.Result != nil {
+			in.Result = outcome.Result
+			in.Bytes = nil
+		}
+		s.mu.Unlock()
+	}
+	return err
+}
+
+// submitTorrentLocked is the single qBittorrent submission transaction used
+// by both normal intake and companion approval. The caller must hold the
+// allocation lock. When RequireExisting is true, no new destination may be
+// allocated: exactly one canonical movie folder must already exist.
+func (s *Server) submitTorrentLocked(ctx context.Context, req submissionRequest) (*submissionOutcome, error) {
+	if req.Meta == nil {
+		return nil, errors.New("torrent metadata is missing")
+	}
+	if req.Filename == "" {
+		req.Filename = "cineroute.torrent"
+	}
 
 	// 1. Readiness gate: versions, preferences.
 	if err := s.ready(ctx); err != nil {
-		return err
+		return nil, err
 	}
 
 	// 2. Duplicate check against qBittorrent.
-	if hashes := meta.QueryHashes(); hashes != "" {
+	if hashes := req.Meta.QueryHashes(); hashes != "" {
 		ts, err := s.qb.Torrents(ctx, map[string][]string{"hashes": {hashes}})
 		if err != nil {
-			return fmt.Errorf("duplicate check failed: %w", err)
+			return nil, fmt.Errorf("duplicate check failed: %w", err)
 		}
 		if len(ts) > 0 {
-			return fmt.Errorf("this torrent is already in qBittorrent (%s)", ts[0].Name)
+			return nil, fmt.Errorf("this torrent is already in qBittorrent (%s)", ts[0].Name)
 		}
 	}
 
 	// 3. Authoritative destination: fresh library scan + fresh space.
-	isTV := class.MediaType == "tv"
-	folder := library.FolderName(s.cfg.Library.FolderFormat, match.DisplayTitle(), match.Year())
+	isTV := req.MediaType == "tv"
+	folder := library.FolderName(s.cfg.Library.FolderFormat, req.Match.DisplayTitle(), req.Match.Year())
 	var matches []library.Folder
 	if isTV {
 		matches = s.lib.FindTV(folder)
 	} else {
 		matches = s.lib.FindMovie(folder)
+	}
+	if req.RequireExisting {
+		switch len(matches) {
+		case 0:
+			return nil, errors.New("movie folder no longer exists; rescan the library before approving the companion")
+		case 1:
+			// Use the only canonical folder below.
+		default:
+			return nil, errors.New("movie exists on multiple drives; resolve the duplicate folders before approving the companion")
+		}
 	}
 
 	var savePath string
@@ -156,12 +211,15 @@ func (s *Server) submitLocked(ctx context.Context, in *Intake) error {
 		savePath = matches[0].Path
 		driveID = matches[0].DriveID
 	case len(matches) > 1:
-		return errors.New("this title exists on multiple drives; resolve the duplicates before submitting")
+		return nil, errors.New("this title exists on multiple drives; resolve the duplicates before submitting")
 	default:
+		if req.RequireExisting {
+			return nil, errors.New("movie folder no longer exists; rescan the library before approving the companion")
+		}
 		pending := s.pendingReservations()
-		sel, err := s.alloc.Select(s.cfg.Drives, pending, meta.Size)
+		sel, err := s.alloc.Select(s.cfg.Drives, pending, req.Meta.Size)
 		if err != nil {
-			return err
+			return nil, err
 		}
 		driveID = sel.Drive.ID
 		root := sel.Drive.TVRoot
@@ -177,79 +235,74 @@ func (s *Server) submitLocked(ctx context.Context, in *Intake) error {
 		SavePath:    savePath,
 		FolderName:  folder,
 		Existing:    len(matches) > 0,
-		ContentPath: meta.ContentPath(savePath),
-		RootFolder:  meta.RootFolder,
-		NeededBytes: meta.Size,
+		ContentPath: req.Meta.ContentPath(savePath),
+		RootFolder:  req.Meta.RootFolder,
+		NeededBytes: req.Meta.Size,
 		EnoughSpace: true,
 	}
 	if st, ok := s.driveStatus(driveID); ok {
 		dest.UsableSpace = st.Available
-		dest.EnoughSpace = st.Available >= meta.Size
-		dest.Shortfall = meta.Size - st.Available
+		dest.EnoughSpace = st.Available >= req.Meta.Size
+		dest.Shortfall = req.Meta.Size - st.Available
 		if !dest.EnoughSpace && dest.Existing {
 			dest.Warnings = append(dest.Warnings, fmt.Sprintf(
 				"%s has only %s free (torrent needs %s); adding anyway to keep the title on its drive",
-				driveID, humanBytes(st.Available), humanBytes(meta.Size)))
+				driveID, humanBytes(st.Available), humanBytes(req.Meta.Size)))
 		}
 	}
-	s.mu.Lock()
-	in.Dest = dest
-	s.mu.Unlock()
+	out := &submissionOutcome{Dest: dest}
 
 	// 4. Create only the canonical parent folder.
 	if err := os.Mkdir(savePath, 0o755); err != nil && !errors.Is(err, os.ErrExist) {
-		return fmt.Errorf("creating %s: %w", savePath, err)
+		return out, fmt.Errorf("creating %s: %w", savePath, err)
 	}
 
 	// 5. Add stopped, without a category or tags.
-	if err := s.qb.AddTorrent(ctx, bytes, qbittorrent.AddOptions{
+	if err := s.qb.AddTorrent(ctx, req.Bytes, qbittorrent.AddOptions{
 		SavePath:   savePath,
-		RootFolder: meta.RootFolder,
+		RootFolder: req.Meta.RootFolder,
 		Stopped:    true,
-		Filename:   filename,
+		Filename:   req.Filename,
 	}); err != nil {
-		return fmt.Errorf("adding torrent to qBittorrent: %w", err)
+		return out, fmt.Errorf("adding torrent to qBittorrent: %w", err)
 	}
 
 	// 6. Verify the stopped add exactly.
-	tor, err := s.waitForHash(ctx, meta.QueryHashes())
+	tor, err := s.waitForHash(ctx, req.Meta.QueryHashes())
 	if err != nil {
-		return err
+		return out, err
 	}
 	// qBittorrent may still be in a transitional state (checkingResumeData,
 	// checkingDL, allocating, moving) right after the add becomes visible;
 	// wait until it settles into a stopped state before verifying.
 	tor, err = s.waitStopped(ctx, tor.Hash)
 	if err != nil {
-		return err
+		return out, err
 	}
-	expectedContent := meta.ContentPath(savePath)
-	if err := s.verify(ctx, tor, meta, savePath, expectedContent); err != nil {
-		return err
+	expectedContent := req.Meta.ContentPath(savePath)
+	if err := s.verify(ctx, tor, req.Meta, savePath, expectedContent); err != nil {
+		return out, err
 	}
 
 	// 7. Start the verified torrent and confirm it left the stopped state.
 	if err := s.qb.Start(ctx, tor.Hash); err != nil {
-		return fmt.Errorf("start request failed: %w", err)
+		return out, fmt.Errorf("start request failed: %w", err)
 	}
 	if err := s.waitStarted(ctx, tor.Hash); err != nil {
-		return err
+		return out, err
 	}
 
-	s.mu.Lock()
-	in.Bytes = nil
-	in.Result = &SubmitResult{
+	out.Result = &SubmitResult{
 		Hash:        tor.Hash,
 		TorrentName: tor.Name,
 		SavePath:    tor.SavePath,
 		ContentPath: tor.ContentPath,
 		DriveID:     driveID,
-		RootFolder:  meta.RootFolder,
-		Files:       len(meta.Files),
+		RootFolder:  req.Meta.RootFolder,
+		Files:       len(req.Meta.Files),
 		SubmittedAt: time.Now(),
 	}
-	s.mu.Unlock()
-	return nil
+	return out, nil
 }
 
 // ready checks qBittorrent versions and preferences.

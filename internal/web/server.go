@@ -20,8 +20,10 @@ import (
 	"time"
 
 	"cineroute/internal/allocator"
+	"cineroute/internal/companion"
 	"cineroute/internal/config"
 	"cineroute/internal/library"
+	"cineroute/internal/prowlarr"
 	"cineroute/internal/qbittorrent"
 	"cineroute/internal/tmdb"
 	"cineroute/internal/torrentmeta"
@@ -113,31 +115,38 @@ type SubmitResult struct {
 }
 
 type Server struct {
-	cfg     *config.Config
-	qb      *qbittorrent.Client
-	tmdb    *tmdb.Client
-	alloc   *allocator.Allocator
-	lib     *library.Scan
-	allocMu sync.Mutex
-	page    *template.Template
+	cfg        *config.Config
+	qb         *qbittorrent.Client
+	tmdb       *tmdb.Client
+	alloc      *allocator.Allocator
+	lib        *library.Scan
+	companions *companion.Manager
+	allocMu    sync.Mutex
+	page       *template.Template
 
 	mu      sync.RWMutex
 	intakes map[string]*Intake
 	recent  []*Intake
 }
 
-func New(cfg *config.Config, qb *qbittorrent.Client, tmdbClient *tmdb.Client) *Server {
+func New(cfg *config.Config, qb *qbittorrent.Client, tmdbClient *tmdb.Client, prowlarrClients ...*prowlarr.Client) *Server {
 	drives := make([]library.Drive, 0, len(cfg.Drives))
 	for _, d := range cfg.Drives {
 		drives = append(drives, library.Drive{ID: d.ID, MovieRoot: d.MovieRoot, TVRoot: d.TVRoot})
 	}
+	var prowlarrClient *prowlarr.Client
+	if len(prowlarrClients) > 0 {
+		prowlarrClient = prowlarrClients[0]
+	}
+	scan := library.NewScan(drives)
 	s := &Server{
-		cfg:     cfg,
-		qb:      qb,
-		tmdb:    tmdbClient,
-		alloc:   allocator.New(),
-		lib:     library.NewScan(drives),
-		intakes: map[string]*Intake{},
+		cfg:        cfg,
+		qb:         qb,
+		tmdb:       tmdbClient,
+		alloc:      allocator.New(),
+		lib:        scan,
+		companions: companion.NewManager(cfg, scan, tmdbClient, prowlarrClient),
+		intakes:    map[string]*Intake{},
 	}
 	s.page = template.Must(template.New("index.html").ParseFS(assetsFS, "templates/index.html"))
 	go s.cleanupLoop()
@@ -177,6 +186,13 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("POST /api/intakes/{id}/search", s.search)
 	mux.HandleFunc("POST /api/intakes/{id}/match", s.match)
 	mux.HandleFunc("POST /api/intakes/{id}/submit", s.submit)
+	mux.HandleFunc("GET /api/companions", s.listCompanions)
+	mux.HandleFunc("POST /api/companions/scan", s.scanCompanions)
+	mux.HandleFunc("POST /api/companions/search-missing", s.searchMissingCompanions)
+	mux.HandleFunc("POST /api/companions/{id}/search", s.searchCompanion)
+	mux.HandleFunc("POST /api/companions/{id}/skip", s.skipCompanion)
+	mux.HandleFunc("POST /api/companions/{id}/approve", s.approveCompanion)
+	mux.HandleFunc("POST /api/intakes/{id}/companion-search", s.searchIntakeCompanion)
 	return s.auth(mux)
 }
 

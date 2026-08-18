@@ -49,6 +49,25 @@ th{color:var(--dim);font-weight:500;width:170px}
 .errbox{background:#2d1618;border:1px solid #7a2f2d;border-radius:8px;padding:10px 12px;color:#ff9b92;white-space:pre-wrap;margin-top:10px}
 .okbox{background:#12261a;border:1px solid #2c6a3a;border-radius:8px;padding:10px 12px;color:#7ee787;margin-top:10px}
 #statusbar{display:flex;flex-wrap:wrap;gap:6px}
+.view-nav{display:flex;gap:8px;margin-bottom:16px}
+.companion-toolbar{display:flex;justify-content:space-between;gap:10px;align-items:center;flex-wrap:wrap}
+.companion-stats{display:flex;gap:8px;flex-wrap:wrap;margin:14px 0}
+.companion-stat{background:#12151b;border:1px solid var(--border);border-radius:7px;padding:8px 11px;min-width:92px}
+.companion-stat strong{display:block;font-size:18px}
+.companion-stat span{color:var(--dim);font-size:11px;text-transform:uppercase;letter-spacing:.04em}
+.companion-filters{display:flex;gap:6px;flex-wrap:wrap;margin-bottom:12px}
+.companion-filters button.active{border-color:var(--accent);color:#fff;background:#121a2e}
+.companion-row{display:grid;grid-template-columns:minmax(0,1fr) auto auto;gap:12px;align-items:center;border-top:1px solid var(--border);padding:11px 0}
+.companion-row:first-child{border-top:0}
+.companion-row .title{font-weight:600}
+.companion-row .meta{color:var(--dim);font-size:12px;margin-top:2px}
+.companion-detail{border-color:var(--accent)}
+.candidate{border:1px solid var(--border);border-radius:8px;padding:12px;margin-top:10px}
+.candidate h3{font-size:13px;line-height:1.4;margin:0 0 7px;word-break:break-word}
+.candidate .facts{display:flex;gap:6px;flex-wrap:wrap;margin-bottom:7px}
+.candidate .reason{color:var(--dim);font-size:12px;margin-top:6px}
+.pagination{display:flex;justify-content:space-between;align-items:center;margin-top:12px}
+@media(max-width:600px){.companion-row{grid-template-columns:1fr auto}.companion-row .status{grid-column:1}.companion-row button{grid-column:2;grid-row:1 / span 2}}
 input[type=text],input[type=number]{background:#0f1115;border:1px solid var(--border);border-radius:6px;color:var(--text);padding:7px 10px;font-size:13px}
 input[type=number]{width:90px}
 .actions{display:flex;gap:10px;margin-top:14px;flex-wrap:wrap}
@@ -84,6 +103,11 @@ input[type=number]{width:90px}
 </header>
 <main>
 
+<div class="view-nav" id="viewNav">
+  <button id="routeTab" class="primary" onclick="showView('route')">Route torrents</button>
+  <button id="companionTab" onclick="showView('companions')">1080p companions</button>
+</div>
+
 <div class="card hidden" id="loginCard">
   <h2 class="login-title">Sign in to CineRoute</h2>
   <p class="login-sub">Enter your credentials to continue.</p>
@@ -103,6 +127,7 @@ input[type=number]{width:90px}
   <div id="loginErr" class="errbox hidden"></div>
 </div>
 
+<div id="routeView">
 <div class="card" id="uploadCard">
   <div id="drop">
     <p><strong>Drop .torrent files here</strong><br>one or many at once — or click to browse</p>
@@ -117,12 +142,51 @@ input[type=number]{width:90px}
   <table><thead><tr><th>Time</th><th>Title</th><th>Save path</th><th>Status</th></tr></thead>
   <tbody id="historyBody"></tbody></table>
 </div>
+</div>
+
+<div id="companionView" class="hidden">
+  <div class="card">
+    <div class="companion-toolbar">
+      <div>
+        <h2 style="margin-bottom:4px">1080p companions</h2>
+        <div class="small">Searches the configured Prowlarr indexer. Every download still needs your approval.</div>
+      </div>
+      <div class="actions" style="margin-top:0">
+        <button onclick="scanCompanions()">Scan library</button>
+        <button class="primary" onclick="searchMissingCompanions()">Search all missing</button>
+      </div>
+    </div>
+    <div id="companionStats" class="companion-stats"></div>
+    <div id="companionProgress" class="small"></div>
+    <div id="companionMessage"></div>
+  </div>
+  <div class="card">
+    <div class="companion-filters" id="companionFilters">
+      <button data-filter="pending" onclick="setCompanionFilter('pending')">Needs search</button>
+      <button data-filter="review" onclick="setCompanionFilter('review')">Review</button>
+      <button data-filter="no_match" onclick="setCompanionFilter('no_match')">No match</button>
+      <button data-filter="needs_review" onclick="setCompanionFilter('needs_review')">Needs review</button>
+      <button data-filter="error" onclick="setCompanionFilter('error')">Errors</button>
+      <button data-filter="complete" onclick="setCompanionFilter('complete')">Complete</button>
+      <button data-filter="skipped" onclick="setCompanionFilter('skipped')">Skipped</button>
+      <button data-filter="all" onclick="setCompanionFilter('all')">All</button>
+    </div>
+    <div id="companionList"></div>
+    <div id="companionPagination" class="pagination"></div>
+  </div>
+  <div id="companionDetail" class="card companion-detail hidden"></div>
+</div>
 
 </main>
 <script>
 const $=id=>document.getElementById(id);
 let intakes=[];
 const busy=new Set();
+let companionData=null;
+let companionFilter="pending";
+let companionPage=0;
+let openCompanion="";
+let companionPoll=null;
 
 const fmtBytes=n=>{
   if(n===0)return "0 B";
@@ -154,6 +218,8 @@ async function login(){
   try{
     await postJSON("/api/login",{username:user,password:pass});
     $("loginCard").classList.add("hidden");
+    $("viewNav").classList.remove("hidden");
+    $("routeView").classList.remove("hidden");
     $("uploadCard").classList.remove("hidden");
     $("statusbar").style.display="";
     loadStatus();loadHistory();refresh();
@@ -181,7 +247,9 @@ function togglePass(){
 }
 function showLogin(){
   if($("loginCard").classList.contains("hidden")){
-    $("uploadCard").classList.add("hidden");
+    $("routeView").classList.add("hidden");
+    $("companionView").classList.add("hidden");
+    $("viewNav").classList.add("hidden");
     $("stack").innerHTML="";
     $("historyCard").classList.add("hidden");
     $("loginCard").classList.remove("hidden");
@@ -190,6 +258,14 @@ function showLogin(){
     $("loginPass").value="";
     $("loginUser").focus();
   }
+}
+
+function showView(view){
+  $("routeView").classList.toggle("hidden",view!=="route");
+  $("companionView").classList.toggle("hidden",view!=="companions");
+  $("routeTab").classList.toggle("primary",view==="route");
+  $("companionTab").classList.toggle("primary",view==="companions");
+  if(view==="companions")loadCompanions();
 }
 
 // ---- status ----
@@ -201,6 +277,7 @@ async function loadStatus(){
     const add=(txt,cls)=>b.appendChild(Object.assign(document.createElement("span"),{className:"badge "+cls,textContent:txt}));
     add("qb: "+s.qbittorrent,s.qbittorrent==="ok"?"ok":"err");
     if(s.tmdb==="configured")add("tmdb: ok","ok");else add("tmdb: "+s.tmdb,"warn");
+    if(s.prowlarr&&s.prowlarr!=="disabled")add("prowlarr: "+(s.prowlarr_indexer||s.prowlarr),s.prowlarr_indexer&&s.prowlarr===s.prowlarr_indexer?"ok":s.prowlarr==="not configured"?"warn":"err");
     if(s.preallocate&&s.preallocate.includes("enabled"))add("prealloc: on","warn");
     if(s.temp_path&&s.temp_path.includes("enabled"))add("temp path: on","warn");
     const st=s.storage||{};
@@ -250,6 +327,95 @@ async function removeGroup(key){
   await Promise.all(members.map(m=>api("/api/intakes/"+m.id,{method:"DELETE"}).catch(()=>{})));
   await refresh();
 }
+
+// ---- companions ----
+function companionStatus(m){
+  const labels={pending:"needs search",searching:"searching…",review:"review",no_match:"no match",already_has_1080p:"already has 1080p",needs_review:"needs review",skipped:"skipped",submitting:"submitting…",complete:"complete",error:"error"};
+  return labels[m.status]||m.status||"pending";
+}
+function companionStatusClass(m){
+  if(m.status==="complete"||m.status==="already_has_1080p")return "ok";
+  if(m.status==="error"||m.status==="needs_review")return "err";
+  if(m.status==="review"||m.status==="searching"||m.status==="submitting")return "warn";
+  return "";
+}
+async function loadCompanions(openId){
+  if(openId!==undefined){openCompanion=openId||"";$("companionDetail").dataset.showAll="false"}
+  let path="/api/companions";
+  if(openCompanion)path+="?open="+encodeURIComponent(openCompanion);
+  try{
+    companionData=await api(path);
+    renderCompanions();
+    if(companionData.batch&&companionData.batch.running){
+      clearTimeout(companionPoll);companionPoll=setTimeout(()=>loadCompanions(),2500);
+    }
+  }catch(e){$("companionMessage").innerHTML='<div class="errbox">'+esc(e.message)+"</div>"}
+}
+function renderCompanions(){
+  if(!companionData)return;
+  const movies=companionData.movies||[];
+  const count=status=>movies.filter(m=>m.status===status&&!m.missing).length;
+  const missing=movies.filter(m=>m.missing).length;
+  $("companionStats").innerHTML=[
+    [movies.length-missing,"Movies"],[count("pending"),"Needs search"],[count("review"),"Review"],[count("no_match"),"No match"],[count("complete"),"Complete"],[count("skipped"),"Skipped"]
+  ].map(x=>'<div class="companion-stat"><strong>'+x[0]+"</strong><span>"+x[1]+"</span></div>").join("");
+  const b=companionData.batch||{};
+  $("companionProgress").textContent=b.running?"Searching "+b.done+" / "+b.total+(b.error?" — "+b.error:""):b.error||(companionData.prowlarr_configured?"Indexer: "+(companionData.indexer_name||"LAT-Team"):"Prowlarr not configured — set the API key before searching");
+  $("companionMessage").innerHTML=companionData.state_error?'<div class="errbox">'+esc(companionData.state_error)+"</div>":"";
+  document.querySelectorAll("#companionFilters button").forEach(btn=>btn.classList.toggle("active",btn.dataset.filter===companionFilter));
+  const filtered=movies.filter(m=>companionFilter==="all"||m.status===companionFilter);
+  const pageSize=20,totalPages=Math.max(1,Math.ceil(filtered.length/pageSize));
+  companionPage=Math.min(companionPage,totalPages-1);
+  const page=filtered.slice(companionPage*pageSize,(companionPage+1)*pageSize);
+  $("companionList").innerHTML=page.length?page.map(companionRow).join(""):'<div class="small">No movies in this filter. Scan the library to populate the queue.</div>';
+  $("companionPagination").innerHTML=filtered.length?'<button '+(companionPage===0?"disabled":"")+' onclick="companionPage--;renderCompanions()">Previous</button><span class="small">Page '+(companionPage+1)+" of "+totalPages+" · "+filtered.length+" movies</span><button "+(companionPage>=totalPages-1?"disabled":"")+' onclick="companionPage++;renderCompanions()">Next</button>':"";
+  renderCompanionDetail();
+}
+function companionRow(m){
+  const warn=m.jellyfin_warning?'<div class="small">'+esc(m.jellyfin_warning)+"</div>":"";
+  return `<div class="companion-row"><div><div class="title">${esc(m.folder_name||m.title)}</div><div class="meta">${esc(m.drive_id)} · ${esc(m.existing_copy||"existing copy unknown")}${m.year?" · "+m.year:""}</div>${warn}</div><span class="badge ${companionStatusClass(m)} status">${esc(companionStatus(m))}</span><button data-id="${esc(m.id)}" onclick="openCompanionMovie(this.dataset.id)">Open</button></div>`;
+}
+function setCompanionFilter(filter){companionFilter=filter;companionPage=0;renderCompanions()}
+async function scanCompanions(){
+  try{await postJSON("/api/companions/scan",{});companionPage=0;await loadCompanions()}catch(e){alert(e.message)}
+}
+async function searchMissingCompanions(){
+  try{await postJSON("/api/companions/search-missing",{});await loadCompanions()}catch(e){alert(e.message)}
+}
+async function openCompanionMovie(id){companionPage=0;await loadCompanions(id);$("companionDetail").scrollIntoView({behavior:"smooth",block:"start"})}
+function renderCompanionDetail(){
+  const box=$("companionDetail"),m=companionData&&companionData.open;
+  if(!m){box.classList.add("hidden");box.innerHTML="";return}
+  box.classList.remove("hidden");
+  const candidates=companionData.candidates||[];
+  let html='<div class="companion-toolbar"><div><h2 style="margin-bottom:4px">'+esc(m.folder_name)+"</h2><div class=\"small\">"+esc(m.drive_id)+" · "+esc(m.path)+"</div></div><button onclick=\"closeCompanionMovie()\">Close</button></div>";
+  html+='<div class="row" style="margin-top:12px"><span class="badge '+companionStatusClass(m)+'">'+esc(companionStatus(m))+"</span>"+(m.tmdb_id?'<span class="small">TMDB '+m.tmdb_id+"</span>":"")+"</div>";
+  if(m.error)html+='<div class="errbox">'+esc(m.error)+"</div>";
+  if(m.jellyfin_warning)html+='<div class="errbox" style="background:#2b2412;border-color:#6b5214;color:#e3b341">'+esc(m.jellyfin_warning)+"</div>";
+  if(!candidates.length){
+    if(m.status!=="complete"&&m.status!=="already_has_1080p")html+='<div class="actions"><button class="primary" data-id="'+esc(m.id)+'" onclick="searchOneCompanion(this.dataset.id)">'+(m.status==="no_match"?"Search again":"Search")+'</button><button data-id="'+esc(m.id)+'" onclick="skipCompanion(this.dataset.id)">Skip</button></div>';
+    box.innerHTML=html;return;
+  }
+  html+='<h2 style="margin-top:18px">Candidates <span class="small">'+candidates.length+' filtered release'+(candidates.length===1?"":"s")+" · inspect the tracker details before approving</span></h2>";
+  const showAll=box.dataset.showAll==="true";
+  const shown=showAll?candidates:candidates.slice(0,5);
+  html+=shown.map(candidateCard).join("");
+  if(candidates.length>5)html+='<div class="actions"><button onclick="toggleCandidates()">'+(showAll?"Show top 5":"Show all "+candidates.length)+"</button></div>";
+  if(m.status!=="complete")html+='<div class="actions"><button data-id="'+esc(m.id)+'" onclick="skipCompanion(this.dataset.id)">Skip this movie</button></div>';
+  box.innerHTML=html;
+}
+function candidateCard(c){
+  const seed=c.seeders===null||c.seeders===undefined?"unknown":c.seeders;
+  const link=c.info_url&&/^https?:\/\//i.test(c.info_url)?'<a href="'+esc(c.info_url)+'" target="_blank" rel="noopener noreferrer">Open tracker</a>':"";
+  return '<div class="candidate"><h3>'+esc(c.title)+"</h3><div class=\"facts\"><span class=\"badge\">"+fmtBytes(c.size)+"</span><span class=\"badge\">"+esc(seed)+" seeders</span><span class=\"badge\">"+esc(c.source)+"</span><span class=\"badge\">"+esc(c.codec)+"</span><span class=\"badge warn\">"+esc(c.language_evidence)+"</span><span class=\"badge\">Score "+esc(c.score)+"</span></div><div class=\"reason\">✓ "+esc((c.reasons||[]).join(" · "))+"</div><div class=\"actions\">"+link+'<button data-id="'+esc(openCompanion)+'" data-guid="'+esc(c.guid)+'" onclick="approveFromButton(this)" class="primary">Approve</button></div></div>';
+}
+function approveFromButton(button){approveCompanion(button.dataset.id,button.dataset.guid)}
+function toggleCandidates(){const box=$("companionDetail");box.dataset.showAll=box.dataset.showAll!=="true"?"true":"false";renderCompanionDetail()}
+function closeCompanionMovie(){openCompanion="";loadCompanions()}
+async function searchOneCompanion(id){try{await postJSON("/api/companions/"+id+"/search",{});await loadCompanions(id)}catch(e){alert(e.message)}}
+async function skipCompanion(id){try{await postJSON("/api/companions/"+id+"/skip",{});await loadCompanions(id)}catch(e){alert(e.message)}}
+async function approveCompanion(id,guid){if(!confirm("Approve this release and add it to the existing movie folder?"))return;try{await postJSON("/api/companions/"+id+"/approve",{guid});await loadCompanions(id);alert("Companion torrent added, verified and started.")}catch(e){alert(e.message);await loadCompanions(id)}}
+async function searchIntakeCompanion(id){try{showView("companions");await postJSON("/api/intakes/"+id+"/companion-search",{});await loadCompanions()}catch(e){alert(e.message)}}
 
 // ---- render ----
 function refresh(){
@@ -361,7 +527,8 @@ function destHTML(x){
       "<tr><td>Drive</td><td>"+esc(x.result.drive_id)+"</td></tr>"+
       "<tr><td>Hash</td><td class='mono'>"+esc(x.result.hash)+"</td></tr>"+
       "</tbody></table>"+
-      '<span class="small">CineRoute will perform no further operations on this torrent.</span></div>';
+      '<span class="small">CineRoute will perform no further operations on this torrent.</span>'+
+      (x.media_type==="movie"?'<div class="actions"><button data-id="'+esc(x.id)+'" onclick="searchIntakeCompanion(this.dataset.id)">Find 1080p companion</button></div>':"")+"</div>";
   }else if(x.status==="submitting"||busy.has(x.group)){
     html+='<div class="okbox">Adding stopped, verifying, starting…</div>';
   }else{
