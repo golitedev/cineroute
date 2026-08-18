@@ -52,9 +52,9 @@ var hevcRe = regexp.MustCompile(`(?i)\b(?:hevc|h[. _-]*265|x265)\b`)
 var avcRe = regexp.MustCompile(`(?i)\b(?:avc|h[. _-]*264|x264)\b`)
 
 // FilterAndRank applies the intentionally small companion quality policy and
-// returns candidates ordered for manual review. Prowlarr has already scoped
-// the response to the configured indexer and search query, so stale release
-// metadata is evidence for ranking rather than a reason to hide a candidate.
+// returns candidates ordered for manual review. Search results still need to
+// identify this movie: Prowlarr's query is not a substitute for title/year
+// validation because title-only searches can return unrelated releases.
 func FilterAndRank(releases []prowlarr.Release, title string, year, tmdbID int, policy Policy) []Candidate {
 	guidCounts := make(map[string]int, len(releases))
 	for _, release := range releases {
@@ -94,9 +94,13 @@ func scoreRelease(release prowlarr.Release, title string, year, tmdbID int, poli
 	if strings.TrimSpace(release.Title) == "" {
 		return Candidate{}, false
 	}
-	indexerMismatch := policy.TargetIndexerID > 0 && release.IndexerID > 0 && release.IndexerID != policy.TargetIndexerID
+	if policy.TargetIndexerID > 0 && release.IndexerID > 0 && release.IndexerID != policy.TargetIndexerID {
+		return Candidate{}, false
+	}
 	exactTMDB := tmdbID > 0 && release.TmdbID > 0 && release.TmdbID == tmdbID
-	tmdbMismatch := tmdbID > 0 && release.TmdbID > 0 && release.TmdbID != tmdbID
+	if tmdbID > 0 && release.TmdbID > 0 && release.TmdbID != tmdbID {
+		return Candidate{}, false
+	}
 	if release.Size <= 0 || (policy.MaxBytes > 0 && release.Size > policy.MaxBytes) {
 		return Candidate{}, false
 	}
@@ -115,6 +119,9 @@ func scoreRelease(release prowlarr.Release, title string, year, tmdbID int, poli
 	wantTitle := normalizedWords(title)
 	titleMatch := wordSequenceMatch(releaseTitle, wantTitle)
 	yearMatch := year == 0 || releaseYear == 0 || releaseYear == year
+	if !exactTMDB && (!titleMatch || !yearMatch) {
+		return Candidate{}, false
+	}
 
 	c := Candidate{
 		Guid:        releaseCandidateID(release, useFingerprint),
@@ -135,14 +142,6 @@ func scoreRelease(release prowlarr.Release, title string, year, tmdbID int, poli
 	if exactTMDB {
 		c.Score += 100
 		c.Reasons = append(c.Reasons, "TMDB match")
-	}
-	if indexerMismatch {
-		c.Score -= 30
-		c.Reasons = append(c.Reasons, "Prowlarr indexer metadata differs — inspect tracker")
-	}
-	if tmdbMismatch {
-		c.Score -= 30
-		c.Reasons = append(c.Reasons, "TMDB metadata differs — inspect tracker")
 	}
 	if titleMatch && yearMatch && year > 0 && releaseYear == year {
 		c.Score += 40

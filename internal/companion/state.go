@@ -51,6 +51,7 @@ type Movie struct {
 	Error           string    `json:"error,omitempty"`
 	QBHash          string    `json:"qb_hash,omitempty"`
 	ExistingCopy    string    `json:"existing_copy,omitempty"`
+	ExistingFiles   []string  `json:"existing_files,omitempty"`
 	JellyfinWarning string    `json:"jellyfin_warning,omitempty"`
 	Missing         bool      `json:"missing,omitempty"`
 	CreatedAt       time.Time `json:"created_at"`
@@ -192,6 +193,7 @@ func cloneMovie(movie *Movie) *Movie {
 		return nil
 	}
 	copy := *movie
+	copy.ExistingFiles = append([]string(nil), movie.ExistingFiles...)
 	return &copy
 }
 

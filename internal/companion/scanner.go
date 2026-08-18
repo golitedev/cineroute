@@ -18,6 +18,7 @@ var companionVideoExtensions = map[string]bool{
 }
 
 type copyInspection struct {
+	Files           []string
 	Quality         string
 	Has1080pWebDL   bool
 	Has1080pBluRay  bool
@@ -30,11 +31,13 @@ func inspectMovieFolder(path, folderName string) copyInspection {
 	if err != nil {
 		return copyInspection{Error: fmt.Sprintf("cannot inspect movie folder: %v", err)}
 	}
+	inspection := copyInspection{Files: append([]string(nil), videos...)}
 	if len(videos) == 0 {
-		return copyInspection{Quality: "none", Error: "no video file found in movie folder; manual review required"}
+		inspection.Quality = "none"
+		inspection.Error = "no video file found in movie folder; manual review required"
+		return inspection
 	}
 	var first1080p string
-	inspection := copyInspection{}
 	for _, name := range videos {
 		lower := strings.ToLower(name)
 		if !strings.Contains(lower, "1080p") {
@@ -56,10 +59,9 @@ func inspectMovieFolder(path, folderName string) copyInspection {
 		return inspection
 	}
 	if len(videos) > 1 {
-		return copyInspection{
-			Quality: "multiple",
-			Error:   "multiple video files found without a clear 1080p copy; manual review required",
-		}
+		inspection.Quality = "multiple"
+		inspection.Error = "multiple video files found without a clear 1080p copy; manual review required"
+		return inspection
 	}
 	name := videos[0]
 	quality := "unknown"
@@ -69,9 +71,18 @@ func inspectMovieFolder(path, folderName string) copyInspection {
 		quality = "4k"
 	}
 	return copyInspection{
+		Files:           inspection.Files,
 		Quality:         quality,
 		JellyfinWarning: jellyfinWarning(folderName, filepath.Base(name)),
 	}
+}
+
+func movieVideoPaths(root string, relative []string) []string {
+	paths := make([]string, 0, len(relative))
+	for _, name := range relative {
+		paths = append(paths, filepath.Join(root, name))
+	}
+	return paths
 }
 
 // movieVideoFiles includes files kept inside an original torrent directory.
@@ -135,6 +146,7 @@ func jellyfinWarning(folderName, videoName string) string {
 
 func inspectError(movie *Movie, inspection copyInspection) {
 	movie.ExistingCopy = inspection.Quality
+	movie.ExistingFiles = movieVideoPaths(movie.Path, inspection.Files)
 	movie.JellyfinWarning = inspection.JellyfinWarning
 	if inspection.Error != "" {
 		movie.Status = StatusNeedsReview

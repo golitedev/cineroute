@@ -162,6 +162,10 @@ func (m *Manager) View(openID string) View {
 				continue
 			}
 			view.Open = cloneMovie(movie)
+			if view.Open != nil && !view.Open.Missing && view.Open.Path != "" {
+				inspection := inspectMovieFolder(view.Open.Path, view.Open.FolderName)
+				view.Open.ExistingFiles = movieVideoPaths(view.Open.Path, inspection.Files)
+			}
 			if result, ok := m.searches[openID]; ok {
 				view.Candidates = cloneCandidates(result.Candidates)
 				view.SearchedAt = result.SearchedAt
@@ -296,6 +300,7 @@ func (m *Manager) Scan(ctx context.Context) error {
 		title, year, parseErr := parseMovieFolder(folder)
 		inspection := inspectMovieFolder(folder.Path, folder.Name)
 		movie.ExistingCopy = inspection.Quality
+		movie.ExistingFiles = movieVideoPaths(folder.Path, inspection.Files)
 		movie.JellyfinWarning = inspection.JellyfinWarning
 		if parseErr != nil {
 			if !live {
@@ -483,9 +488,13 @@ func (m *Manager) searchMovie(ctx context.Context, movie *Movie) ([]Candidate, e
 
 func companionSearchQueries(movie *Movie) []string {
 	title := strings.TrimSpace(movie.Title)
-	queries := []string{title}
+	query := title
 	if movie.Year > 0 {
-		queries = append(queries, strings.TrimSpace(fmt.Sprintf("%s %d", title, movie.Year)))
+		query = strings.TrimSpace(fmt.Sprintf("%s %d", title, movie.Year))
+	}
+	queries := []string{query}
+	if query != title {
+		queries = append(queries, title)
 	}
 	return queries
 }
@@ -696,6 +705,7 @@ func (m *Manager) UpsertMovie(driveID, path, folderName, title string, year, tmd
 	movie.Missing = false
 	inspection := inspectMovieFolder(path, folderName)
 	movie.ExistingCopy = inspection.Quality
+	movie.ExistingFiles = movieVideoPaths(path, inspection.Files)
 	movie.JellyfinWarning = inspection.JellyfinWarning
 	if movie.Status != StatusComplete && movie.Status != StatusSkipped && !isLiveWorkflowStatus(movie.Status) {
 		if alreadyHasSuitable1080pCopy(inspection) {

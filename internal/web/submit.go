@@ -135,7 +135,7 @@ func (s *Server) submitLocked(ctx context.Context, in *Intake) error {
 	bytes := in.Bytes
 	filename := in.Filename
 	s.mu.RUnlock()
-	outcome, err := s.submitTorrentLocked(ctx, submissionRequest{
+	outcome, err := s.submitTorrent(ctx, submissionRequest{
 		Bytes:     bytes,
 		Filename:  filename,
 		Meta:      meta,
@@ -154,11 +154,11 @@ func (s *Server) submitLocked(ctx context.Context, in *Intake) error {
 	return err
 }
 
-// submitTorrentLocked is the single qBittorrent submission transaction used
-// by both normal intake and companion approval. The caller must hold the
-// allocation lock. When RequireExisting is true, no new destination may be
-// allocated: exactly one canonical movie folder must already exist.
-func (s *Server) submitTorrentLocked(ctx context.Context, req submissionRequest) (*submissionOutcome, error) {
+// submitTorrent is the single qBittorrent submission transaction used by both
+// normal intake and companion approval. Normal intake holds the allocation lock
+// around its caller because it may select a new drive. Companion approval uses
+// RequireExisting and can run concurrently because it never allocates a drive.
+func (s *Server) submitTorrent(ctx context.Context, req submissionRequest) (*submissionOutcome, error) {
 	if req.Meta == nil {
 		return nil, errors.New("torrent metadata is missing")
 	}

@@ -23,12 +23,10 @@ func TestCompanionSubmissionRequiresExistingMovieFolder(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	srv.allocMu.Lock()
-	out, err := srv.submitTorrentLocked(context.Background(), submissionRequest{
+	out, err := srv.submitTorrent(context.Background(), submissionRequest{
 		Bytes: raw, Filename: "companion.torrent", Meta: meta, MediaType: "movie",
 		Match: tmdb.Result{ID: 862, Title: "Toy Story", ReleaseDate: "1995-01-01"}, RequireExisting: true,
 	})
-	srv.allocMu.Unlock()
 	if err != nil {
 		t.Fatalf("companion submission failed: %v", err)
 	}
@@ -41,12 +39,10 @@ func TestCompanionSubmissionRequiresExistingMovieFolder(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	srv.allocMu.Lock()
-	_, err = srv.submitTorrentLocked(context.Background(), submissionRequest{
+	_, err = srv.submitTorrent(context.Background(), submissionRequest{
 		Bytes: missingRaw, Filename: "companion-missing.torrent", Meta: missingMeta, MediaType: "movie",
 		Match: tmdb.Result{ID: 999, Title: "No Folder", ReleaseDate: "2020-01-01"}, RequireExisting: true,
 	})
-	srv.allocMu.Unlock()
 	if err == nil || !strings.Contains(err.Error(), "folder no longer exists") {
 		t.Fatalf("expected missing-folder rejection, got %v", err)
 	}

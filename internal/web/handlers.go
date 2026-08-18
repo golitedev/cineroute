@@ -303,8 +303,9 @@ func (s *Server) approveCompanion(w http.ResponseWriter, r *http.Request) {
 		Title:       movie.Title,
 		ReleaseDate: fmt.Sprintf("%04d-01-01", movie.Year),
 	}
-	s.allocMu.Lock()
-	outcome, err := s.submitTorrentLocked(r.Context(), submissionRequest{
+	// This companion already has a canonical movie folder, so approval does not
+	// select or reserve a drive. Let separate approvals progress concurrently.
+	outcome, err := s.submitTorrent(r.Context(), submissionRequest{
 		Bytes:           data,
 		Filename:        "companion-" + movie.ID + ".torrent",
 		Meta:            meta,
@@ -312,7 +313,6 @@ func (s *Server) approveCompanion(w http.ResponseWriter, r *http.Request) {
 		Match:           match,
 		RequireExisting: true,
 	})
-	s.allocMu.Unlock()
 	if err != nil {
 		s.companions.MarkError(movie.ID, err)
 		writeErr(w, http.StatusConflict, err.Error())

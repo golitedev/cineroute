@@ -158,6 +158,10 @@ func TestScanRecoversNeedsReviewWhenVideoIsNested(t *testing.T) {
 	if got := m.state.Movies[0].ExistingCopy; got != "4k" {
 		t.Fatalf("nested movie quality = %s, want 4k", got)
 	}
+	wantFile := filepath.Join(releaseFolder, "Movie.2024.2160p.REMUX.mkv")
+	if got := m.state.Movies[0].ExistingFiles; len(got) != 1 || got[0] != wantFile {
+		t.Fatalf("nested movie files = %v, want %q", got, wantFile)
+	}
 	if got := m.state.Movies[0].Error; got != "" {
 		t.Fatalf("nested movie retained review error: %q", got)
 	}
@@ -182,6 +186,26 @@ func TestSearchIntervalSettingPersists(t *testing.T) {
 	}
 }
 
+func TestViewRefreshesExistingFilesForOpenMovie(t *testing.T) {
+	root := t.TempDir()
+	folder := filepath.Join(root, "Movie (2024)")
+	if err := os.MkdirAll(folder, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	file := filepath.Join(folder, "Movie.2024.2160p.REMUX.mkv")
+	if err := os.WriteFile(file, nil, 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	m := newTransitionManager(t, StatusReview)
+	m.state.Movies[0].Path = folder
+	m.state.Movies[0].ExistingFiles = nil
+	view := m.View("movie")
+	if view.Open == nil || len(view.Open.ExistingFiles) != 1 || view.Open.ExistingFiles[0] != file {
+		t.Fatalf("open movie files = %v, want %q", view.Open, file)
+	}
+}
+
 func TestSearchIntervalBlocksTheNextRequest(t *testing.T) {
 	m := newTransitionManager(t, StatusPending)
 	m.searchIntervalSeconds = 5
@@ -195,9 +219,9 @@ func TestSearchIntervalBlocksTheNextRequest(t *testing.T) {
 	}
 }
 
-func TestCompanionSearchQueriesMatchTitleOnlyProwlarrSearchFirst(t *testing.T) {
+func TestCompanionSearchQueriesPreferYearQualifiedSearch(t *testing.T) {
 	got := companionSearchQueries(&Movie{Title: "12 Angry Men", Year: 1957})
-	want := []string{"12 Angry Men", "12 Angry Men 1957"}
+	want := []string{"12 Angry Men 1957", "12 Angry Men"}
 	if len(got) != len(want) {
 		t.Fatalf("queries = %v, want %v", got, want)
 	}

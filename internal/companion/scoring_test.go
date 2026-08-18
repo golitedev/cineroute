@@ -19,7 +19,7 @@ func TestFilterAndRankCompanionReleases(t *testing.T) {
 		{Guid: "other", Title: "Movie.2024.1080p.WEB-DL-GROUP", Size: 8 << 30, IndexerID: 7, TmdbID: 999, Seeders: &seeders},
 	}
 	got := FilterAndRank(releases, "Movie", 2024, 123, policy)
-	if len(got) != 2 || got[0].Guid != "best" {
+	if len(got) != 1 || got[0].Guid != "best" {
 		t.Fatalf("filtered candidates: %+v", got)
 	}
 	if got[0].Source != "WEB-DL" || got[0].Codec != "HEVC" {
@@ -27,6 +27,18 @@ func TestFilterAndRankCompanionReleases(t *testing.T) {
 	}
 	if got[0].LanguageEvidence != "Likely dual audio" {
 		t.Fatalf("language evidence: %q", got[0].LanguageEvidence)
+	}
+}
+
+func TestUnrelatedTitleAndYearAreNotCompanionCandidates(t *testing.T) {
+	seeders := 10
+	got := FilterAndRank([]prowlarr.Release{
+		{Guid: "alive", Title: "Alive.1993.1080p.WEB-DL.H.264-GROUP", Size: 5 << 30, IndexerID: 7, Seeders: &seeders},
+		{Guid: "alice-1951", Title: "Alice.In.Wonderland.1951.1080p.WEB-DL.H.264-GROUP", Size: 4 << 30, IndexerID: 7, Seeders: &seeders},
+		{Guid: "alice-2010", Title: "Alice.In.Wonderland.2010.1080p.WEB-DL.H.264-GROUP", Size: 4 << 30, IndexerID: 7, Seeders: &seeders},
+	}, "Alive", 1993, 0, Policy{MaxBytes: 15 << 30, MinSeeders: 1, TargetIndexerID: 7})
+	if len(got) != 1 || got[0].Guid != "alive" {
+		t.Fatalf("unrelated releases were not filtered: %+v", got)
 	}
 }
 
@@ -55,7 +67,7 @@ func TestCompanionRankingPrefersWebDLAndCompatibleBluRay(t *testing.T) {
 	}
 }
 
-func TestExactProwlarrTitlesAreEligible(t *testing.T) {
+func TestProwlarrTitlesWithMatchingMetadataAreEligible(t *testing.T) {
 	seeders := []int{5, 8, 1, 8}
 	policy := Policy{MaxBytes: 15 << 30, MinSeeders: 1, TargetIndexerID: 5}
 	releases := []prowlarr.Release{
@@ -65,7 +77,7 @@ func TestExactProwlarrTitlesAreEligible(t *testing.T) {
 		{Guid: "spanish-title", Title: "12 hombres en pugna 1957 1080p DD 2.0 MKV x264 BDRip LatTeam.mkv SPANiSH", Size: 3328724014, IndexerID: 5, Seeders: &seeders[3]},
 	}
 	got := FilterAndRank(releases, "12 Angry Men", 1957, 0, policy)
-	if len(got) != 4 || got[0].Title != releases[0].Title || got[0].Guid == "" {
+	if len(got) != 3 || got[0].Title != releases[0].Title || got[0].Guid == "" {
 		t.Fatalf("exact Prowlarr titles: %+v", got)
 	}
 	if !strings.Contains(strings.Join(got[0].Reasons, " "), "1008p") {
@@ -155,7 +167,7 @@ func TestCompanionScannerRecognizesMovieCopies(t *testing.T) {
 		}
 		return path
 	}
-	if got := inspectMovieFolder(makeMovie("Dune (2021)", "Dune.2021.2160p.REMUX.mkv"), "Dune (2021)"); got.Quality != "4k" {
+	if got := inspectMovieFolder(makeMovie("Dune (2021)", "Dune.2021.2160p.REMUX.mkv"), "Dune (2021)"); got.Quality != "4k" || len(got.Files) != 1 || got.Files[0] != "Dune.2021.2160p.REMUX.mkv" {
 		t.Fatalf("4k inspection: %+v", got)
 	}
 	if got := inspectMovieFolder(makeMovie("Alien (1979)", "Alien.1979.2160p.mkv", "Alien.1979.1080p.WEB-DL.mkv"), "Alien (1979)"); got.Quality != "1080p" || !got.Has1080pWebDL || got.Has1080pBluRay {
