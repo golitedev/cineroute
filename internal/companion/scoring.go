@@ -1,6 +1,8 @@
 package companion
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"regexp"
 	"sort"
 	"strconv"
@@ -81,7 +83,7 @@ func FilterAndRank(releases []prowlarr.Release, title string, year, tmdbID int, 
 }
 
 func scoreRelease(release prowlarr.Release, title string, year, tmdbID int, policy Policy) (Candidate, bool) {
-	if strings.TrimSpace(release.Guid) == "" || strings.TrimSpace(release.Title) == "" {
+	if strings.TrimSpace(release.Title) == "" {
 		return Candidate{}, false
 	}
 	indexerMismatch := policy.TargetIndexerID > 0 && release.IndexerID > 0 && release.IndexerID != policy.TargetIndexerID
@@ -106,7 +108,7 @@ func scoreRelease(release prowlarr.Release, title string, year, tmdbID int, poli
 	yearMatch := year == 0 || releaseYear == 0 || releaseYear == year
 
 	c := Candidate{
-		Guid:        release.Guid,
+		Guid:        releaseCandidateID(release),
 		Title:       release.Title,
 		Size:        release.Size,
 		Seeders:     release.Seeders,
@@ -224,6 +226,21 @@ func scoreRelease(release prowlarr.Release, title string, year, tmdbID int, poli
 		c.Reasons = append(c.Reasons, "seeders unknown")
 	}
 	return c, true
+}
+
+// releaseCandidateID keeps valid Prowlarr results reviewable when an indexer
+// omits guid. The opaque fallback is stable across the approval-time fresh
+// search without exposing or persisting the Prowlarr download URL.
+func releaseCandidateID(release prowlarr.Release) string {
+	if guid := strings.TrimSpace(release.Guid); guid != "" {
+		return guid
+	}
+	value := strings.TrimSpace(release.Title) + "\x00" +
+		strconv.FormatInt(release.Size, 10) + "\x00" +
+		strconv.Itoa(release.IndexerID) + "\x00" +
+		strings.TrimSpace(release.Indexer)
+	sum := sha256.Sum256([]byte(value))
+	return "release-" + hex.EncodeToString(sum[:16])
 }
 
 func hasResolution(title, wanted string) bool {
