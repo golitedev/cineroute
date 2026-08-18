@@ -481,7 +481,7 @@ func (m *Manager) searchMovie(ctx context.Context, movie *Movie) ([]Candidate, e
 }
 
 func companionSearchQueries(movie *Movie) []string {
-	title := strings.ToLower(strings.TrimSpace(movie.Title))
+	title := strings.TrimSpace(movie.Title)
 	queries := []string{title}
 	if movie.Year > 0 {
 		queries = append(queries, strings.TrimSpace(fmt.Sprintf("%s %d", title, movie.Year)))
