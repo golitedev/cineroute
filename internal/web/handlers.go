@@ -181,6 +181,26 @@ func (s *Server) listCompanions(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, s.companions.View(openID))
 }
 
+func (s *Server) updateCompanionSettings(w http.ResponseWriter, r *http.Request) {
+	if s.companions == nil {
+		writeErr(w, http.StatusServiceUnavailable, "companion subsystem is unavailable")
+		return
+	}
+	var body struct {
+		SearchIntervalSeconds int `json:"search_interval_seconds"`
+	}
+	r.Body = http.MaxBytesReader(w, r.Body, 1<<20)
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		writeErr(w, http.StatusBadRequest, "invalid body")
+		return
+	}
+	if err := s.companions.SetSearchIntervalSeconds(body.SearchIntervalSeconds); err != nil {
+		writeErr(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, s.companions.View(""))
+}
+
 func (s *Server) scanCompanions(w http.ResponseWriter, r *http.Request) {
 	if s.companions == nil {
 		writeErr(w, http.StatusServiceUnavailable, "companion subsystem is unavailable")

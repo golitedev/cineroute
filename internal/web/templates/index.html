@@ -51,6 +51,8 @@ th{color:var(--dim);font-weight:500;width:170px}
 #statusbar{display:flex;flex-wrap:wrap;gap:6px}
 .view-nav{display:flex;gap:8px;margin-bottom:16px}
 .companion-toolbar{display:flex;justify-content:space-between;gap:10px;align-items:center;flex-wrap:wrap}
+.companion-settings{border-top:1px solid var(--border);margin-top:14px;padding-top:12px}
+.companion-settings label{display:block;color:var(--dim);font-size:12px;margin-bottom:5px}
 .companion-stats{display:flex;gap:8px;flex-wrap:wrap;margin:14px 0}
 .companion-stat{background:#12151b;border:1px solid var(--border);border-radius:7px;padding:8px 11px;min-width:92px}
 .companion-stat strong{display:block;font-size:18px}
@@ -156,6 +158,17 @@ input[type=number]{width:90px}
         <button class="primary" onclick="searchMissingCompanions()">Search all missing</button>
       </div>
     </div>
+    <div class="companion-settings">
+      <label for="companionInterval">Search interval (seconds)</label>
+      <div class="row">
+        <input id="companionInterval" type="number" min="5" max="300" step="1" value="10">
+        <button class="primary" onclick="saveCompanionSettings()">Save</button>
+        <button onclick="setCompanionInterval(10)">10s</button>
+        <button onclick="setCompanionInterval(30)">30s</button>
+        <button onclick="setCompanionInterval(60)">60s</button>
+      </div>
+      <div id="companionIntervalNote" class="small" style="margin-top:6px">Delay between Prowlarr tracker searches.</div>
+    </div>
     <div id="companionStats" class="companion-stats"></div>
     <div id="companionProgress" class="small"></div>
     <div id="companionMessage"></div>
@@ -206,6 +219,9 @@ async function api(path,opts={}){
 }
 function postJSON(path,body){
   return api(path,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(body)});
+}
+function patchJSON(path,body){
+  return api(path,{method:"PATCH",headers:{"Content-Type":"application/json"},body:JSON.stringify(body)});
 }
 
 // ---- login ----
@@ -354,6 +370,11 @@ async function loadCompanions(openId){
 function renderCompanions(){
   if(!companionData)return;
   const movies=companionData.movies||[];
+  const interval=companionData.search_interval_seconds||10;
+  const rate=60/interval;
+  const rateText=rate>=1?(rate%1?rate.toFixed(1):String(rate)):rate.toFixed(1);
+  if(document.activeElement!==$("companionInterval"))$("companionInterval").value=interval;
+  $("companionIntervalNote").textContent="Delay between Prowlarr tracker searches. "+interval+"s ≈ "+rateText+" searches/minute.";
   const count=status=>movies.filter(m=>m.status===status&&!m.missing).length;
   const missing=movies.filter(m=>m.missing).length;
   $("companionStats").innerHTML=[
@@ -382,6 +403,10 @@ async function scanCompanions(){
 async function searchMissingCompanions(){
   try{await postJSON("/api/companions/search-missing",{});await loadCompanions()}catch(e){alert(e.message)}
 }
+async function saveCompanionSettings(){
+  try{companionData=await patchJSON("/api/companions/settings",{search_interval_seconds:+$("companionInterval").value});renderCompanions()}catch(e){alert(e.message)}
+}
+async function setCompanionInterval(value){$("companionInterval").value=value;await saveCompanionSettings()}
 async function openCompanionMovie(id){companionPage=0;await loadCompanions(id);$("companionDetail").scrollIntoView({behavior:"smooth",block:"start"})}
 function renderCompanionDetail(){
   const box=$("companionDetail"),m=companionData&&companionData.open;

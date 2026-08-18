@@ -2,9 +2,11 @@ package companion
 
 import (
 	"context"
+	"errors"
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 
 	"cineroute/internal/config"
 	"cineroute/internal/library"
@@ -98,5 +100,35 @@ func TestScanPreservesLiveWorkflowStates(t *testing.T) {
 				t.Fatalf("Scan changed %s to %s", status, got)
 			}
 		})
+	}
+}
+
+func TestSearchIntervalSettingPersists(t *testing.T) {
+	m := newTransitionManager(t, StatusPending)
+	if err := m.SetSearchIntervalSeconds(30); err != nil {
+		t.Fatal(err)
+	}
+	if got := m.View("").SearchIntervalSeconds; got != 30 {
+		t.Fatalf("runtime interval = %d, want 30", got)
+	}
+	if err := m.SetSearchIntervalSeconds(4); err == nil {
+		t.Fatal("expected interval below the minimum to be rejected")
+	}
+	reloaded := NewManager(m.cfg, nil, nil)
+	if got := reloaded.View("").SearchIntervalSeconds; got != 30 {
+		t.Fatalf("persisted interval = %d, want 30", got)
+	}
+}
+
+func TestSearchIntervalBlocksTheNextRequest(t *testing.T) {
+	m := newTransitionManager(t, StatusPending)
+	m.searchIntervalSeconds = 5
+	if err := m.waitForSearchInterval(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Millisecond)
+	defer cancel()
+	if err := m.waitForSearchInterval(ctx); !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("second search should wait for the interval, got %v", err)
 	}
 }

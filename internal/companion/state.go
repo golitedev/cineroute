@@ -58,8 +58,9 @@ type Movie struct {
 }
 
 type stateFile struct {
-	Version int      `json:"version"`
-	Movies  []*Movie `json:"movies"`
+	Version               int      `json:"version"`
+	Movies                []*Movie `json:"movies"`
+	SearchIntervalSeconds int      `json:"search_interval_seconds,omitempty"`
 }
 
 type BatchStatus struct {

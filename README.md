@@ -195,6 +195,11 @@ configured LAT-Team indexer must already exist and be enabled in Prowlarr.
 After a normal movie submission, **Find 1080p companion** opens the same
 review flow for that movie.
 
+Companion searches are paced by `companion.search_interval_seconds` (5–300
+seconds, default 10). The setting applies between every Prowlarr search,
+including fallback queries and manual searches; the UI can override it and
+stores that override in the companion JSON state.
+
 CineRoute preserves original torrent filenames. Jellyfin may not automatically
 group another version when its original filename does not begin with the
 parent `Title (Year)` folder name; the companion scan displays that warning.

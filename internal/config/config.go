@@ -32,6 +32,12 @@ type QBittorrent struct {
 	Password string `yaml:"password"`
 }
 
+const (
+	DefaultCompanionSearchIntervalSeconds = 10
+	MinCompanionSearchIntervalSeconds     = 5
+	MaxCompanionSearchIntervalSeconds     = 300
+)
+
 type Prowlarr struct {
 	URL         string `yaml:"url"`
 	APIKey      string `yaml:"api_key"`
@@ -39,12 +45,12 @@ type Prowlarr struct {
 }
 
 type Companion struct {
-	Enabled       bool   `yaml:"enabled"`
-	StatePath     string `yaml:"state_path"`
-	MaxSizeGiB    int64  `yaml:"max_size_gib"`
-	MinSeeders    int    `yaml:"min_seeders"`
-	SearchLimit   int    `yaml:"search_limit"`
-	SearchDelayMS int    `yaml:"search_delay_ms"`
+	Enabled               bool   `yaml:"enabled"`
+	StatePath             string `yaml:"state_path"`
+	MaxSizeGiB            int64  `yaml:"max_size_gib"`
+	MinSeeders            int    `yaml:"min_seeders"`
+	SearchLimit           int    `yaml:"search_limit"`
+	SearchIntervalSeconds int    `yaml:"search_interval_seconds"`
 }
 
 type Library struct {
@@ -74,12 +80,12 @@ func Default() *Config {
 			IndexerName: "LAT-Team",
 		},
 		Companion: Companion{
-			Enabled:       true,
-			StatePath:     "/data/companions.json",
-			MaxSizeGiB:    15,
-			MinSeeders:    1,
-			SearchLimit:   50,
-			SearchDelayMS: 750,
+			Enabled:               true,
+			StatePath:             "/data/companions.json",
+			MaxSizeGiB:            15,
+			MinSeeders:            1,
+			SearchLimit:           50,
+			SearchIntervalSeconds: DefaultCompanionSearchIntervalSeconds,
 		},
 		Library: Library{FolderFormat: "{title} ({year})"},
 		Drives: []Drive{
@@ -165,8 +171,8 @@ func (c *Config) validate() error {
 	if c.Companion.SearchLimit <= 0 {
 		return errors.New("companion.search_limit must be greater than zero")
 	}
-	if c.Companion.SearchDelayMS < 0 {
-		return errors.New("companion.search_delay_ms must not be negative")
+	if c.Companion.SearchIntervalSeconds < MinCompanionSearchIntervalSeconds || c.Companion.SearchIntervalSeconds > MaxCompanionSearchIntervalSeconds {
+		return fmt.Errorf("companion.search_interval_seconds must be between %d and %d", MinCompanionSearchIntervalSeconds, MaxCompanionSearchIntervalSeconds)
 	}
 	seen := map[string]bool{}
 	for _, d := range c.Drives {

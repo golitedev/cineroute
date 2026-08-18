@@ -187,6 +187,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("POST /api/intakes/{id}/match", s.match)
 	mux.HandleFunc("POST /api/intakes/{id}/submit", s.submit)
 	mux.HandleFunc("GET /api/companions", s.listCompanions)
+	mux.HandleFunc("PATCH /api/companions/settings", s.updateCompanionSettings)
 	mux.HandleFunc("POST /api/companions/scan", s.scanCompanions)
 	mux.HandleFunc("POST /api/companions/search-missing", s.searchMissingCompanions)
 	mux.HandleFunc("POST /api/companions/{id}/search", s.searchCompanion)

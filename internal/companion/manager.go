@@ -23,15 +23,18 @@ type searchState struct {
 }
 
 type View struct {
-	Enabled            bool        `json:"enabled"`
-	IndexerName        string      `json:"indexer_name"`
-	ProwlarrConfigured bool        `json:"prowlarr_configured"`
-	Movies             []*Movie    `json:"movies"`
-	Open               *Movie      `json:"open,omitempty"`
-	Candidates         []Candidate `json:"candidates,omitempty"`
-	SearchedAt         time.Time   `json:"searched_at,omitempty"`
-	Batch              BatchStatus `json:"batch"`
-	StateError         string      `json:"state_error,omitempty"`
+	Enabled                  bool        `json:"enabled"`
+	IndexerName              string      `json:"indexer_name"`
+	ProwlarrConfigured       bool        `json:"prowlarr_configured"`
+	SearchIntervalSeconds    int         `json:"search_interval_seconds"`
+	SearchIntervalMinSeconds int         `json:"search_interval_min_seconds"`
+	SearchIntervalMaxSeconds int         `json:"search_interval_max_seconds"`
+	Movies                   []*Movie    `json:"movies"`
+	Open                     *Movie      `json:"open,omitempty"`
+	Candidates               []Candidate `json:"candidates,omitempty"`
+	SearchedAt               time.Time   `json:"searched_at,omitempty"`
+	Batch                    BatchStatus `json:"batch"`
+	StateError               string      `json:"state_error,omitempty"`
 }
 
 type Manager struct {
@@ -39,13 +42,17 @@ type Manager struct {
 	lib      *library.Scan
 	prowlarr *prowlarr.Client
 
-	mu          sync.RWMutex
-	state       stateFile
-	stateErr    error
-	searches    map[string]searchState
-	indexerID   int
-	indexerName string
-	batch       BatchStatus
+	mu                    sync.RWMutex
+	state                 stateFile
+	stateErr              error
+	searches              map[string]searchState
+	indexerID             int
+	indexerName           string
+	batch                 BatchStatus
+	searchIntervalSeconds int
+
+	searchMu   sync.Mutex
+	lastSearch time.Time
 }
 
 func NewManager(cfg *config.Config, lib *library.Scan, prowlarrClient *prowlarr.Client) *Manager {
@@ -60,12 +67,25 @@ func NewManager(cfg *config.Config, lib *library.Scan, prowlarrClient *prowlarr.
 		m.stateErr = errors.New("companion configuration is missing")
 		return m
 	}
+	m.searchIntervalSeconds = cfg.Companion.SearchIntervalSeconds
+	if m.searchIntervalSeconds < config.MinCompanionSearchIntervalSeconds || m.searchIntervalSeconds > config.MaxCompanionSearchIntervalSeconds {
+		m.searchIntervalSeconds = config.DefaultCompanionSearchIntervalSeconds
+	}
 	st, err := loadState(cfg.Companion.StatePath)
 	if err != nil {
 		m.stateErr = err
 	} else {
 		m.state = st
-		if normalizeLoadedState(&m.state) {
+		changed := normalizeLoadedState(&m.state)
+		if m.state.SearchIntervalSeconds != 0 {
+			if m.state.SearchIntervalSeconds >= config.MinCompanionSearchIntervalSeconds && m.state.SearchIntervalSeconds <= config.MaxCompanionSearchIntervalSeconds {
+				m.searchIntervalSeconds = m.state.SearchIntervalSeconds
+			} else {
+				m.state.SearchIntervalSeconds = 0
+				changed = true
+			}
+		}
+		if changed {
 			if err := saveState(cfg.Companion.StatePath, m.state); err != nil {
 				m.stateErr = fmt.Errorf("recover companion state: %w", err)
 			}
@@ -98,8 +118,11 @@ func (m *Manager) View(openID string) View {
 		view.IndexerName = "LAT-Team"
 	}
 	view.ProwlarrConfigured = m.Enabled() && m.prowlarr != nil && m.prowlarr.Configured()
+	view.SearchIntervalMinSeconds = config.MinCompanionSearchIntervalSeconds
+	view.SearchIntervalMaxSeconds = config.MaxCompanionSearchIntervalSeconds
 	m.mu.RLock()
 	defer m.mu.RUnlock()
+	view.SearchIntervalSeconds = m.searchIntervalSeconds
 	view.Movies = cloneMovies(m.state.Movies)
 	view.Batch = m.batch
 	if m.stateErr != nil {
@@ -119,6 +142,30 @@ func (m *Manager) View(openID string) View {
 		}
 	}
 	return view
+}
+
+func (m *Manager) SetSearchIntervalSeconds(seconds int) error {
+	if !m.Enabled() {
+		return errors.New("1080p companions are disabled")
+	}
+	if seconds < config.MinCompanionSearchIntervalSeconds || seconds > config.MaxCompanionSearchIntervalSeconds {
+		return fmt.Errorf("search interval must be between %d and %d seconds", config.MinCompanionSearchIntervalSeconds, config.MaxCompanionSearchIntervalSeconds)
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if m.stateErr != nil {
+		return m.stateErr
+	}
+	previousInterval := m.searchIntervalSeconds
+	previousState := m.state.SearchIntervalSeconds
+	m.searchIntervalSeconds = seconds
+	m.state.SearchIntervalSeconds = seconds
+	if err := m.persistLocked(); err != nil {
+		m.searchIntervalSeconds = previousInterval
+		m.state.SearchIntervalSeconds = previousState
+		return err
+	}
+	return nil
 }
 
 // ProwlarrStatus verifies the configured indexer for the status bar. It
@@ -314,15 +361,15 @@ func (m *Manager) SearchOne(ctx context.Context, id string) ([]Candidate, error)
 }
 
 func (m *Manager) searchMovie(ctx context.Context, movie *Movie) ([]Candidate, error) {
-	searchCtx, cancel := context.WithTimeout(ctx, 20*time.Second)
+	indexerCtx, cancel := context.WithTimeout(ctx, 20*time.Second)
 	defer cancel()
-	indexerID, err := m.resolveIndexer(searchCtx)
+	indexerID, err := m.resolveIndexer(indexerCtx)
 	if err != nil {
 		return nil, err
 	}
 	policy := m.policy(indexerID)
 	query := strings.TrimSpace(fmt.Sprintf("%s %d", movie.Title, movie.Year))
-	results, err := m.prowlarr.Search(searchCtx, indexerID, query, m.cfg.Companion.SearchLimit)
+	results, err := m.searchRelease(ctx, indexerID, query)
 	if err != nil {
 		m.clearIndexer()
 		return nil, err
@@ -334,7 +381,7 @@ func (m *Manager) searchMovie(ctx context.Context, movie *Movie) ([]Candidate, e
 	// One deliberately simple fallback handles trackers that omit the release
 	// year from their normalized search matching.
 	if query != movie.Title {
-		results, err = m.prowlarr.Search(searchCtx, indexerID, movie.Title, m.cfg.Companion.SearchLimit)
+		results, err = m.searchRelease(ctx, indexerID, movie.Title)
 		if err != nil {
 			m.clearIndexer()
 			return nil, err
@@ -342,6 +389,50 @@ func (m *Manager) searchMovie(ctx context.Context, movie *Movie) ([]Candidate, e
 		candidates = FilterAndRank(results, movie.Title, movie.Year, movie.TmdbID, policy)
 	}
 	return candidates, nil
+}
+
+func (m *Manager) searchRelease(ctx context.Context, indexerID int, query string) ([]prowlarr.Release, error) {
+	if err := m.waitForSearchInterval(ctx); err != nil {
+		return nil, err
+	}
+	searchCtx, cancel := context.WithTimeout(ctx, 20*time.Second)
+	defer cancel()
+	return m.prowlarr.Search(searchCtx, indexerID, query, m.cfg.Companion.SearchLimit)
+}
+
+// waitForSearchInterval reserves the next search start time. The reservation
+// is shared by batch, manual and approval-time searches, so fallback queries
+// cannot bypass the configured spacing.
+func (m *Manager) waitForSearchInterval(ctx context.Context) error {
+	m.searchMu.Lock()
+	defer m.searchMu.Unlock()
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	m.mu.RLock()
+	seconds := m.searchIntervalSeconds
+	m.mu.RUnlock()
+	if seconds <= 0 {
+		seconds = config.DefaultCompanionSearchIntervalSeconds
+	}
+	interval := time.Duration(seconds) * time.Second
+	if !m.lastSearch.IsZero() {
+		remaining := interval - time.Since(m.lastSearch)
+		if remaining > 0 {
+			timer := time.NewTimer(remaining)
+			defer timer.Stop()
+			select {
+			case <-timer.C:
+			case <-ctx.Done():
+				return ctx.Err()
+			}
+		}
+	}
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	m.lastSearch = time.Now()
+	return nil
 }
 
 // StartSearchMissing starts one sequential in-process search worker and
@@ -392,10 +483,6 @@ func (m *Manager) runBatch(ids []string) {
 			return
 		}
 		m.mu.Unlock()
-		if i+1 < len(ids) && m.cfg.Companion.SearchDelayMS > 0 {
-			timer := time.NewTimer(time.Duration(m.cfg.Companion.SearchDelayMS) * time.Millisecond)
-			<-timer.C
-		}
 	}
 	m.mu.Lock()
 	m.batch.Running = false
