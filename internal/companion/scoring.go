@@ -75,6 +75,7 @@ func scoreRelease(release prowlarr.Release, title string, year, tmdbID int, poli
 	if policy.TargetIndexerID > 0 && release.IndexerID != 0 && release.IndexerID != policy.TargetIndexerID {
 		return Candidate{}, false
 	}
+	exactTMDB := tmdbID > 0 && release.TmdbID > 0 && release.TmdbID == tmdbID
 	if release.TmdbID != 0 && tmdbID != 0 && release.TmdbID != tmdbID {
 		return Candidate{}, false
 	}
@@ -95,7 +96,7 @@ func scoreRelease(release prowlarr.Release, title string, year, tmdbID int, poli
 	wantTitle := normalizedWords(title)
 	titleMatch := wordSequenceMatch(releaseTitle, wantTitle)
 	yearMatch := year == 0 || releaseYear == 0 || releaseYear == year
-	if !titleMatch || !yearMatch {
+	if !exactTMDB && (!titleMatch || !yearMatch) {
 		return Candidate{}, false
 	}
 
@@ -111,7 +112,7 @@ func scoreRelease(release prowlarr.Release, title string, year, tmdbID int, poli
 		PublishDate: release.PublishDate,
 		downloadURL: release.DownloadURL,
 	}
-	if release.TmdbID != 0 && release.TmdbID == tmdbID {
+	if exactTMDB {
 		c.Score += 100
 		c.Reasons = append(c.Reasons, "TMDB match")
 	}

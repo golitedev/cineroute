@@ -169,6 +169,11 @@ or open one movie at a time. The list is paginated and candidate details are
 loaded only for the movie being reviewed, which keeps a large backfill queue
 manageable.
 
+The library scan is filesystem-only: existing folders are identified from
+their `Title (Year)` names and do not require a TMDB lookup. TMDB IDs remain
+available for movies entered through the normal intake flow and strengthen
+candidate matching when present.
+
 Search results are filtered and ranked for 1080p, WEB-DL/WEBRip, size,
 seeders, codec and title-language evidence. Language is shown as evidence,
 not a guarantee; open the tracker details and manually approve a candidate.
@@ -190,7 +195,7 @@ configured LAT-Team indexer must already exist and be enabled in Prowlarr.
 After a normal movie submission, **Find 1080p companion** opens the same
 review flow for that movie.
 
-CineRoute preserves original torrent filenames. Jellyfin may need filenames
-beginning with the parent `Title (Year)` folder name to group multiple movie
-versions automatically; the companion scan displays a warning when that
-may be needed. It does not rename seeded files.
+CineRoute preserves original torrent filenames. Jellyfin may not automatically
+group another version when its original filename does not begin with the
+parent `Title (Year)` folder name; the companion scan displays that warning.
+It does not rename seeded files.

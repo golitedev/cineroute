@@ -56,7 +56,7 @@ type Release struct {
 	IndexerID   int       `json:"indexerId"`
 	Indexer     string    `json:"indexer"`
 	TmdbID      int       `json:"tmdbId"`
-	ImdbID      string    `json:"imdbId"`
+	ImdbID      int       `json:"imdbId"`
 	Seeders     *int      `json:"seeders"`
 	Leechers    *int      `json:"leechers"`
 	PublishDate time.Time `json:"publishDate"`
@@ -113,17 +113,28 @@ func (c *Client) DownloadTorrent(ctx context.Context, downloadURL string) ([]byt
 	if downloadURL == "" {
 		return nil, fmt.Errorf("Prowlarr result has no download URL")
 	}
+	base, err := url.Parse(c.baseURL)
+	if err != nil || base.Scheme == "" || base.Host == "" {
+		return nil, fmt.Errorf("invalid Prowlarr base URL")
+	}
 	u, err := url.Parse(downloadURL)
 	if err != nil {
 		return nil, fmt.Errorf("invalid Prowlarr download URL")
 	}
-	if u.Scheme == "" {
+	if u.IsAbs() {
+		if !sameOrigin(u, base) {
+			return nil, fmt.Errorf("Prowlarr download URL is not on the configured server")
+		}
+	} else {
+		if u.Host != "" {
+			return nil, fmt.Errorf("invalid Prowlarr download URL")
+		}
 		u, err = url.Parse(c.baseURL + "/" + strings.TrimLeft(downloadURL, "/"))
 		if err != nil {
 			return nil, fmt.Errorf("invalid Prowlarr download URL")
 		}
 	}
-	if u.Scheme != "http" && u.Scheme != "https" {
+	if (u.Scheme != "http" && u.Scheme != "https") || !sameOrigin(u, base) {
 		return nil, fmt.Errorf("Prowlarr download URL must use HTTP or HTTPS")
 	}
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, u.String(), nil)
@@ -132,7 +143,14 @@ func (c *Client) DownloadTorrent(ctx context.Context, downloadURL string) ([]byt
 	}
 	req.Header.Set("X-Api-Key", c.apiKey)
 	req.Header.Set("Accept", "application/x-bittorrent, application/octet-stream")
-	resp, err := c.httpc.Do(req)
+	httpc := *c.httpc
+	httpc.CheckRedirect = func(next *http.Request, _ []*http.Request) error {
+		if !sameOrigin(next.URL, base) {
+			return http.ErrUseLastResponse
+		}
+		return nil
+	}
+	resp, err := httpc.Do(req)
 	if err != nil {
 		// Do not wrap the transport error: net/http may include the full
 		// proxy URL, which can contain Prowlarr's API key.
@@ -156,6 +174,10 @@ func (c *Client) DownloadTorrent(ctx context.Context, downloadURL string) ([]byt
 		return nil, fmt.Errorf("Prowlarr returned an empty torrent")
 	}
 	return data, nil
+}
+
+func sameOrigin(left, right *url.URL) bool {
+	return strings.EqualFold(left.Scheme, right.Scheme) && strings.EqualFold(left.Host, right.Host)
 }
 
 func (c *Client) getJSON(ctx context.Context, path string, q url.Values, out any) error {

@@ -1,6 +1,11 @@
 package library
 
-import "testing"
+import (
+	"os"
+	"path/filepath"
+	"strings"
+	"testing"
+)
 
 func TestParseMovieFolderUsesFinalYearSuffix(t *testing.T) {
 	tests := []struct {
@@ -28,5 +33,16 @@ func TestParseMovieFolderRejectsNonCanonicalNames(t *testing.T) {
 		if title, year, ok := ParseMovieFolder(name); ok {
 			t.Fatalf("ParseMovieFolder(%q) = %q, %d, true", name, title, year)
 		}
+	}
+}
+
+func TestMoviesFailsWhenConfiguredRootCannotBeRead(t *testing.T) {
+	root := filepath.Join(t.TempDir(), "movie-root")
+	if err := os.WriteFile(root, nil, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	_, err := NewScan([]Drive{{ID: "hdd3", MovieRoot: root}}).Movies()
+	if err == nil || !strings.Contains(err.Error(), "hdd3") {
+		t.Fatalf("expected root-read error, got %v", err)
 	}
 }

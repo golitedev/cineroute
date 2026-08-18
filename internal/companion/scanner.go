@@ -71,7 +71,7 @@ func jellyfinWarning(folderName, videoName string) string {
 	if strings.HasPrefix(videoName, folderName+" -") {
 		return ""
 	}
-	return "Jellyfin automatic version grouping may require filename cleanup"
+	return "Original torrent filename preserved; Jellyfin may not automatically group this as another version"
 }
 
 func inspectError(movie *Movie, inspection copyInspection) {

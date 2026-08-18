@@ -50,6 +50,18 @@ func TestLATTeamGroupNameIsNotSpanishEvidence(t *testing.T) {
 	}
 }
 
+func TestExactTMDBMatchAllowsAlternateReleaseTitle(t *testing.T) {
+	seeders := 4
+	got := FilterAndRank([]prowlarr.Release{{
+		Guid:  "original-title",
+		Title: "Le Fabuleux Destin d\u0027Amelie.2001.1080p.WEB-DL-GROUP",
+		Size:  2 << 30, IndexerID: 7, TmdbID: 123, Seeders: &seeders,
+	}}, "Amelie", 2001, 123, Policy{MaxBytes: 15 << 30, MinSeeders: 1, TargetIndexerID: 7})
+	if len(got) != 1 || got[0].Guid != "original-title" {
+		t.Fatalf("exact TMDB match should survive alternate title: %+v", got)
+	}
+}
+
 func TestCompanionScannerRecognizesTopLevelCopies(t *testing.T) {
 	root := t.TempDir()
 	makeMovie := func(name string, files ...string) string {

@@ -167,7 +167,7 @@ input[type=number]{width:90px}
       <button data-filter="no_match" onclick="setCompanionFilter('no_match')">No match</button>
       <button data-filter="needs_review" onclick="setCompanionFilter('needs_review')">Needs review</button>
       <button data-filter="error" onclick="setCompanionFilter('error')">Errors</button>
-      <button data-filter="complete" onclick="setCompanionFilter('complete')">Complete</button>
+      <button data-filter="complete" onclick="setCompanionFilter('complete')">Added</button>
       <button data-filter="skipped" onclick="setCompanionFilter('skipped')">Skipped</button>
       <button data-filter="all" onclick="setCompanionFilter('all')">All</button>
     </div>
@@ -330,7 +330,7 @@ async function removeGroup(key){
 
 // ---- companions ----
 function companionStatus(m){
-  const labels={pending:"needs search",searching:"searching…",review:"review",no_match:"no match",already_has_1080p:"already has 1080p",needs_review:"needs review",skipped:"skipped",submitting:"submitting…",complete:"complete",error:"error"};
+  const labels={pending:"needs search",searching:"searching…",review:"review",no_match:"no match",already_has_1080p:"already has 1080p",needs_review:"needs review",skipped:"skipped",submitting:"submitting…",complete:"added",error:"error"};
   return labels[m.status]||m.status||"pending";
 }
 function companionStatusClass(m){
@@ -357,7 +357,7 @@ function renderCompanions(){
   const count=status=>movies.filter(m=>m.status===status&&!m.missing).length;
   const missing=movies.filter(m=>m.missing).length;
   $("companionStats").innerHTML=[
-    [movies.length-missing,"Movies"],[count("pending"),"Needs search"],[count("review"),"Review"],[count("no_match"),"No match"],[count("complete"),"Complete"],[count("skipped"),"Skipped"]
+    [movies.length-missing,"Movies"],[count("pending"),"Needs search"],[count("review"),"Review"],[count("no_match"),"No match"],[count("complete"),"Added"],[count("skipped"),"Skipped"]
   ].map(x=>'<div class="companion-stat"><strong>'+x[0]+"</strong><span>"+x[1]+"</span></div>").join("");
   const b=companionData.batch||{};
   $("companionProgress").textContent=b.running?"Searching "+b.done+" / "+b.total+(b.error?" — "+b.error:""):b.error||(companionData.prowlarr_configured?"Indexer: "+(companionData.indexer_name||"LAT-Team"):"Prowlarr not configured — set the API key before searching");
@@ -415,7 +415,7 @@ function closeCompanionMovie(){openCompanion="";loadCompanions()}
 async function searchOneCompanion(id){try{await postJSON("/api/companions/"+id+"/search",{});await loadCompanions(id)}catch(e){alert(e.message)}}
 async function skipCompanion(id){try{await postJSON("/api/companions/"+id+"/skip",{});await loadCompanions(id)}catch(e){alert(e.message)}}
 async function approveCompanion(id,guid){if(!confirm("Approve this release and add it to the existing movie folder?"))return;try{await postJSON("/api/companions/"+id+"/approve",{guid});await loadCompanions(id);alert("Companion torrent added, verified and started.")}catch(e){alert(e.message);await loadCompanions(id)}}
-async function searchIntakeCompanion(id){try{showView("companions");await postJSON("/api/intakes/"+id+"/companion-search",{});await loadCompanions()}catch(e){alert(e.message)}}
+async function searchIntakeCompanion(id){try{showView("companions");const view=await postJSON("/api/intakes/"+id+"/companion-search",{});companionData=view;openCompanion=(view.open&&view.open.id)||id;companionFilter=(view.open&&view.open.status)||"all";companionPage=0;$("companionDetail").dataset.showAll="false";renderCompanions()}catch(e){alert(e.message)}}
 
 // ---- render ----
 function refresh(){

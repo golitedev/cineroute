@@ -11,12 +11,10 @@ import (
 	"strings"
 	"sync"
 	"time"
-	"unicode"
 
 	"cineroute/internal/config"
 	"cineroute/internal/library"
 	"cineroute/internal/prowlarr"
-	"cineroute/internal/tmdb"
 )
 
 type searchState struct {
@@ -39,7 +37,6 @@ type View struct {
 type Manager struct {
 	cfg      *config.Config
 	lib      *library.Scan
-	tmdb     *tmdb.Client
 	prowlarr *prowlarr.Client
 
 	mu          sync.RWMutex
@@ -51,11 +48,10 @@ type Manager struct {
 	batch       BatchStatus
 }
 
-func NewManager(cfg *config.Config, lib *library.Scan, tmdbClient *tmdb.Client, prowlarrClient *prowlarr.Client) *Manager {
+func NewManager(cfg *config.Config, lib *library.Scan, prowlarrClient *prowlarr.Client) *Manager {
 	m := &Manager{
 		cfg:      cfg,
 		lib:      lib,
-		tmdb:     tmdbClient,
 		prowlarr: prowlarrClient,
 		searches: map[string]searchState{},
 		state:    stateFile{Version: stateVersion},
@@ -69,6 +65,11 @@ func NewManager(cfg *config.Config, lib *library.Scan, tmdbClient *tmdb.Client, 
 		m.stateErr = err
 	} else {
 		m.state = st
+		if normalizeLoadedState(&m.state) {
+			if err := saveState(cfg.Companion.StatePath, m.state); err != nil {
+				m.stateErr = fmt.Errorf("recover companion state: %w", err)
+			}
+		}
 	}
 	return m
 }
@@ -161,7 +162,10 @@ func (m *Manager) Scan(ctx context.Context) error {
 	for _, movie := range m.state.Movies {
 		previous[movie.ID] = movie
 	}
-	folders := m.lib.Movies()
+	folders, err := m.lib.Movies()
+	if err != nil {
+		return fmt.Errorf("companion scan aborted: %w", err)
+	}
 	seen := make(map[string]bool, len(folders))
 	current := make([]*Movie, 0, len(folders)+len(previous))
 	for _, folder := range folders {
@@ -201,7 +205,7 @@ func (m *Manager) Scan(ctx context.Context) error {
 			movie.Status = StatusError
 			movie.Error = "previous companion submission was interrupted; search and approve again after checking qBittorrent"
 		}
-		if movie.Status == StatusSearching {
+		if movie.Status == StatusSearching || movie.Status == StatusReview || legacyTMDBError(movie.Error) {
 			movie.Status = StatusPending
 			movie.Error = ""
 		}
@@ -218,27 +222,6 @@ func (m *Manager) Scan(ctx context.Context) error {
 			movie.UpdatedAt = time.Now()
 			current = append(current, movie)
 			continue
-		}
-		if movie.TmdbID == 0 {
-			if m.tmdb == nil {
-				movie.Status = StatusError
-				movie.Error = "TMDB is not configured (set tmdb.api_key or CINEROUTE_TMDB_API_KEY)"
-			} else {
-				result, err := m.identify(ctx, title, year)
-				if err != nil {
-					movie.Status = StatusNeedsReview
-					movie.Error = err.Error()
-				} else {
-					movie.TmdbID = result.ID
-					movie.Error = ""
-				}
-			}
-		}
-		if movie.Status == "" || movie.Status == StatusNeedsReview || movie.Status == StatusAlready1080p {
-			if movie.TmdbID > 0 {
-				movie.Status = StatusPending
-				movie.Error = ""
-			}
 		}
 		if movie.Status == "" {
 			movie.Status = StatusPending
@@ -270,45 +253,6 @@ func (m *Manager) Scan(ctx context.Context) error {
 	return m.persistLocked()
 }
 
-func (m *Manager) identify(ctx context.Context, title string, year int) (tmdb.Result, error) {
-	results, err := m.tmdb.SearchMovie(ctx, title, year)
-	if err != nil {
-		return tmdb.Result{}, fmt.Errorf("TMDB search failed: %w", err)
-	}
-	if len(results) == 0 {
-		return tmdb.Result{}, fmt.Errorf("TMDB match requires review: no result for %s (%d)", title, year)
-	}
-	for _, result := range results {
-		if result.Year() == year && titleMatches(title, result) {
-			return result, nil
-		}
-	}
-	return tmdb.Result{}, fmt.Errorf("TMDB match requires review for %s (%d)", title, year)
-}
-
-func titleMatches(want string, result tmdb.Result) bool {
-	want = compactTitle(want)
-	if want == "" {
-		return false
-	}
-	for _, candidate := range []string{result.DisplayTitle(), result.OriginalTitle, result.OriginalName} {
-		if candidate != "" && compactTitle(candidate) == want {
-			return true
-		}
-	}
-	return false
-}
-
-func compactTitle(value string) string {
-	var b strings.Builder
-	for _, r := range strings.ToLower(value) {
-		if unicode.IsLetter(r) || unicode.IsDigit(r) {
-			b.WriteRune(r)
-		}
-	}
-	return b.String()
-}
-
 func (m *Manager) SearchOne(ctx context.Context, id string) ([]Candidate, error) {
 	if !m.Enabled() {
 		return nil, errors.New("1080p companions are disabled")
@@ -322,9 +266,6 @@ func (m *Manager) SearchOne(ctx context.Context, id string) ([]Candidate, error)
 	}
 	if movie.Missing {
 		return nil, errors.New("movie folder is no longer present in the configured library roots")
-	}
-	if movie.TmdbID == 0 {
-		return nil, errors.New("this movie has no confirmed TMDB identity; scan the library or resolve the movie for review")
 	}
 	if movie.Status == StatusComplete {
 		return nil, errors.New("this companion is already complete")
@@ -408,7 +349,7 @@ func (m *Manager) StartSearchMissing() error {
 	}
 	ids := []string{}
 	for _, movie := range m.state.Movies {
-		if movie.Missing || movie.Status != StatusPending || movie.TmdbID == 0 {
+		if movie.Missing || movie.Status != StatusPending {
 			continue
 		}
 		ids = append(ids, movie.ID)

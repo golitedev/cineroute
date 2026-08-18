@@ -3,6 +3,7 @@
 package library
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -48,10 +49,10 @@ func (s *Scan) FindTV(canonical string) []Folder {
 	return s.find(canonical, func(d Drive) string { return d.TVRoot })
 }
 
-// Movies lists only immediate movie-root children in deterministic order.
-// Unreadable roots are skipped just like FindMovie; the caller can still
-// reconcile the healthy roots it can see.
-func (s *Scan) Movies() []MovieFolder {
+// Movies lists only immediate movie-root children in deterministic order. It
+// fails if a configured movie root cannot be read so callers do not reconcile
+// a partially visible library as though the missing drive had been emptied.
+func (s *Scan) Movies() ([]MovieFolder, error) {
 	var out []MovieFolder
 	for _, d := range s.drives {
 		if d.MovieRoot == "" {
@@ -59,7 +60,7 @@ func (s *Scan) Movies() []MovieFolder {
 		}
 		ents, err := os.ReadDir(d.MovieRoot)
 		if err != nil {
-			continue
+			return nil, fmt.Errorf("read movie root %q (%s): %w", d.MovieRoot, d.ID, err)
 		}
 		for _, e := range ents {
 			if e.IsDir() {
@@ -77,7 +78,7 @@ func (s *Scan) Movies() []MovieFolder {
 		}
 		return out[i].Name < out[j].Name
 	})
-	return out
+	return out, nil
 }
 
 func (s *Scan) find(canonical string, rootOf func(Drive) string) []Folder {

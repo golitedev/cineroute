@@ -145,7 +145,7 @@ func New(cfg *config.Config, qb *qbittorrent.Client, tmdbClient *tmdb.Client, pr
 		tmdb:       tmdbClient,
 		alloc:      allocator.New(),
 		lib:        scan,
-		companions: companion.NewManager(cfg, scan, tmdbClient, prowlarrClient),
+		companions: companion.NewManager(cfg, scan, prowlarrClient),
 		intakes:    map[string]*Intake{},
 	}
 	s.page = template.Must(template.New("index.html").ParseFS(assetsFS, "templates/index.html"))

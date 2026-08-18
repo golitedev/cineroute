@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"strings"
 	"time"
 )
 
@@ -94,6 +95,37 @@ func loadState(path string) (stateFile, error) {
 		return st.Movies[i].ID < st.Movies[j].ID
 	})
 	return st, nil
+}
+
+// normalizeLoadedState repairs in-memory-only workflow states after a
+// restart. Search candidates are intentionally not durable, so an old review
+// record must be searched again. A submitting record needs an explicit error
+// because qBittorrent may have accepted it before CineRoute stopped.
+func normalizeLoadedState(st *stateFile) bool {
+	changed := false
+	for _, movie := range st.Movies {
+		switch movie.Status {
+		case StatusSearching, StatusReview:
+			movie.Status = StatusPending
+			movie.Error = ""
+			changed = true
+		case StatusSubmitting:
+			movie.Status = StatusError
+			movie.Error = "previous companion submission was interrupted; search and approve again after checking qBittorrent"
+			changed = true
+		case StatusNeedsReview, StatusError:
+			if legacyTMDBError(movie.Error) {
+				movie.Status = StatusPending
+				movie.Error = ""
+				changed = true
+			}
+		}
+	}
+	return changed
+}
+
+func legacyTMDBError(message string) bool {
+	return strings.Contains(strings.ToLower(message), "tmdb")
 }
 
 func saveState(path string, st stateFile) error {

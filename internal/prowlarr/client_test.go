@@ -37,14 +37,14 @@ func TestClientSearchUsesAPIKeyAndIndexer(t *testing.T) {
 			t.Errorf("query = %v", q)
 		}
 		w.Header().Set("Content-Type", "application/json")
-		w.Write([]byte(`[{"guid":"g","title":"Dune.2021.1080p.WEB-DL","size":12,"indexerId":7,"seeders":4}]`))
+		w.Write([]byte(`[{"guid":"g","title":"Dune.2021.1080p.WEB-DL","size":12,"indexerId":7,"imdbId":1160419,"seeders":4}]`))
 	}))
 	client := New(server.URL, "secret", time.Second)
 	got, err := client.Search(context.Background(), 7, "Dune 2021", 50)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(got) != 1 || got[0].Guid != "g" || got[0].Seeders == nil || *got[0].Seeders != 4 {
+	if len(got) != 1 || got[0].Guid != "g" || got[0].ImdbID != 1160419 || got[0].Seeders == nil || *got[0].Seeders != 4 {
 		t.Fatalf("releases = %+v", got)
 	}
 }
@@ -70,5 +70,22 @@ func TestDownloadTorrentDoesNotLeakURLInErrors(t *testing.T) {
 	secretURL := server.URL + "/download?apikey=secret"
 	if _, err := client.DownloadTorrent(context.Background(), secretURL); err == nil || strings.Contains(err.Error(), url.QueryEscape("secret")) || strings.Contains(err.Error(), secretURL) {
 		t.Fatalf("download error leaked URL: %v", err)
+	}
+}
+
+func TestDownloadTorrentRejectsExternalURL(t *testing.T) {
+	called := false
+	external := newIPv4TestServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		called = true
+	}))
+	configured := newIPv4TestServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		t.Fatal("configured Prowlarr server should not receive an external download")
+	}))
+	client := New(configured.URL, "secret", time.Second)
+	if _, err := client.DownloadTorrent(context.Background(), external.URL+"/download?apikey=secret"); err == nil || !strings.Contains(err.Error(), "not on the configured server") {
+		t.Fatalf("expected same-origin error, got %v", err)
+	}
+	if called {
+		t.Fatal("external download host was contacted")
 	}
 }
