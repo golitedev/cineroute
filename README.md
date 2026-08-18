@@ -174,14 +174,18 @@ their `Title (Year)` names and do not require a TMDB lookup. TMDB IDs remain
 available for movies entered through the normal intake flow and strengthen
 candidate matching when present.
 
-Search results are filtered and ranked for 1080p, WEB-DL/WEBRip, size,
-seeders, codec and title-language evidence. Language is shown as evidence,
-not a guarantee; open the tracker details and manually approve a candidate.
+Search results are filtered and ranked for 1080p, with WEB-DL preferred,
+sub-8-GiB releases treated as the sweet spot, and compatible BluRay x264 as
+the next tier. Language is shown as evidence but is not a major ranking
+signal; open the tracker details and manually approve a candidate. At most
+five candidates are retained for each movie.
 CineRoute never downloads a companion automatically. Approved torrents use
 the same stopped-add, verification and explicit-start transaction as normal
 intake and must go into the movie's one existing canonical folder.
 
-The feature uses a small atomically-written `/data/companions.json` state file.
+The feature uses a small SQLite database (normally `/data/companions.db`) for
+the queue, search candidates and search history. Existing
+`/data/companions.json` state is migrated automatically on first startup.
 Mount `/data` writable when running in Docker and configure Prowlarr with:
 
 ```text
@@ -189,6 +193,11 @@ CINEROUTE_PROWLARR_URL
 CINEROUTE_PROWLARR_API_KEY
 CINEROUTE_PROWLARR_INDEXER
 ```
+
+The Companion page can run a limited next batch (default 20 movies), cancel a
+running batch, and set the delay between actual Prowlarr searches. A movie can
+perform both a title-and-year search and a title-only fallback search, so a
+batch of 20 may make up to 40 tracker requests.
 
 Prowlarr remains optional; normal torrent routing works without it. The
 configured LAT-Team indexer must already exist and be enabled in Prowlarr.

@@ -29,6 +29,9 @@ type View struct {
 	SearchIntervalSeconds    int         `json:"search_interval_seconds"`
 	SearchIntervalMinSeconds int         `json:"search_interval_min_seconds"`
 	SearchIntervalMaxSeconds int         `json:"search_interval_max_seconds"`
+	SearchBatchSize          int         `json:"search_batch_size"`
+	SearchBatchMinSize       int         `json:"search_batch_min_size"`
+	SearchBatchMaxSize       int         `json:"search_batch_max_size"`
 	Movies                   []*Movie    `json:"movies"`
 	Open                     *Movie      `json:"open,omitempty"`
 	Candidates               []Candidate `json:"candidates,omitempty"`
@@ -41,6 +44,7 @@ type Manager struct {
 	cfg      *config.Config
 	lib      *library.Scan
 	prowlarr *prowlarr.Client
+	store    *stateStore
 
 	mu                    sync.RWMutex
 	state                 stateFile
@@ -50,6 +54,8 @@ type Manager struct {
 	indexerName           string
 	batch                 BatchStatus
 	searchIntervalSeconds int
+	searchBatchSize       int
+	batchCancel           context.CancelFunc
 
 	searchMu   sync.Mutex
 	lastSearch time.Time
@@ -71,22 +77,41 @@ func NewManager(cfg *config.Config, lib *library.Scan, prowlarrClient *prowlarr.
 	if m.searchIntervalSeconds < config.MinCompanionSearchIntervalSeconds || m.searchIntervalSeconds > config.MaxCompanionSearchIntervalSeconds {
 		m.searchIntervalSeconds = config.DefaultCompanionSearchIntervalSeconds
 	}
-	st, err := loadState(cfg.Companion.StatePath)
+	m.searchBatchSize = config.DefaultCompanionSearchBatchSize
+	store, st, searches, err := openStateStore(cfg.Companion.StatePath)
 	if err != nil {
 		m.stateErr = err
 	} else {
+		m.store = store
 		m.state = st
-		changed := normalizeLoadedState(&m.state)
+		m.searches = searches
+		changed := normalizeLoadedState(&m.state, m.searches)
 		if m.state.SearchIntervalSeconds != 0 {
 			if m.state.SearchIntervalSeconds >= config.MinCompanionSearchIntervalSeconds && m.state.SearchIntervalSeconds <= config.MaxCompanionSearchIntervalSeconds {
 				m.searchIntervalSeconds = m.state.SearchIntervalSeconds
 			} else {
-				m.state.SearchIntervalSeconds = 0
+				m.state.SearchIntervalSeconds = m.searchIntervalSeconds
 				changed = true
 			}
 		}
+		if m.state.SearchBatchSize != 0 {
+			if m.state.SearchBatchSize >= config.MinCompanionSearchBatchSize && m.state.SearchBatchSize <= config.MaxCompanionSearchBatchSize {
+				m.searchBatchSize = m.state.SearchBatchSize
+			} else {
+				m.state.SearchBatchSize = m.searchBatchSize
+				changed = true
+			}
+		}
+		if m.state.SearchIntervalSeconds != m.searchIntervalSeconds {
+			m.state.SearchIntervalSeconds = m.searchIntervalSeconds
+			changed = true
+		}
+		if m.state.SearchBatchSize != m.searchBatchSize {
+			m.state.SearchBatchSize = m.searchBatchSize
+			changed = true
+		}
 		if changed {
-			if err := saveState(cfg.Companion.StatePath, m.state); err != nil {
+			if err := m.store.save(m.state, m.searches, nil); err != nil {
 				m.stateErr = fmt.Errorf("recover companion state: %w", err)
 			}
 		}
@@ -120,9 +145,12 @@ func (m *Manager) View(openID string) View {
 	view.ProwlarrConfigured = m.Enabled() && m.prowlarr != nil && m.prowlarr.Configured()
 	view.SearchIntervalMinSeconds = config.MinCompanionSearchIntervalSeconds
 	view.SearchIntervalMaxSeconds = config.MaxCompanionSearchIntervalSeconds
+	view.SearchBatchMinSize = config.MinCompanionSearchBatchSize
+	view.SearchBatchMaxSize = config.MaxCompanionSearchBatchSize
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 	view.SearchIntervalSeconds = m.searchIntervalSeconds
+	view.SearchBatchSize = m.searchBatchSize
 	view.Movies = cloneMovies(m.state.Movies)
 	view.Batch = m.batch
 	if m.stateErr != nil {
@@ -145,24 +173,55 @@ func (m *Manager) View(openID string) View {
 }
 
 func (m *Manager) SetSearchIntervalSeconds(seconds int) error {
+	return m.SetSearchSettings(&seconds, nil)
+}
+
+func (m *Manager) SetSearchBatchSize(size int) error {
+	return m.SetSearchSettings(nil, &size)
+}
+
+func (m *Manager) SetSearchSettings(intervalSeconds, batchSize *int) error {
 	if !m.Enabled() {
 		return errors.New("1080p companions are disabled")
-	}
-	if seconds < config.MinCompanionSearchIntervalSeconds || seconds > config.MaxCompanionSearchIntervalSeconds {
-		return fmt.Errorf("search interval must be between %d and %d seconds", config.MinCompanionSearchIntervalSeconds, config.MaxCompanionSearchIntervalSeconds)
 	}
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	if m.stateErr != nil {
 		return m.stateErr
 	}
+	newInterval := m.searchIntervalSeconds
+	if newInterval == 0 {
+		newInterval = config.DefaultCompanionSearchIntervalSeconds
+	}
+	if intervalSeconds != nil {
+		newInterval = *intervalSeconds
+	}
+	if newInterval < config.MinCompanionSearchIntervalSeconds || newInterval > config.MaxCompanionSearchIntervalSeconds {
+		return fmt.Errorf("search interval must be between %d and %d seconds", config.MinCompanionSearchIntervalSeconds, config.MaxCompanionSearchIntervalSeconds)
+	}
+	newBatchSize := m.searchBatchSize
+	if newBatchSize == 0 {
+		newBatchSize = config.DefaultCompanionSearchBatchSize
+	}
+	if batchSize != nil {
+		newBatchSize = *batchSize
+	}
+	if newBatchSize < config.MinCompanionSearchBatchSize || newBatchSize > config.MaxCompanionSearchBatchSize {
+		return fmt.Errorf("search batch size must be between %d and %d movies", config.MinCompanionSearchBatchSize, config.MaxCompanionSearchBatchSize)
+	}
 	previousInterval := m.searchIntervalSeconds
+	previousBatchSize := m.searchBatchSize
 	previousState := m.state.SearchIntervalSeconds
-	m.searchIntervalSeconds = seconds
-	m.state.SearchIntervalSeconds = seconds
+	previousBatchState := m.state.SearchBatchSize
+	m.searchIntervalSeconds = newInterval
+	m.searchBatchSize = newBatchSize
+	m.state.SearchIntervalSeconds = newInterval
+	m.state.SearchBatchSize = newBatchSize
 	if err := m.persistLocked(); err != nil {
 		m.searchIntervalSeconds = previousInterval
+		m.searchBatchSize = previousBatchSize
 		m.state.SearchIntervalSeconds = previousState
+		m.state.SearchBatchSize = previousBatchState
 		return err
 	}
 	return nil
@@ -319,7 +378,11 @@ func (m *Manager) SearchOne(ctx context.Context, id string) ([]Candidate, error)
 	}
 	candidates, err := m.searchMovie(ctx, &movie)
 	if err != nil {
-		m.MarkError(id, err)
+		m.finishSearchFailure(id, movie, err)
+		return nil, err
+	}
+	if err := ctx.Err(); err != nil {
+		m.finishSearchFailure(id, movie, err)
 		return nil, err
 	}
 	m.mu.Lock()
@@ -352,12 +415,47 @@ func (m *Manager) SearchOne(ctx context.Context, id string) ([]Candidate, error)
 		current.Error = ""
 	}
 	current.UpdatedAt = time.Now()
-	err = m.persistLocked()
+	err = m.persistLocked(searchHistoryRecord{
+		MovieID:        id,
+		Query:          companionSearchHistoryQuery(&movie),
+		SearchedAt:     time.Now(),
+		Status:         current.Status,
+		CandidateCount: len(candidates),
+	})
 	m.mu.Unlock()
 	if err != nil {
 		return nil, err
 	}
 	return cloneCandidates(candidates), nil
+}
+
+func (m *Manager) finishSearchFailure(id string, movie Movie, searchErr error) {
+	if searchErr == nil {
+		return
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	current := m.movieLocked(id)
+	if current == nil || current.Status != StatusSearching {
+		return
+	}
+	status := "error"
+	if errors.Is(searchErr, context.Canceled) {
+		current.Status = StatusPending
+		current.Error = ""
+		status = "canceled"
+	} else {
+		current.Status = StatusError
+		current.Error = searchErr.Error()
+	}
+	current.UpdatedAt = time.Now()
+	_ = m.persistLocked(searchHistoryRecord{
+		MovieID:    id,
+		Query:      companionSearchHistoryQuery(&movie),
+		SearchedAt: time.Now(),
+		Status:     status,
+		Error:      searchErr.Error(),
+	})
 }
 
 func (m *Manager) searchMovie(ctx context.Context, movie *Movie) ([]Candidate, error) {
@@ -368,27 +466,58 @@ func (m *Manager) searchMovie(ctx context.Context, movie *Movie) ([]Candidate, e
 		return nil, err
 	}
 	policy := m.policy(indexerID)
-	query := strings.TrimSpace(fmt.Sprintf("%s %d", movie.Title, movie.Year))
-	results, err := m.searchRelease(ctx, indexerID, query)
-	if err != nil {
-		m.clearIndexer()
-		return nil, err
+	query := companionSearchQuery(movie)
+	queries := []string{query}
+	if query != strings.TrimSpace(movie.Title) {
+		// Always run the title-only query as well. A year-qualified Prowlarr
+		// search can return a few valid BluRay releases before a better WEB-DL
+		// appears in the broader title search.
+		queries = append(queries, strings.TrimSpace(movie.Title))
 	}
-	candidates := FilterAndRank(results, movie.Title, movie.Year, movie.TmdbID, policy)
-	if len(candidates) > 0 {
-		return candidates, nil
-	}
-	// One deliberately simple fallback handles trackers that omit the release
-	// year from their normalized search matching.
-	if query != movie.Title {
-		results, err = m.searchRelease(ctx, indexerID, movie.Title)
+	var results []prowlarr.Release
+	for _, searchQuery := range queries {
+		found, err := m.searchRelease(ctx, indexerID, searchQuery)
 		if err != nil {
 			m.clearIndexer()
 			return nil, err
 		}
-		candidates = FilterAndRank(results, movie.Title, movie.Year, movie.TmdbID, policy)
+		results = mergeReleases(results, found)
 	}
-	return candidates, nil
+	return FilterAndRank(results, movie.Title, movie.Year, movie.TmdbID, policy), nil
+}
+
+func companionSearchQuery(movie *Movie) string {
+	title := strings.TrimSpace(movie.Title)
+	if movie.Year <= 0 {
+		return title
+	}
+	return strings.TrimSpace(fmt.Sprintf("%s %d", title, movie.Year))
+}
+
+func companionSearchHistoryQuery(movie *Movie) string {
+	primary := companionSearchQuery(movie)
+	title := strings.TrimSpace(movie.Title)
+	if title != "" && title != primary {
+		return primary + " | " + title
+	}
+	return primary
+}
+
+func mergeReleases(existing, additions []prowlarr.Release) []prowlarr.Release {
+	seen := make(map[string]bool, len(existing)+len(additions))
+	merged := make([]prowlarr.Release, 0, len(existing)+len(additions))
+	for _, release := range append(existing, additions...) {
+		key := strings.TrimSpace(release.Guid)
+		if key == "" {
+			key = strings.TrimSpace(release.Title) + "\x00" + release.Indexer
+		}
+		if seen[key] {
+			continue
+		}
+		seen[key] = true
+		merged = append(merged, release)
+	}
+	return merged
 }
 
 func (m *Manager) searchRelease(ctx context.Context, indexerID int, query string) ([]prowlarr.Release, error) {
@@ -436,8 +565,8 @@ func (m *Manager) waitForSearchInterval(ctx context.Context) error {
 }
 
 // StartSearchMissing starts one sequential in-process search worker and
-// returns immediately. It only searches pending records; approval remains a
-// separate per-movie action.
+// returns immediately. It searches at most the configured batch size; approval
+// remains a separate per-movie action.
 func (m *Manager) StartSearchMissing() error {
 	if !m.Enabled() {
 		return errors.New("1080p companions are disabled")
@@ -452,23 +581,70 @@ func (m *Manager) StartSearchMissing() error {
 		m.mu.Unlock()
 		return errors.New("companion search batch is already running")
 	}
-	ids := []string{}
+	batchSize := m.searchBatchSize
+	if batchSize < config.MinCompanionSearchBatchSize {
+		batchSize = config.DefaultCompanionSearchBatchSize
+	}
+	ids := make([]string, 0, batchSize)
 	for _, movie := range m.state.Movies {
 		if movie.Missing || movie.Status != StatusPending {
 			continue
 		}
 		ids = append(ids, movie.ID)
+		if len(ids) >= batchSize {
+			break
+		}
 	}
-	m.batch = BatchStatus{Running: true, Total: len(ids)}
+	m.batch = BatchStatus{Running: len(ids) > 0, Total: len(ids)}
+	if len(ids) == 0 {
+		m.mu.Unlock()
+		return nil
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	m.batchCancel = cancel
 	m.mu.Unlock()
-	go m.runBatch(ids)
+	go m.runBatch(ctx, ids)
 	return nil
 }
 
-func (m *Manager) runBatch(ids []string) {
+func (m *Manager) CancelSearchMissing() error {
+	if !m.Enabled() {
+		return errors.New("1080p companions are disabled")
+	}
+	m.mu.Lock()
+	if !m.batch.Running || m.batchCancel == nil {
+		m.mu.Unlock()
+		return errors.New("no companion search batch is running")
+	}
+	cancel := m.batchCancel
+	m.batch.Canceled = true
+	m.mu.Unlock()
+	cancel()
+	return nil
+}
+
+func (m *Manager) runBatch(ctx context.Context, ids []string) {
+	defer func() {
+		m.mu.Lock()
+		m.batch.Running = false
+		m.batchCancel = nil
+		m.mu.Unlock()
+	}()
 	consecutiveFailures := 0
 	for i, id := range ids {
-		_, err := m.SearchOne(context.Background(), id)
+		if ctx.Err() != nil {
+			m.mu.Lock()
+			m.batch.Canceled = true
+			m.mu.Unlock()
+			return
+		}
+		_, err := m.SearchOne(ctx, id)
+		if errors.Is(err, context.Canceled) {
+			m.mu.Lock()
+			m.batch.Canceled = true
+			m.mu.Unlock()
+			return
+		}
 		if err != nil {
 			consecutiveFailures++
 		} else {
@@ -478,15 +654,11 @@ func (m *Manager) runBatch(ids []string) {
 		m.batch.Done = i + 1
 		if consecutiveFailures >= 3 {
 			m.batch.Error = "Prowlarr appears unavailable"
-			m.batch.Running = false
 			m.mu.Unlock()
 			return
 		}
 		m.mu.Unlock()
 	}
-	m.mu.Lock()
-	m.batch.Running = false
-	m.mu.Unlock()
 }
 
 func (m *Manager) Skip(id string) error {
@@ -505,6 +677,7 @@ func (m *Manager) Skip(id string) error {
 	movie.Status = StatusSkipped
 	movie.Error = ""
 	movie.UpdatedAt = time.Now()
+	delete(m.searches, id)
 	return m.persistLocked()
 }
 
@@ -644,6 +817,7 @@ func (m *Manager) MarkComplete(id, hash string) error {
 	movie.Error = ""
 	movie.QBHash = hash
 	movie.UpdatedAt = time.Now()
+	delete(m.searches, id)
 	return m.persistLocked()
 }
 
@@ -685,6 +859,7 @@ func (m *Manager) beginSearch(id string) (Movie, error) {
 	movie.Status = StatusSearching
 	movie.Error = ""
 	movie.UpdatedAt = time.Now()
+	delete(m.searches, id)
 	if err := m.persistLocked(); err != nil {
 		return Movie{}, err
 	}
@@ -700,11 +875,18 @@ func (m *Manager) movieLocked(id string) *Movie {
 	return nil
 }
 
-func (m *Manager) persistLocked() error {
+func (m *Manager) persistLocked(history ...searchHistoryRecord) error {
 	if m.stateErr != nil {
 		return m.stateErr
 	}
-	return saveState(m.cfg.Companion.StatePath, m.state)
+	if m.store == nil {
+		return nil
+	}
+	var record *searchHistoryRecord
+	if len(history) > 0 {
+		record = &history[0]
+	}
+	return m.store.save(m.state, m.searches, record)
 }
 
 func (m *Manager) resolveIndexer(ctx context.Context) (int, error) {

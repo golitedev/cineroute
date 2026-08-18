@@ -104,7 +104,9 @@ func TestScanPreservesLiveWorkflowStates(t *testing.T) {
 }
 
 func TestSearchIntervalSettingPersists(t *testing.T) {
-	m := newTransitionManager(t, StatusPending)
+	cfg := config.Default()
+	cfg.Companion.StatePath = filepath.Join(t.TempDir(), "companions.db")
+	m := NewManager(cfg, nil, nil)
 	if err := m.SetSearchIntervalSeconds(30); err != nil {
 		t.Fatal(err)
 	}
@@ -114,7 +116,7 @@ func TestSearchIntervalSettingPersists(t *testing.T) {
 	if err := m.SetSearchIntervalSeconds(4); err == nil {
 		t.Fatal("expected interval below the minimum to be rejected")
 	}
-	reloaded := NewManager(m.cfg, nil, nil)
+	reloaded := NewManager(cfg, nil, nil)
 	if got := reloaded.View("").SearchIntervalSeconds; got != 30 {
 		t.Fatalf("persisted interval = %d, want 30", got)
 	}
@@ -130,5 +132,29 @@ func TestSearchIntervalBlocksTheNextRequest(t *testing.T) {
 	defer cancel()
 	if err := m.waitForSearchInterval(ctx); !errors.Is(err, context.DeadlineExceeded) {
 		t.Fatalf("second search should wait for the interval, got %v", err)
+	}
+}
+
+func TestCanceledSearchReturnsToPending(t *testing.T) {
+	m := newTransitionManager(t, StatusSearching)
+	m.finishSearchFailure("movie", *m.state.Movies[0], context.Canceled)
+	if got := m.state.Movies[0].Status; got != StatusPending {
+		t.Fatalf("canceled search status = %s, want pending", got)
+	}
+	if m.state.Movies[0].Error != "" {
+		t.Fatalf("canceled search error = %q, want empty", m.state.Movies[0].Error)
+	}
+}
+
+func TestCancelSearchMissingSignalsRunningBatch(t *testing.T) {
+	m := newTransitionManager(t, StatusPending)
+	m.batch = BatchStatus{Running: true, Total: 1}
+	called := false
+	m.batchCancel = func() { called = true }
+	if err := m.CancelSearchMissing(); err != nil {
+		t.Fatal(err)
+	}
+	if !called || !m.batch.Canceled {
+		t.Fatalf("batch cancellation was not signaled: called=%v batch=%+v", called, m.batch)
 	}
 }

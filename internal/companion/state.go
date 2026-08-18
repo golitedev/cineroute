@@ -37,8 +37,8 @@ func isLiveWorkflowStatus(status string) bool {
 }
 
 // Movie is the durable workflow record for one canonical movie folder.
-// Search results deliberately do not live here: Prowlarr download URLs can
-// contain the API key and are short-lived, so results stay in memory.
+// Search results live in the companion store separately: Prowlarr download
+// URLs can contain the API key and are short-lived, so they are never written.
 type Movie struct {
 	ID              string    `json:"id"`
 	DriveID         string    `json:"drive_id"`
@@ -61,13 +61,15 @@ type stateFile struct {
 	Version               int      `json:"version"`
 	Movies                []*Movie `json:"movies"`
 	SearchIntervalSeconds int      `json:"search_interval_seconds,omitempty"`
+	SearchBatchSize       int      `json:"search_batch_size,omitempty"`
 }
 
 type BatchStatus struct {
-	Running bool   `json:"running"`
-	Done    int    `json:"done"`
-	Total   int    `json:"total"`
-	Error   string `json:"error,omitempty"`
+	Running  bool   `json:"running"`
+	Done     int    `json:"done"`
+	Total    int    `json:"total"`
+	Canceled bool   `json:"canceled,omitempty"`
+	Error    string `json:"error,omitempty"`
 }
 
 func movieID(driveID, folderName string) string {
@@ -107,18 +109,25 @@ func loadState(path string) (stateFile, error) {
 	return st, nil
 }
 
-// normalizeLoadedState repairs in-memory-only workflow states after a
-// restart. Search candidates are intentionally not durable, so an old review
-// record must be searched again. A submitting record needs an explicit error
-// because qBittorrent may have accepted it before CineRoute stopped.
-func normalizeLoadedState(st *stateFile) bool {
+// normalizeLoadedState repairs interrupted workflow states after a restart.
+// A review record is retained when its candidates were stored successfully.
+// A submitting record needs an explicit error because qBittorrent may have
+// accepted it before CineRoute stopped.
+func normalizeLoadedState(st *stateFile, searches map[string]searchState) bool {
 	changed := false
 	for _, movie := range st.Movies {
 		switch movie.Status {
-		case StatusSearching, StatusReview:
+		case StatusSearching:
 			movie.Status = StatusPending
 			movie.Error = ""
+			delete(searches, movie.ID)
 			changed = true
+		case StatusReview:
+			if _, ok := searches[movie.ID]; !ok {
+				movie.Status = StatusPending
+				movie.Error = ""
+				changed = true
+			}
 		case StatusSubmitting:
 			movie.Status = StatusError
 			movie.Error = "previous companion submission was interrupted; search and approve again after checking qBittorrent"

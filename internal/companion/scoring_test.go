@@ -2,6 +2,7 @@ package companion
 
 import (
 	"os"
+	"strings"
 	"testing"
 
 	"cineroute/internal/prowlarr"
@@ -25,6 +26,43 @@ func TestFilterAndRankCompanionReleases(t *testing.T) {
 	}
 	if got[0].LanguageEvidence != "Likely dual audio" {
 		t.Fatalf("language evidence: %q", got[0].LanguageEvidence)
+	}
+}
+
+func TestCompanionRankingPrefersWebDLAndCompatibleBluRay(t *testing.T) {
+	seeders := 10
+	policy := Policy{MaxBytes: 15 << 30, MinSeeders: 1, TargetIndexerID: 7}
+	got := FilterAndRank([]prowlarr.Release{
+		{Guid: "web-small", Title: "Movie.2024.1080p.WEB-DL.H.264-GROUP", Size: 7 << 30, IndexerID: 7, Seeders: &seeders},
+		{Guid: "web-large", Title: "Movie.2024.1080p.WEB-DL.H.264-LATTEAM", Size: 12 << 30, IndexerID: 7, Seeders: &seeders},
+		{Guid: "bluray-x264", Title: "Movie.2024.1080p.BluRay.H.264-GROUP", Size: 14 << 30, IndexerID: 7, Seeders: &seeders},
+		{Guid: "bluray-x265", Title: "Movie.2024.1080p.BluRay.H.265-GROUP", Size: 1 << 30, IndexerID: 7, Seeders: &seeders},
+		{Guid: "extra-1", Title: "Movie.2024.1080p.WEBRip.H.264-GROUP", Size: 9 << 30, IndexerID: 7, Seeders: &seeders},
+		{Guid: "extra-2", Title: "Movie.2024.1080p.WEBRip.H.264-OTHER", Size: 10 << 30, IndexerID: 7, Seeders: &seeders},
+	}, "Movie", 2024, 0, policy)
+	if len(got) != MaxCandidateResults {
+		t.Fatalf("candidate count = %d, want %d", len(got), MaxCandidateResults)
+	}
+	wantOrder := []string{"web-small", "web-large", "bluray-x264", "bluray-x265"}
+	for i, want := range wantOrder {
+		if got[i].Guid != want {
+			t.Fatalf("candidate %d = %s, want %s (all: %+v)", i, got[i].Guid, want, got)
+		}
+	}
+	if !strings.Contains(strings.Join(got[0].Reasons, " "), "sweet spot") {
+		t.Fatalf("small WEB-DL did not receive the sweet-spot reason: %+v", got[0].Reasons)
+	}
+}
+
+func TestLanguageEvidenceDoesNotChangeRankingScore(t *testing.T) {
+	seeders := 3
+	policy := Policy{MaxBytes: 15 << 30, MinSeeders: 1, TargetIndexerID: 7}
+	got := FilterAndRank([]prowlarr.Release{
+		{Guid: "plain", Title: "Movie.2024.1080p.WEB-DL.H.264-GROUP", Size: 2 << 30, IndexerID: 7, Seeders: &seeders},
+		{Guid: "spanish", Title: "Movie.2024.1080p.WEB-DL.H.264.SPANISH-GROUP", Size: 2 << 30, IndexerID: 7, Seeders: &seeders},
+	}, "Movie", 2024, 0, policy)
+	if len(got) != 2 || got[0].Score != got[1].Score {
+		t.Fatalf("language changed ranking score: %+v", got)
 	}
 }
 

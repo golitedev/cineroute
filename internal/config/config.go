@@ -36,6 +36,9 @@ const (
 	DefaultCompanionSearchIntervalSeconds = 10
 	MinCompanionSearchIntervalSeconds     = 5
 	MaxCompanionSearchIntervalSeconds     = 300
+	DefaultCompanionSearchBatchSize       = 20
+	MinCompanionSearchBatchSize           = 1
+	MaxCompanionSearchBatchSize           = 1000
 )
 
 type Prowlarr struct {
@@ -81,7 +84,7 @@ func Default() *Config {
 		},
 		Companion: Companion{
 			Enabled:               true,
-			StatePath:             "/data/companions.json",
+			StatePath:             "/data/companions.db",
 			MaxSizeGiB:            15,
 			MinSeeders:            1,
 			SearchLimit:           50,

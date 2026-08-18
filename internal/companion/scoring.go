@@ -35,6 +35,13 @@ type Candidate struct {
 	downloadURL      string
 }
 
+const MaxCandidateResults = 5
+
+const (
+	sweetSpotBytes = 8 << 30
+	underTenGiB    = 10 << 30
+)
+
 var resolutionRe = regexp.MustCompile(`(?i)\b(?:480|576|720|1080|2160)p\b`)
 var webDLRe = regexp.MustCompile(`(?i)\bweb[. _-]*dl\b`)
 var webRipRe = regexp.MustCompile(`(?i)\bweb[. _-]*rip\b`)
@@ -65,6 +72,9 @@ func FilterAndRank(releases []prowlarr.Release, title string, year, tmdbID int, 
 		}
 		return accepted[i].PublishDate.After(accepted[j].PublishDate)
 	})
+	if len(accepted) > MaxCandidateResults {
+		return accepted[:MaxCandidateResults]
+	}
 	return accepted
 }
 
@@ -129,15 +139,15 @@ func scoreRelease(release prowlarr.Release, title string, year, tmdbID int, poli
 	switch {
 	case webDLRe.MatchString(release.Title):
 		c.Source = "WEB-DL"
-		c.Score += 35
+		c.Score += 120
 		c.Reasons = append(c.Reasons, "WEB-DL")
 	case webRipRe.MatchString(release.Title):
 		c.Source = "WEBRip"
-		c.Score += 20
+		c.Score += 40
 		c.Reasons = append(c.Reasons, "WEBRip")
 	case hasAny(release.Title, "bluray", "brrip", "bdrip"):
 		c.Source = "BluRay encode"
-		c.Score += 10
+		c.Score += 45
 		c.Reasons = append(c.Reasons, "BluRay encode")
 	default:
 		c.Source = "Unknown source"
@@ -145,40 +155,53 @@ func scoreRelease(release prowlarr.Release, title string, year, tmdbID int, poli
 
 	if hevcRe.MatchString(release.Title) || hasAny(release.Title, "h265", "x265", "hevc") {
 		c.Codec = "HEVC"
-		c.Score += 8
+		if c.Source == "BluRay encode" {
+			c.Score += 0
+		} else {
+			c.Score += 3
+		}
 		c.Reasons = append(c.Reasons, "HEVC")
 	} else if avcRe.MatchString(release.Title) || hasAny(release.Title, "h264", "x264", "avc") {
 		c.Codec = "AVC"
+		if c.Source == "BluRay encode" {
+			// Prefer the broadly compatible x264 BluRay tier over a much
+			// smaller x265 BluRay release.
+			c.Score += 25
+		} else {
+			c.Score += 6
+		}
 		c.Reasons = append(c.Reasons, "AVC")
 	} else {
 		c.Codec = "Unknown codec"
 	}
 
+	switch {
+	case release.Size < sweetSpotBytes:
+		c.Score += 20
+		c.Reasons = append(c.Reasons, "under 8 GiB sweet spot")
+	case release.Size <= underTenGiB:
+		c.Score += 10
+		c.Reasons = append(c.Reasons, "under 10 GiB")
+	default:
+		c.Score += 2
+	}
+
 	tokens := releaseTokens(release.Title)
 	dual := containsToken(tokens, "dual") || containsToken(tokens, "dualaudio")
 	spanish := containsAnyToken(tokens, "latino", "spanish", "castellano", "spa", "esp")
-	english := containsAnyToken(tokens, "eng", "english")
 	switch {
 	case dual && spanish:
-		c.LanguageEvidence = "Strong Spanish + dual evidence"
-		c.Score += 40
+		c.LanguageEvidence = "Spanish + dual evidence"
 		c.Reasons = append(c.Reasons, "DUAL", "Spanish/Latino")
 	case dual:
 		c.LanguageEvidence = "Likely dual audio"
-		c.Score += 25
 		c.Reasons = append(c.Reasons, "DUAL")
 	case spanish:
-		c.LanguageEvidence = "Strong Spanish evidence"
-		c.Score += 18
+		c.LanguageEvidence = "Spanish evidence"
 		c.Reasons = append(c.Reasons, "Spanish/Latino")
 	default:
 		c.LanguageEvidence = "Unknown — inspect tracker"
-		c.Score -= 5
 		c.Reasons = append(c.Reasons, "language unknown")
-	}
-	if english {
-		c.Score += 10
-		c.Reasons = append(c.Reasons, "English/original")
 	}
 	if release.Seeders != nil {
 		switch {

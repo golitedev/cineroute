@@ -187,14 +187,19 @@ func (s *Server) updateCompanionSettings(w http.ResponseWriter, r *http.Request)
 		return
 	}
 	var body struct {
-		SearchIntervalSeconds int `json:"search_interval_seconds"`
+		SearchIntervalSeconds *int `json:"search_interval_seconds"`
+		SearchBatchSize       *int `json:"search_batch_size"`
 	}
 	r.Body = http.MaxBytesReader(w, r.Body, 1<<20)
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 		writeErr(w, http.StatusBadRequest, "invalid body")
 		return
 	}
-	if err := s.companions.SetSearchIntervalSeconds(body.SearchIntervalSeconds); err != nil {
+	if body.SearchIntervalSeconds == nil && body.SearchBatchSize == nil {
+		writeErr(w, http.StatusBadRequest, "at least one companion setting is required")
+		return
+	}
+	if err := s.companions.SetSearchSettings(body.SearchIntervalSeconds, body.SearchBatchSize); err != nil {
 		writeErr(w, http.StatusBadRequest, err.Error())
 		return
 	}
@@ -223,6 +228,18 @@ func (s *Server) searchMissingCompanions(w http.ResponseWriter, r *http.Request)
 		return
 	}
 	writeJSON(w, http.StatusAccepted, map[string]any{"status": "started", "batch": s.companions.View("").Batch})
+}
+
+func (s *Server) cancelCompanionSearch(w http.ResponseWriter, r *http.Request) {
+	if s.companions == nil {
+		writeErr(w, http.StatusServiceUnavailable, "companion subsystem is unavailable")
+		return
+	}
+	if err := s.companions.CancelSearchMissing(); err != nil {
+		writeErr(w, http.StatusConflict, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusAccepted, map[string]any{"status": "canceling", "batch": s.companions.View("").Batch})
 }
 
 func (s *Server) searchCompanion(w http.ResponseWriter, r *http.Request) {

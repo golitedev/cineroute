@@ -28,6 +28,7 @@ main{max-width:760px;margin:0 auto;padding:20px}
 button{background:#1f2430;color:var(--text);border:1px solid var(--border);border-radius:6px;padding:7px 14px;cursor:pointer;font-size:13px}
 button:hover{border-color:var(--accent)}
 button.primary{background:var(--accent);border-color:var(--accent);color:#fff}
+button.danger{color:#ff9b92;border-color:#7a2f2d}
 button:disabled{opacity:.5;cursor:not-allowed}
 table{width:100%;border-collapse:collapse;font-size:13px}
 td,th{text-align:left;padding:6px 8px;border-bottom:1px solid var(--border);vertical-align:top}
@@ -155,8 +156,20 @@ input[type=number]{width:90px}
       </div>
       <div class="actions" style="margin-top:0">
         <button onclick="scanCompanions()">Scan library</button>
-        <button class="primary" onclick="searchMissingCompanions()">Search all missing</button>
+        <button id="companionSearchButton" class="primary" onclick="searchMissingCompanions()">Search next batch</button>
+        <button id="companionCancelButton" class="danger hidden" onclick="cancelCompanionSearch()">Cancel search</button>
       </div>
+    </div>
+    <div class="companion-settings">
+      <label for="companionBatchSize">Search batch size (movies)</label>
+      <div class="row">
+        <input id="companionBatchSize" type="number" min="1" max="1000" step="1" value="20">
+        <button class="primary" onclick="saveCompanionSettings()">Save</button>
+        <button onclick="setCompanionBatchSize(10)">10</button>
+        <button onclick="setCompanionBatchSize(20)">20</button>
+        <button onclick="setCompanionBatchSize(50)">50</button>
+      </div>
+      <div id="companionBatchNote" class="small" style="margin-top:6px">The next batch searches up to this many movies. Each movie may use two tracker searches.</div>
     </div>
     <div class="companion-settings">
       <label for="companionInterval">Search interval (seconds)</label>
@@ -371,17 +384,22 @@ function renderCompanions(){
   if(!companionData)return;
   const movies=companionData.movies||[];
   const interval=companionData.search_interval_seconds||10;
+  const batchSize=companionData.search_batch_size||20;
   const rate=60/interval;
   const rateText=rate>=1?(rate%1?rate.toFixed(1):String(rate)):rate.toFixed(1);
   if(document.activeElement!==$("companionInterval"))$("companionInterval").value=interval;
+  if(document.activeElement!==$("companionBatchSize"))$("companionBatchSize").value=batchSize;
   $("companionIntervalNote").textContent="Delay between Prowlarr tracker searches. "+interval+"s ≈ "+rateText+" searches/minute.";
+  $("companionBatchNote").textContent="The next batch searches up to "+batchSize+" movies. Each movie may use two tracker searches.";
   const count=status=>movies.filter(m=>m.status===status&&!m.missing).length;
   const missing=movies.filter(m=>m.missing).length;
   $("companionStats").innerHTML=[
     [movies.length-missing,"Movies"],[count("pending"),"Needs search"],[count("review"),"Review"],[count("no_match"),"No match"],[count("complete"),"Added"],[count("skipped"),"Skipped"]
   ].map(x=>'<div class="companion-stat"><strong>'+x[0]+"</strong><span>"+x[1]+"</span></div>").join("");
   const b=companionData.batch||{};
-  $("companionProgress").textContent=b.running?"Searching "+b.done+" / "+b.total+(b.error?" — "+b.error:""):b.error||(companionData.prowlarr_configured?"Indexer: "+(companionData.indexer_name||"LAT-Team"):"Prowlarr not configured — set the API key before searching");
+  $("companionProgress").textContent=b.running?"Searching "+b.done+" / "+b.total+(b.error?" — "+b.error:""):b.canceled?"Search canceled after "+b.done+" / "+b.total:b.error||(companionData.prowlarr_configured?"Indexer: "+(companionData.indexer_name||"LAT-Team"):"Prowlarr not configured — set the API key before searching");
+  $("companionSearchButton").disabled=!!b.running;
+  $("companionCancelButton").classList.toggle("hidden",!b.running);
   $("companionMessage").innerHTML=companionData.state_error?'<div class="errbox">'+esc(companionData.state_error)+"</div>":"";
   document.querySelectorAll("#companionFilters button").forEach(btn=>btn.classList.toggle("active",btn.dataset.filter===companionFilter));
   const filtered=movies.filter(m=>companionFilter==="all"||m.status===companionFilter);
@@ -403,10 +421,14 @@ async function scanCompanions(){
 async function searchMissingCompanions(){
   try{await postJSON("/api/companions/search-missing",{});await loadCompanions()}catch(e){alert(e.message)}
 }
+async function cancelCompanionSearch(){
+  try{await postJSON("/api/companions/search-missing/cancel",{});await loadCompanions()}catch(e){alert(e.message)}
+}
 async function saveCompanionSettings(){
-  try{companionData=await patchJSON("/api/companions/settings",{search_interval_seconds:+$("companionInterval").value});renderCompanions()}catch(e){alert(e.message)}
+  try{companionData=await patchJSON("/api/companions/settings",{search_interval_seconds:+$("companionInterval").value,search_batch_size:+$("companionBatchSize").value});renderCompanions()}catch(e){alert(e.message)}
 }
 async function setCompanionInterval(value){$("companionInterval").value=value;await saveCompanionSettings()}
+async function setCompanionBatchSize(value){$("companionBatchSize").value=value;await saveCompanionSettings()}
 async function openCompanionMovie(id){companionPage=0;await loadCompanions(id);$("companionDetail").scrollIntoView({behavior:"smooth",block:"start"})}
 function renderCompanionDetail(){
   const box=$("companionDetail"),m=companionData&&companionData.open;
@@ -422,10 +444,7 @@ function renderCompanionDetail(){
     box.innerHTML=html;return;
   }
   html+='<h2 style="margin-top:18px">Candidates <span class="small">'+candidates.length+' filtered release'+(candidates.length===1?"":"s")+" · inspect the tracker details before approving</span></h2>";
-  const showAll=box.dataset.showAll==="true";
-  const shown=showAll?candidates:candidates.slice(0,5);
-  html+=shown.map(candidateCard).join("");
-  if(candidates.length>5)html+='<div class="actions"><button onclick="toggleCandidates()">'+(showAll?"Show top 5":"Show all "+candidates.length)+"</button></div>";
+  html+=candidates.map(candidateCard).join("");
   if(m.status!=="complete")html+='<div class="actions"><button data-id="'+esc(m.id)+'" onclick="skipCompanion(this.dataset.id)">Skip this movie</button></div>';
   box.innerHTML=html;
 }
@@ -435,7 +454,6 @@ function candidateCard(c){
   return '<div class="candidate"><h3>'+esc(c.title)+"</h3><div class=\"facts\"><span class=\"badge\">"+fmtBytes(c.size)+"</span><span class=\"badge\">"+esc(seed)+" seeders</span><span class=\"badge\">"+esc(c.source)+"</span><span class=\"badge\">"+esc(c.codec)+"</span><span class=\"badge warn\">"+esc(c.language_evidence)+"</span><span class=\"badge\">Score "+esc(c.score)+"</span></div><div class=\"reason\">✓ "+esc((c.reasons||[]).join(" · "))+"</div><div class=\"actions\">"+link+'<button data-id="'+esc(openCompanion)+'" data-guid="'+esc(c.guid)+'" onclick="approveFromButton(this)" class="primary">Approve</button></div></div>';
 }
 function approveFromButton(button){approveCompanion(button.dataset.id,button.dataset.guid)}
-function toggleCandidates(){const box=$("companionDetail");box.dataset.showAll=box.dataset.showAll!=="true"?"true":"false";renderCompanionDetail()}
 function closeCompanionMovie(){openCompanion="";loadCompanions()}
 async function searchOneCompanion(id){try{await postJSON("/api/companions/"+id+"/search",{});await loadCompanions(id)}catch(e){alert(e.message)}}
 async function skipCompanion(id){try{await postJSON("/api/companions/"+id+"/skip",{});await loadCompanions(id)}catch(e){alert(e.message)}}
