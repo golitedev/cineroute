@@ -18,7 +18,7 @@ func TestFilterAndRankCompanionReleases(t *testing.T) {
 		{Guid: "other", Title: "Movie.2024.1080p.WEB-DL-GROUP", Size: 8 << 30, IndexerID: 7, TmdbID: 999, Seeders: &seeders},
 	}
 	got := FilterAndRank(releases, "Movie", 2024, 123, policy)
-	if len(got) != 1 || got[0].Guid != "best" {
+	if len(got) != 2 || got[0].Guid != "best" {
 		t.Fatalf("filtered candidates: %+v", got)
 	}
 	if got[0].Source != "WEB-DL" || got[0].Codec != "HEVC" {
@@ -51,6 +51,20 @@ func TestCompanionRankingPrefersWebDLAndCompatibleBluRay(t *testing.T) {
 	}
 	if !strings.Contains(strings.Join(got[0].Reasons, " "), "sweet spot") {
 		t.Fatalf("small WEB-DL did not receive the sweet-spot reason: %+v", got[0].Reasons)
+	}
+}
+
+func TestExactProwlarrTitlesAreEligible(t *testing.T) {
+	seeders := []int{5, 8, 1, 8}
+	policy := Policy{MaxBytes: 15 << 30, MinSeeders: 1, TargetIndexerID: 7}
+	got := FilterAndRank([]prowlarr.Release{
+		{Guid: "webdl", Title: "12.Angry.Men.1957.1957.1080p.AMZN.WEB-DL.DDP2.0.H.264-LatTeam.mkv SPANISH", Size: 7 << 30, IndexerID: 7, Seeders: &seeders[0]},
+		{Guid: "bluray-flac", Title: "12.Angry.Men.1957.BluRay.1080p.DD2.0.x264-ARV.mkv SPANISH", Size: 14 << 30, IndexerID: 7, Seeders: &seeders[1]},
+		{Guid: "bluray-x265", Title: "12 Angry Men 1957 1080p BluRay AAC 1.0 x265 SPANISH", Size: 1 << 30, IndexerID: 7, Seeders: &seeders[2]},
+		{Guid: "spanish-title", Title: "12 hombres en pugna 1957 1080p DD 2.0 MKV x264 BDRip LatTeam.mkv SPANISH", Size: 3 << 30, IndexerID: 7, Seeders: &seeders[3]},
+	}, "12 Angry Men", 1957, 0, policy)
+	if len(got) != 4 || got[0].Guid != "webdl" {
+		t.Fatalf("exact Prowlarr titles: %+v", got)
 	}
 }
 
