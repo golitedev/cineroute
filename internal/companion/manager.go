@@ -144,7 +144,9 @@ func (m *Manager) ProwlarrStatus(ctx context.Context) (string, string) {
 }
 
 // Scan reconciles the immediate children of all movie roots into durable
-// state. It never renames, moves or recursively crawls media files.
+// state. Live searching, review and submitting states are preserved; startup
+// recovery is handled separately when the state file is loaded. It never
+// renames, moves or recursively crawls media files.
 func (m *Manager) Scan(ctx context.Context) error {
 	if !m.Enabled() {
 		return nil
@@ -180,6 +182,7 @@ func (m *Manager) Scan(ctx context.Context) error {
 		movie.Path = folder.Path
 		movie.FolderName = folder.Name
 		movie.Missing = false
+		live := isLiveWorkflowStatus(movie.Status)
 		if movie.UpdatedAt.IsZero() {
 			movie.UpdatedAt = time.Now()
 		}
@@ -189,8 +192,10 @@ func (m *Manager) Scan(ctx context.Context) error {
 		movie.ExistingCopy = inspection.Quality
 		movie.JellyfinWarning = inspection.JellyfinWarning
 		if parseErr != nil {
-			movie.Status = StatusNeedsReview
-			movie.Error = parseErr.Error()
+			if !live {
+				movie.Status = StatusNeedsReview
+				movie.Error = parseErr.Error()
+			}
 			movie.UpdatedAt = time.Now()
 			current = append(current, movie)
 			continue
@@ -201,11 +206,12 @@ func (m *Manager) Scan(ctx context.Context) error {
 			current = append(current, movie)
 			continue
 		}
-		if movie.Status == StatusSubmitting {
-			movie.Status = StatusError
-			movie.Error = "previous companion submission was interrupted; search and approve again after checking qBittorrent"
+		if live {
+			movie.UpdatedAt = time.Now()
+			current = append(current, movie)
+			continue
 		}
-		if movie.Status == StatusSearching || movie.Status == StatusReview || legacyTMDBError(movie.Error) {
+		if legacyTMDBError(movie.Error) {
 			movie.Status = StatusPending
 			movie.Error = ""
 		}
@@ -235,13 +241,16 @@ func (m *Manager) Scan(ctx context.Context) error {
 		}
 		missing := cloneMovie(movie)
 		missing.Missing = true
-		if missing.Status != StatusComplete && missing.Status != StatusSkipped {
+		live := isLiveWorkflowStatus(missing.Status)
+		if !live && missing.Status != StatusComplete && missing.Status != StatusSkipped {
 			missing.Status = StatusError
 			missing.Error = "movie folder is no longer present in the configured library roots"
 		}
 		missing.UpdatedAt = time.Now()
 		current = append(current, missing)
-		delete(m.searches, missing.ID)
+		if !live {
+			delete(m.searches, missing.ID)
+		}
 	}
 	sort.SliceStable(current, func(i, j int) bool {
 		if current[i].DriveID != current[j].DriveID {
@@ -257,40 +266,45 @@ func (m *Manager) SearchOne(ctx context.Context, id string) ([]Candidate, error)
 	if !m.Enabled() {
 		return nil, errors.New("1080p companions are disabled")
 	}
-	if err := m.stateErrValue(); err != nil {
-		return nil, err
-	}
-	movie, err := m.movieByID(id)
+	movie, err := m.beginSearch(id)
 	if err != nil {
-		return nil, err
-	}
-	if movie.Missing {
-		return nil, errors.New("movie folder is no longer present in the configured library roots")
-	}
-	if movie.Status == StatusComplete {
-		return nil, errors.New("this companion is already complete")
-	}
-	if err := m.setStatus(id, StatusSearching, ""); err != nil {
 		return nil, err
 	}
 	candidates, err := m.searchMovie(ctx, &movie)
 	if err != nil {
-		_ = m.setStatus(id, StatusError, err.Error())
+		m.MarkError(id, err)
 		return nil, err
 	}
 	m.mu.Lock()
-	m.searches[id] = searchState{Candidates: cloneCandidates(candidates), SearchedAt: time.Now()}
 	current := m.movieLocked(id)
-	if current != nil {
-		if len(candidates) == 0 {
-			current.Status = StatusNoMatch
-			current.Error = "no suitable 1080p releases found"
-		} else {
-			current.Status = StatusReview
-			current.Error = ""
-		}
-		current.UpdatedAt = time.Now()
+	if current == nil {
+		m.mu.Unlock()
+		return nil, errors.New("companion movie not found")
 	}
+	if current.Status != StatusSearching {
+		m.mu.Unlock()
+		return nil, errors.New("companion search is no longer active")
+	}
+	if current.Missing {
+		current.Status = StatusError
+		current.Error = "movie folder is no longer present in the configured library roots"
+		current.UpdatedAt = time.Now()
+		persistErr := m.persistLocked()
+		m.mu.Unlock()
+		if persistErr != nil {
+			return nil, persistErr
+		}
+		return nil, errors.New("movie folder is no longer present in the configured library roots")
+	}
+	m.searches[id] = searchState{Candidates: cloneCandidates(candidates), SearchedAt: time.Now()}
+	if len(candidates) == 0 {
+		current.Status = StatusNoMatch
+		current.Error = "no suitable 1080p releases found"
+	} else {
+		current.Status = StatusReview
+		current.Error = ""
+	}
+	current.UpdatedAt = time.Now()
 	err = m.persistLocked()
 	m.mu.Unlock()
 	if err != nil {
@@ -398,7 +412,7 @@ func (m *Manager) Skip(id string) error {
 	if movie == nil {
 		return errors.New("companion movie not found")
 	}
-	if movie.Status == StatusComplete || movie.Status == StatusSubmitting {
+	if movie.Status == StatusComplete || movie.Status == StatusSearching || movie.Status == StatusSubmitting {
 		return errors.New("this companion cannot be skipped in its current state")
 	}
 	movie.Status = StatusSkipped
@@ -435,7 +449,7 @@ func (m *Manager) UpsertMovie(driveID, path, folderName, title string, year, tmd
 	inspection := inspectMovieFolder(path, folderName)
 	movie.ExistingCopy = inspection.Quality
 	movie.JellyfinWarning = inspection.JellyfinWarning
-	if movie.Status != StatusComplete && movie.Status != StatusSkipped && movie.Status != StatusSubmitting {
+	if movie.Status != StatusComplete && movie.Status != StatusSkipped && !isLiveWorkflowStatus(movie.Status) {
 		if inspection.Quality == "1080p" {
 			movie.Status = StatusAlready1080p
 		} else if inspection.Error != "" {
@@ -461,24 +475,38 @@ func (m *Manager) PrepareSelected(ctx context.Context, id, guid string) (Movie, 
 	if strings.TrimSpace(guid) == "" {
 		return Movie{}, Candidate{}, nil, errors.New("candidate guid is required")
 	}
-	movie, err := m.movieByID(id)
-	if err != nil {
+	m.mu.Lock()
+	if m.stateErr != nil {
+		err := m.stateErr
+		m.mu.Unlock()
 		return Movie{}, Candidate{}, nil, err
 	}
-	m.mu.Lock()
 	current := m.movieLocked(id)
 	if current == nil {
 		m.mu.Unlock()
 		return Movie{}, Candidate{}, nil, errors.New("companion movie not found")
 	}
+	if current.Missing {
+		m.mu.Unlock()
+		return Movie{}, Candidate{}, nil, errors.New("movie folder is no longer present in the configured library roots")
+	}
 	if current.Status == StatusComplete {
 		m.mu.Unlock()
 		return Movie{}, Candidate{}, nil, errors.New("this companion is already complete")
+	}
+	if current.Status == StatusSearching {
+		m.mu.Unlock()
+		return Movie{}, Candidate{}, nil, errors.New("this companion is currently being searched")
 	}
 	if current.Status == StatusSubmitting {
 		m.mu.Unlock()
 		return Movie{}, Candidate{}, nil, errors.New("this companion is already being submitted")
 	}
+	if current.Status != StatusReview {
+		m.mu.Unlock()
+		return Movie{}, Candidate{}, nil, errors.New("a companion must be in review before approving a candidate")
+	}
+	movie := *current
 	current.Status = StatusSubmitting
 	current.Error = ""
 	current.UpdatedAt = time.Now()
@@ -490,7 +518,7 @@ func (m *Manager) PrepareSelected(ctx context.Context, id, guid string) (Movie, 
 
 	candidates, err := m.searchMovie(ctx, &movie)
 	if err != nil {
-		m.markError(id, err)
+		m.MarkError(id, err)
 		return Movie{}, Candidate{}, nil, err
 	}
 	var selected Candidate
@@ -502,17 +530,17 @@ func (m *Manager) PrepareSelected(ctx context.Context, id, guid string) (Movie, 
 	}
 	if selected.Guid == "" {
 		err := fmt.Errorf("selected release is no longer available or no longer passes the companion filters")
-		m.markError(id, err)
+		m.MarkError(id, err)
 		return Movie{}, Candidate{}, nil, err
 	}
 	if selected.downloadURL == "" {
 		err := errors.New("selected Prowlarr release has no download URL")
-		m.markError(id, err)
+		m.MarkError(id, err)
 		return Movie{}, Candidate{}, nil, err
 	}
 	data, err := m.prowlarr.DownloadTorrent(ctx, selected.downloadURL)
 	if err != nil {
-		m.markError(id, err)
+		m.MarkError(id, err)
 		return Movie{}, Candidate{}, nil, err
 	}
 	return movie, selected, data, nil
@@ -546,15 +574,32 @@ func (m *Manager) MarkError(id string, err error) {
 	}
 }
 
-func (m *Manager) movieByID(id string) (Movie, error) {
-	m.mu.RLock()
-	defer m.mu.RUnlock()
+func (m *Manager) beginSearch(id string) (Movie, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
 	if m.stateErr != nil {
 		return Movie{}, m.stateErr
 	}
 	movie := m.movieLocked(id)
 	if movie == nil {
 		return Movie{}, errors.New("companion movie not found")
+	}
+	if movie.Missing {
+		return Movie{}, errors.New("movie folder is no longer present in the configured library roots")
+	}
+	switch movie.Status {
+	case StatusSearching:
+		return Movie{}, errors.New("this companion search is already running")
+	case StatusSubmitting:
+		return Movie{}, errors.New("this companion is already being submitted")
+	case StatusComplete:
+		return Movie{}, errors.New("this companion is already complete")
+	}
+	movie.Status = StatusSearching
+	movie.Error = ""
+	movie.UpdatedAt = time.Now()
+	if err := m.persistLocked(); err != nil {
+		return Movie{}, err
 	}
 	return *movie, nil
 }
@@ -566,29 +611,6 @@ func (m *Manager) movieLocked(id string) *Movie {
 		}
 	}
 	return nil
-}
-
-func (m *Manager) setStatus(id, status, message string) error {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	movie := m.movieLocked(id)
-	if movie == nil {
-		return errors.New("companion movie not found")
-	}
-	movie.Status = status
-	movie.Error = message
-	movie.UpdatedAt = time.Now()
-	return m.persistLocked()
-}
-
-func (m *Manager) markError(id string, err error) {
-	m.MarkError(id, err)
-}
-
-func (m *Manager) stateErrValue() error {
-	m.mu.RLock()
-	defer m.mu.RUnlock()
-	return m.stateErr
 }
 
 func (m *Manager) persistLocked() error {

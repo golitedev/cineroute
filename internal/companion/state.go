@@ -27,6 +27,15 @@ const (
 	StatusError        = "error"
 )
 
+func isLiveWorkflowStatus(status string) bool {
+	switch status {
+	case StatusSearching, StatusReview, StatusSubmitting:
+		return true
+	default:
+		return false
+	}
+}
+
 // Movie is the durable workflow record for one canonical movie folder.
 // Search results deliberately do not live here: Prowlarr download URLs can
 // contain the API key and are short-lived, so results stay in memory.
