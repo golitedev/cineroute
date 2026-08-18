@@ -228,7 +228,7 @@ let companionPage=0;
 let openCompanion="";
 let companionPoll=null;
 let companionLoadToken=0;
-const companionApprovals=new Set();
+const companionApprovals=new Map();
 
 const fmtBytes=n=>{
   if(n===0)return "0 B";
@@ -497,10 +497,11 @@ function renderCompanionDetail(){
 function candidateCard(c,m){
   const seed=c.seeders===null||c.seeders===undefined?"unknown":c.seeders;
   const link=c.info_url&&/^https?:\/\//i.test(c.info_url)?'<a class="tracker-link" href="'+esc(c.info_url)+'" target="_blank" rel="noopener noreferrer">Open tracker</a>':"";
-  const adding=companionApprovals.has(m.id)||m.status==="submitting";
+  const adding=companionApprovals.get(m.id)===c.guid;
   const disabled=adding||m.status!=="review"?" disabled":"";
-  const label=adding?"Adding…":"Approve";
-  return '<div class="candidate"><h3>'+esc(c.title)+"</h3><div class=\"facts\"><span class=\"badge\">"+fmtBytes(c.size)+"</span><span class=\"badge\">"+esc(seed)+" seeders</span><span class=\"badge\">"+esc(c.source)+"</span><span class=\"badge\">"+esc(c.codec)+"</span><span class=\"badge warn\">"+esc(c.language_evidence)+"</span><span class=\"badge\">Score "+esc(c.score)+"</span></div><div class=\"reason\">✓ "+esc((c.reasons||[]).join(" · "))+"</div><div class=\"actions\">"+link+'<button data-id="'+esc(m.id)+'" data-guid="'+esc(c.guid)+'" onclick="approveFromButton(this)" class="primary"'+disabled+'>'+label+'</button></div></div>';
+  const label=adding?'<span class="approval-spinner" aria-hidden="true"></span>Adding…':"Approve";
+  const buttonClass=adding?"primary approving":"primary";
+  return '<div class="candidate"><h3>'+esc(c.title)+"</h3><div class=\"facts\"><span class=\"badge\">"+fmtBytes(c.size)+"</span><span class=\"badge\">"+esc(seed)+" seeders</span><span class=\"badge\">"+esc(c.source)+"</span><span class=\"badge\">"+esc(c.codec)+"</span><span class=\"badge warn\">"+esc(c.language_evidence)+"</span><span class=\"badge\">Score "+esc(c.score)+"</span></div><div class=\"reason\">✓ "+esc((c.reasons||[]).join(" · "))+"</div><div class=\"actions\">"+link+'<button data-id="'+esc(m.id)+'" data-guid="'+esc(c.guid)+'" onclick="approveFromButton(this)" class="'+buttonClass+'"'+disabled+'>'+label+'</button></div></div>';
 }
 function approveFromButton(button){approveCompanion(button.dataset.id,button.dataset.guid,button)}
 function closeCompanionMovie(){openCompanion="";loadCompanions()}
@@ -511,7 +512,7 @@ async function searchOneCompanion(id,button){
 async function skipCompanion(id){try{await postJSON("/api/companions/"+id+"/skip",{});await loadCompanions(id)}catch(e){alert(e.message)}}
 async function approveCompanion(id,guid,button){
   if(companionApprovals.has(id))return;
-  companionApprovals.add(id);
+  companionApprovals.set(id,guid);
   const buttons=openCompanion===id?[...document.querySelectorAll("#companionDetail .candidate button.primary")]:[];
   buttons.forEach(candidateButton=>candidateButton.disabled=true);
   if(button){button.classList.add("approving");button.innerHTML='<span class="approval-spinner" aria-hidden="true"></span>Adding…'}
