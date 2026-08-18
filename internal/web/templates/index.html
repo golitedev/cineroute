@@ -27,9 +27,12 @@ main{max-width:760px;margin:0 auto;padding:20px}
 #drop p{margin:0;color:var(--dim)}
 button{background:#1f2430;color:var(--text);border:1px solid var(--border);border-radius:6px;padding:7px 14px;cursor:pointer;font-size:13px}
 button:hover{border-color:var(--accent)}
+button.icon-button{width:34px;height:34px;padding:0;display:inline-flex;align-items:center;justify-content:center;font-size:20px;line-height:1}
 button.primary{background:var(--accent);border-color:var(--accent);color:#fff}
 button.danger{color:#ff9b92;border-color:#7a2f2d}
 button:disabled{opacity:.5;cursor:not-allowed}
+a.tracker-link,a.tracker-link:visited{color:#ffb86c}
+a.tracker-link:hover{color:#ffd28a}
 table{width:100%;border-collapse:collapse;font-size:13px}
 td,th{text-align:left;padding:6px 8px;border-bottom:1px solid var(--border);vertical-align:top}
 th{color:var(--dim);font-weight:500;width:170px}
@@ -435,7 +438,7 @@ function renderCompanionDetail(){
   if(!m){box.classList.add("hidden");box.innerHTML="";return}
   box.classList.remove("hidden");
   const candidates=companionData.candidates||[];
-  let html='<div class="companion-toolbar"><div><h2 style="margin-bottom:4px">'+esc(m.folder_name)+"</h2><div class=\"small\">"+esc(m.drive_id)+" · "+esc(m.path)+"</div></div><button onclick=\"closeCompanionMovie()\">Close</button></div>";
+  let html='<div class="companion-toolbar"><div><h2 style="margin-bottom:4px">'+esc(m.folder_name)+"</h2><div class=\"small\">"+esc(m.drive_id)+" · "+esc(m.path)+"</div></div><div class=\"actions\" style=\"margin-top:0\">"+(m.status==="review"?'<button class="icon-button" data-id="'+esc(m.id)+'" onclick="searchOneCompanion(this.dataset.id)" title="Search this movie again" aria-label="Search this movie again">↻</button>':"")+"<button onclick=\"closeCompanionMovie()\">Close</button></div></div>";
   html+='<div class="row" style="margin-top:12px"><span class="badge '+companionStatusClass(m)+'">'+esc(companionStatus(m))+"</span>"+(m.tmdb_id?'<span class="small">TMDB '+m.tmdb_id+"</span>":"")+"</div>";
   if(m.error)html+='<div class="errbox">'+esc(m.error)+"</div>";
   if(m.jellyfin_warning)html+='<div class="errbox" style="background:#2b2412;border-color:#6b5214;color:#e3b341">'+esc(m.jellyfin_warning)+"</div>";
@@ -450,7 +453,7 @@ function renderCompanionDetail(){
 }
 function candidateCard(c){
   const seed=c.seeders===null||c.seeders===undefined?"unknown":c.seeders;
-  const link=c.info_url&&/^https?:\/\//i.test(c.info_url)?'<a href="'+esc(c.info_url)+'" target="_blank" rel="noopener noreferrer">Open tracker</a>':"";
+  const link=c.info_url&&/^https?:\/\//i.test(c.info_url)?'<a class="tracker-link" href="'+esc(c.info_url)+'" target="_blank" rel="noopener noreferrer">Open tracker</a>':"";
   return '<div class="candidate"><h3>'+esc(c.title)+"</h3><div class=\"facts\"><span class=\"badge\">"+fmtBytes(c.size)+"</span><span class=\"badge\">"+esc(seed)+" seeders</span><span class=\"badge\">"+esc(c.source)+"</span><span class=\"badge\">"+esc(c.codec)+"</span><span class=\"badge warn\">"+esc(c.language_evidence)+"</span><span class=\"badge\">Score "+esc(c.score)+"</span></div><div class=\"reason\">✓ "+esc((c.reasons||[]).join(" · "))+"</div><div class=\"actions\">"+link+'<button data-id="'+esc(openCompanion)+'" data-guid="'+esc(c.guid)+'" onclick="approveFromButton(this)" class="primary">Approve</button></div></div>';
 }
 function approveFromButton(button){approveCompanion(button.dataset.id,button.dataset.guid)}
