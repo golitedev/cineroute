@@ -19,6 +19,8 @@ var companionVideoExtensions = map[string]bool{
 
 type copyInspection struct {
 	Quality         string
+	Has1080pWebDL   bool
+	Has1080pBluRay  bool
 	JellyfinWarning string
 	Error           string
 }
@@ -40,13 +42,27 @@ func inspectMovieFolder(path, folderName string) copyInspection {
 	if len(videos) == 0 {
 		return copyInspection{Quality: "none", Error: "no top-level video file found; manual review required"}
 	}
+	var first1080p string
+	inspection := copyInspection{}
 	for _, name := range videos {
-		if strings.Contains(strings.ToLower(name), "1080p") {
-			return copyInspection{
-				Quality:         "1080p",
-				JellyfinWarning: jellyfinWarning(folderName, name),
-			}
+		lower := strings.ToLower(name)
+		if !strings.Contains(lower, "1080p") {
+			continue
 		}
+		if first1080p == "" {
+			first1080p = name
+		}
+		if webDLRe.MatchString(name) {
+			inspection.Has1080pWebDL = true
+		}
+		if isBluRayLike(name) {
+			inspection.Has1080pBluRay = true
+		}
+	}
+	if first1080p != "" {
+		inspection.Quality = "1080p"
+		inspection.JellyfinWarning = jellyfinWarning(folderName, first1080p)
+		return inspection
 	}
 	if len(videos) > 1 {
 		return copyInspection{
@@ -65,6 +81,28 @@ func inspectMovieFolder(path, folderName string) copyInspection {
 		Quality:         quality,
 		JellyfinWarning: jellyfinWarning(folderName, name),
 	}
+}
+
+func isBluRayLike(name string) bool {
+	lower := strings.ToLower(name)
+	return strings.Contains(lower, "remux") || strings.Contains(lower, "blu-ray") ||
+		hasAny(lower, "bluray", "brrip", "bdrip")
+}
+
+// needsWebDLCompanion identifies a 1080p BluRay/remux that can still be
+// upgraded with a WEB-DL companion.
+func needsWebDLCompanion(inspection copyInspection) bool {
+	return inspection.Quality == "1080p" && inspection.Has1080pBluRay && !inspection.Has1080pWebDL
+}
+
+// alreadyHasSuitable1080pCopy preserves the existing behavior for ordinary
+// 1080p files. A WEB-DL always satisfies the target regardless of any other
+// 1080p copy in the folder.
+func alreadyHasSuitable1080pCopy(inspection copyInspection) bool {
+	if inspection.Quality != "1080p" {
+		return false
+	}
+	return !needsWebDLCompanion(inspection)
 }
 
 func jellyfinWarning(folderName, videoName string) string {

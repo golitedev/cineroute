@@ -328,15 +328,16 @@ func (m *Manager) Scan(ctx context.Context) error {
 			current = append(current, movie)
 			continue
 		}
-		if inspection.Quality == "1080p" {
+		if alreadyHasSuitable1080pCopy(inspection) {
 			movie.Status = StatusAlready1080p
 			movie.Error = ""
 			movie.UpdatedAt = time.Now()
 			current = append(current, movie)
 			continue
 		}
-		if movie.Status == "" {
+		if movie.Status == "" || (movie.Status == StatusAlready1080p && needsWebDLCompanion(inspection)) {
 			movie.Status = StatusPending
+			movie.Error = ""
 		}
 		movie.UpdatedAt = time.Now()
 		current = append(current, movie)
@@ -710,7 +711,7 @@ func (m *Manager) UpsertMovie(driveID, path, folderName, title string, year, tmd
 	movie.ExistingCopy = inspection.Quality
 	movie.JellyfinWarning = inspection.JellyfinWarning
 	if movie.Status != StatusComplete && movie.Status != StatusSkipped && !isLiveWorkflowStatus(movie.Status) {
-		if inspection.Quality == "1080p" {
+		if alreadyHasSuitable1080pCopy(inspection) {
 			movie.Status = StatusAlready1080p
 		} else if inspection.Error != "" {
 			movie.Status = StatusNeedsReview

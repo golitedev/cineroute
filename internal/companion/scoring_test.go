@@ -118,8 +118,11 @@ func TestCompanionScannerRecognizesTopLevelCopies(t *testing.T) {
 	if got := inspectMovieFolder(makeMovie("Dune (2021)", "Dune.2021.2160p.REMUX.mkv"), "Dune (2021)"); got.Quality != "4k" {
 		t.Fatalf("4k inspection: %+v", got)
 	}
-	if got := inspectMovieFolder(makeMovie("Alien (1979)", "Alien.1979.2160p.mkv", "Alien.1979.1080p.WEB-DL.mkv"), "Alien (1979)"); got.Quality != "1080p" {
+	if got := inspectMovieFolder(makeMovie("Alien (1979)", "Alien.1979.2160p.mkv", "Alien.1979.1080p.WEB-DL.mkv"), "Alien (1979)"); got.Quality != "1080p" || !got.Has1080pWebDL || got.Has1080pBluRay {
 		t.Fatalf("1080p inspection: %+v", got)
+	}
+	if got := inspectMovieFolder(makeMovie("Heat (1995)", "Heat.1995.1080p.BluRay.REMUX.mkv"), "Heat (1995)"); got.Quality != "1080p" || got.Has1080pWebDL || !got.Has1080pBluRay {
+		t.Fatalf("1080p BluRay inspection: %+v", got)
 	}
 	if got := inspectMovieFolder(makeMovie("1917 (2019)", "one.mkv", "two.mkv"), "1917 (2019)"); got.Quality != "multiple" {
 		t.Fatalf("multiple-file inspection: %+v", got)

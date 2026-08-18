@@ -103,6 +103,32 @@ func TestScanPreservesLiveWorkflowStates(t *testing.T) {
 	}
 }
 
+func TestScanQueues1080pBluRayForWebDLCompanion(t *testing.T) {
+	root := t.TempDir()
+	folder := filepath.Join(root, "Movie (2024)")
+	if err := os.MkdirAll(folder, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(folder, "Movie.2024.1080p.BluRay.REMUX.mkv"), nil, 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	cfg := config.Default()
+	cfg.Companion.StatePath = filepath.Join(t.TempDir(), "companions.db")
+	m := newTransitionManager(t, StatusAlready1080p)
+	m.cfg = cfg
+	m.lib = library.NewScan([]library.Drive{{ID: "hdd1", MovieRoot: root}})
+	m.state.Movies[0].ID = movieID("hdd1", "Movie (2024)")
+	m.state.Movies[0].Path = folder
+
+	if err := m.Scan(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if got := m.state.Movies[0].Status; got != StatusPending {
+		t.Fatalf("1080p BluRay status = %s, want %s", got, StatusPending)
+	}
+}
+
 func TestSearchIntervalSettingPersists(t *testing.T) {
 	cfg := config.Default()
 	cfg.Companion.StatePath = filepath.Join(t.TempDir(), "companions.db")
