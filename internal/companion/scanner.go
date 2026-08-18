@@ -85,6 +85,22 @@ func movieVideoPaths(root string, relative []string) []string {
 	return paths
 }
 
+func movieVideoSizes(root string, relative []string) map[string]int64 {
+	sizes := make(map[string]int64, len(relative))
+	for _, name := range relative {
+		path := filepath.Join(root, name)
+		info, err := os.Stat(path)
+		if err != nil || !info.Mode().IsRegular() {
+			continue
+		}
+		sizes[path] = info.Size()
+	}
+	if len(sizes) == 0 {
+		return nil
+	}
+	return sizes
+}
+
 // movieVideoFiles includes files kept inside an original torrent directory.
 // It reads metadata only and never follows nested directory symlinks.
 func movieVideoFiles(root string) ([]string, error) {
@@ -147,6 +163,7 @@ func jellyfinWarning(folderName, videoName string) string {
 func inspectError(movie *Movie, inspection copyInspection) {
 	movie.ExistingCopy = inspection.Quality
 	movie.ExistingFiles = movieVideoPaths(movie.Path, inspection.Files)
+	movie.ExistingFileSizes = movieVideoSizes(movie.Path, inspection.Files)
 	movie.JellyfinWarning = inspection.JellyfinWarning
 	if inspection.Error != "" {
 		movie.Status = StatusNeedsReview

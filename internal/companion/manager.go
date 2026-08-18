@@ -165,6 +165,7 @@ func (m *Manager) View(openID string) View {
 			if view.Open != nil && !view.Open.Missing && view.Open.Path != "" {
 				inspection := inspectMovieFolder(view.Open.Path, view.Open.FolderName)
 				view.Open.ExistingFiles = movieVideoPaths(view.Open.Path, inspection.Files)
+				view.Open.ExistingFileSizes = movieVideoSizes(view.Open.Path, inspection.Files)
 			}
 			if result, ok := m.searches[openID]; ok {
 				view.Candidates = cloneCandidates(result.Candidates)
@@ -301,6 +302,7 @@ func (m *Manager) Scan(ctx context.Context) error {
 		inspection := inspectMovieFolder(folder.Path, folder.Name)
 		movie.ExistingCopy = inspection.Quality
 		movie.ExistingFiles = movieVideoPaths(folder.Path, inspection.Files)
+		movie.ExistingFileSizes = movieVideoSizes(folder.Path, inspection.Files)
 		movie.JellyfinWarning = inspection.JellyfinWarning
 		if parseErr != nil {
 			if !live {
@@ -706,6 +708,7 @@ func (m *Manager) UpsertMovie(driveID, path, folderName, title string, year, tmd
 	inspection := inspectMovieFolder(path, folderName)
 	movie.ExistingCopy = inspection.Quality
 	movie.ExistingFiles = movieVideoPaths(path, inspection.Files)
+	movie.ExistingFileSizes = movieVideoSizes(path, inspection.Files)
 	movie.JellyfinWarning = inspection.JellyfinWarning
 	if movie.Status != StatusComplete && movie.Status != StatusSkipped && !isLiveWorkflowStatus(movie.Status) {
 		if alreadyHasSuitable1080pCopy(inspection) {

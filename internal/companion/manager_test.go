@@ -136,7 +136,8 @@ func TestScanRecoversNeedsReviewWhenVideoIsNested(t *testing.T) {
 	if err := os.MkdirAll(releaseFolder, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(releaseFolder, "Movie.2024.2160p.REMUX.mkv"), nil, 0o644); err != nil {
+	video := []byte("movie")
+	if err := os.WriteFile(filepath.Join(releaseFolder, "Movie.2024.2160p.REMUX.mkv"), video, 0o644); err != nil {
 		t.Fatal(err)
 	}
 
@@ -161,6 +162,9 @@ func TestScanRecoversNeedsReviewWhenVideoIsNested(t *testing.T) {
 	wantFile := filepath.Join(releaseFolder, "Movie.2024.2160p.REMUX.mkv")
 	if got := m.state.Movies[0].ExistingFiles; len(got) != 1 || got[0] != wantFile {
 		t.Fatalf("nested movie files = %v, want %q", got, wantFile)
+	}
+	if got := m.state.Movies[0].ExistingFileSizes[wantFile]; got != int64(len(video)) {
+		t.Fatalf("nested movie file size = %d, want %d", got, len(video))
 	}
 	if got := m.state.Movies[0].Error; got != "" {
 		t.Fatalf("nested movie retained review error: %q", got)
@@ -193,7 +197,8 @@ func TestViewRefreshesExistingFilesForOpenMovie(t *testing.T) {
 		t.Fatal(err)
 	}
 	file := filepath.Join(folder, "Movie.2024.2160p.REMUX.mkv")
-	if err := os.WriteFile(file, nil, 0o644); err != nil {
+	video := []byte("movie")
+	if err := os.WriteFile(file, video, 0o644); err != nil {
 		t.Fatal(err)
 	}
 
@@ -203,6 +208,9 @@ func TestViewRefreshesExistingFilesForOpenMovie(t *testing.T) {
 	view := m.View("movie")
 	if view.Open == nil || len(view.Open.ExistingFiles) != 1 || view.Open.ExistingFiles[0] != file {
 		t.Fatalf("open movie files = %v, want %q", view.Open, file)
+	}
+	if got := view.Open.ExistingFileSizes[file]; got != int64(len(video)) {
+		t.Fatalf("open movie file size = %d, want %d", got, len(video))
 	}
 }
 

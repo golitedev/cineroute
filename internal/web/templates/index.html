@@ -476,8 +476,9 @@ function renderCompanionDetail(){
   if(!m){box.classList.add("hidden");box.innerHTML="";return}
   box.classList.remove("hidden");
   const candidates=companionData.candidates||[];
-  const existingFiles=(m.existing_files||[]).map(path=>m.drive_id+" · "+path);
-  const existingHTML=existingFiles.length?'<div class="companion-existing-files"><div class="small">Current video file'+(existingFiles.length===1?"":"s")+'</div>'+existingFiles.map(path=>'<div class="small mono">'+esc(path)+"</div>").join("")+"</div>":"";
+  const existingFiles=m.existing_files||[];
+  const existingFileSizes=m.existing_file_sizes||{};
+  const existingHTML=existingFiles.length?'<div class="companion-existing-files"><div class="small">Current video file'+(existingFiles.length===1?"":"s")+'</div>'+existingFiles.map(path=>'<div class="small mono">'+esc(m.drive_id+" · "+path+(Object.prototype.hasOwnProperty.call(existingFileSizes,path)?" · "+fmtBytes(existingFileSizes[path]):""))+"</div>").join("")+"</div>":"";
   const refreshIcon='<span class="refresh-icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 11a8 8 0 1 1-2.34-5.66L20 7"></path><path d="M20 3v4h-4"></path></svg></span>';
   let html='<div class="companion-toolbar"><div><h2 style="margin-bottom:4px">'+esc(m.folder_name)+"</h2><div class=\"small\">"+esc(m.drive_id)+" · "+esc(m.path)+"</div>"+existingHTML+'</div><div class="actions" style="margin-top:0">'+(m.status==="review"?'<button class="icon-button" data-id="'+esc(m.id)+'" onclick="searchOneCompanion(this.dataset.id,this)" title="Search this movie again" aria-label="Search this movie again">'+refreshIcon+'</button>':"")+"<button onclick=\"closeCompanionMovie()\">Close</button></div></div>";
   html+='<div class="row" style="margin-top:12px"><span class="badge '+companionStatusClass(m)+'">'+esc(companionStatus(m))+"</span>"+(m.tmdb_id?'<span class="small">TMDB '+m.tmdb_id+"</span>":"")+"</div>";

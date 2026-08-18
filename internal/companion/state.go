@@ -40,22 +40,23 @@ func isLiveWorkflowStatus(status string) bool {
 // Search results live in the companion store separately: Prowlarr download
 // URLs can contain the API key and are short-lived, so they are never written.
 type Movie struct {
-	ID              string    `json:"id"`
-	DriveID         string    `json:"drive_id"`
-	Path            string    `json:"path"`
-	FolderName      string    `json:"folder_name"`
-	Title           string    `json:"title"`
-	Year            int       `json:"year"`
-	TmdbID          int       `json:"tmdb_id"`
-	Status          string    `json:"status"`
-	Error           string    `json:"error,omitempty"`
-	QBHash          string    `json:"qb_hash,omitempty"`
-	ExistingCopy    string    `json:"existing_copy,omitempty"`
-	ExistingFiles   []string  `json:"existing_files,omitempty"`
-	JellyfinWarning string    `json:"jellyfin_warning,omitempty"`
-	Missing         bool      `json:"missing,omitempty"`
-	CreatedAt       time.Time `json:"created_at"`
-	UpdatedAt       time.Time `json:"updated_at"`
+	ID                string           `json:"id"`
+	DriveID           string           `json:"drive_id"`
+	Path              string           `json:"path"`
+	FolderName        string           `json:"folder_name"`
+	Title             string           `json:"title"`
+	Year              int              `json:"year"`
+	TmdbID            int              `json:"tmdb_id"`
+	Status            string           `json:"status"`
+	Error             string           `json:"error,omitempty"`
+	QBHash            string           `json:"qb_hash,omitempty"`
+	ExistingCopy      string           `json:"existing_copy,omitempty"`
+	ExistingFiles     []string         `json:"existing_files,omitempty"`
+	ExistingFileSizes map[string]int64 `json:"existing_file_sizes,omitempty"`
+	JellyfinWarning   string           `json:"jellyfin_warning,omitempty"`
+	Missing           bool             `json:"missing,omitempty"`
+	CreatedAt         time.Time        `json:"created_at"`
+	UpdatedAt         time.Time        `json:"updated_at"`
 }
 
 type stateFile struct {
@@ -194,6 +195,12 @@ func cloneMovie(movie *Movie) *Movie {
 	}
 	copy := *movie
 	copy.ExistingFiles = append([]string(nil), movie.ExistingFiles...)
+	if movie.ExistingFileSizes != nil {
+		copy.ExistingFileSizes = make(map[string]int64, len(movie.ExistingFileSizes))
+		for path, size := range movie.ExistingFileSizes {
+			copy.ExistingFileSizes[path] = size
+		}
+	}
 	return &copy
 }
 
