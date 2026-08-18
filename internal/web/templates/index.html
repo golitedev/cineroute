@@ -27,10 +27,10 @@ main{max-width:760px;margin:0 auto;padding:20px}
 #drop p{margin:0;color:var(--dim)}
 button{background:#1f2430;color:var(--text);border:1px solid var(--border);border-radius:6px;padding:7px 14px;cursor:pointer;font-size:13px}
 button:hover{border-color:var(--accent)}
-button.icon-button{width:34px;height:34px;padding:0;display:inline-flex;align-items:center;justify-content:center;font-size:20px;line-height:1}
-button.icon-button .refresh-icon{display:inline-flex;width:16px;height:16px;align-items:center;justify-content:center}
-button.icon-button .refresh-icon svg{display:block;width:16px;height:16px}
-button.icon-button.searching .refresh-icon svg{animation:companion-spin .8s linear infinite;transform-origin:center}
+button.icon-button{width:34px;height:34px;padding:0;display:inline-flex;align-items:center;justify-content:center;font-size:20px;line-height:0}
+button.icon-button .refresh-icon{display:flex;flex:0 0 18px;width:18px;height:18px;align-items:center;justify-content:center;line-height:0;transform-origin:50% 50%}
+button.icon-button .refresh-icon svg{display:block;width:18px;height:18px;overflow:visible}
+button.icon-button.searching .refresh-icon{animation:companion-spin .8s linear infinite}
 @keyframes companion-spin{to{transform:rotate(360deg)}}
 button.primary{background:var(--accent);border-color:var(--accent);color:#fff}
 button.primary.approving{background:#111318;border-color:#343945;color:var(--dim)}
@@ -479,7 +479,7 @@ function renderCompanionDetail(){
   const existingFiles=m.existing_files||[];
   const existingFileSizes=m.existing_file_sizes||{};
   const existingHTML=existingFiles.length?'<div class="companion-existing-files"><div class="small">Current video file'+(existingFiles.length===1?"":"s")+'</div>'+existingFiles.map(path=>'<div class="small mono">'+esc(m.drive_id+" · "+path+(Object.prototype.hasOwnProperty.call(existingFileSizes,path)?" · "+fmtBytes(existingFileSizes[path]):""))+"</div>").join("")+"</div>":"";
-  const refreshIcon='<span class="refresh-icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 11a8 8 0 1 1-2.34-5.66L20 7"></path><path d="M20 3v4h-4"></path></svg></span>';
+  const refreshIcon='<span class="refresh-icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12a9 9 0 1 1-2.64-6.36L21 8"></path><path d="M21 3v5h-5"></path></svg></span>';
   let html='<div class="companion-toolbar"><div><h2 style="margin-bottom:4px">'+esc(m.folder_name)+"</h2><div class=\"small\">"+esc(m.drive_id)+" · "+esc(m.path)+"</div>"+existingHTML+'</div><div class="actions" style="margin-top:0">'+(m.status==="review"?'<button class="icon-button" data-id="'+esc(m.id)+'" onclick="searchOneCompanion(this.dataset.id,this)" title="Search this movie again" aria-label="Search this movie again">'+refreshIcon+'</button>':"")+"<button onclick=\"closeCompanionMovie()\">Close</button></div></div>";
   html+='<div class="row" style="margin-top:12px"><span class="badge '+companionStatusClass(m)+'">'+esc(companionStatus(m))+"</span>"+(m.tmdb_id?'<span class="small">TMDB '+m.tmdb_id+"</span>":"")+"</div>";
   if(m.error)html+='<div class="errbox">'+esc(m.error)+"</div>";
