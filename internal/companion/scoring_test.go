@@ -74,6 +74,23 @@ func TestExactProwlarrTitlesAreEligible(t *testing.T) {
 	}
 }
 
+func TestDistinctProwlarrReleasesWithSharedGuidRemainEligible(t *testing.T) {
+	seeders := 5
+	releases := []prowlarr.Release{
+		{Guid: "shared-provider-guid", Title: "Movie.2024.1080p.WEB-DL.H.264-GROUP", Size: 7 << 30, IndexerID: 7, Indexer: "Lat-Team (API)", Seeders: &seeders},
+		{Guid: "shared-provider-guid", Title: "Movie.2024.1080p.BluRay.x264-GROUP", Size: 12 << 30, IndexerID: 7, Indexer: "Lat-Team (API)", Seeders: &seeders},
+	}
+	merged := mergeReleases(nil, releases)
+	merged = mergeReleases(merged, releases)
+	if len(merged) != 2 {
+		t.Fatalf("shared GUID merge returned %d releases: %+v", len(merged), merged)
+	}
+	got := FilterAndRank(merged, "Movie", 2024, 0, Policy{MaxBytes: 15 << 30, MinSeeders: 1, TargetIndexerID: 7})
+	if len(got) != 2 || got[0].Guid == got[1].Guid {
+		t.Fatalf("shared GUID candidates are missing or ambiguous: %+v", got)
+	}
+}
+
 func TestLanguageEvidenceDoesNotChangeRankingScore(t *testing.T) {
 	seeders := 3
 	policy := Policy{MaxBytes: 15 << 30, MinSeeders: 1, TargetIndexerID: 7}

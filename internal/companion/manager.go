@@ -467,14 +467,7 @@ func (m *Manager) searchMovie(ctx context.Context, movie *Movie) ([]Candidate, e
 		return nil, err
 	}
 	policy := m.policy(indexerID)
-	query := companionSearchQuery(movie)
-	queries := []string{query}
-	if query != strings.TrimSpace(movie.Title) {
-		// Always run the title-only query as well. A year-qualified Prowlarr
-		// search can return a few valid BluRay releases before a better WEB-DL
-		// appears in the broader title search.
-		queries = append(queries, strings.TrimSpace(movie.Title))
-	}
+	queries := companionSearchQueries(movie)
 	var results []prowlarr.Release
 	for _, searchQuery := range queries {
 		found, err := m.searchRelease(ctx, indexerID, searchQuery)
@@ -487,31 +480,24 @@ func (m *Manager) searchMovie(ctx context.Context, movie *Movie) ([]Candidate, e
 	return FilterAndRank(results, movie.Title, movie.Year, movie.TmdbID, policy), nil
 }
 
-func companionSearchQuery(movie *Movie) string {
-	title := strings.TrimSpace(movie.Title)
-	if movie.Year <= 0 {
-		return title
+func companionSearchQueries(movie *Movie) []string {
+	title := strings.ToLower(strings.TrimSpace(movie.Title))
+	queries := []string{title}
+	if movie.Year > 0 {
+		queries = append(queries, strings.TrimSpace(fmt.Sprintf("%s %d", title, movie.Year)))
 	}
-	return strings.TrimSpace(fmt.Sprintf("%s %d", title, movie.Year))
+	return queries
 }
 
 func companionSearchHistoryQuery(movie *Movie) string {
-	primary := companionSearchQuery(movie)
-	title := strings.TrimSpace(movie.Title)
-	if title != "" && title != primary {
-		return primary + " | " + title
-	}
-	return primary
+	return strings.Join(companionSearchQueries(movie), " | ")
 }
 
 func mergeReleases(existing, additions []prowlarr.Release) []prowlarr.Release {
 	seen := make(map[string]bool, len(existing)+len(additions))
 	merged := make([]prowlarr.Release, 0, len(existing)+len(additions))
 	for _, release := range append(existing, additions...) {
-		key := strings.TrimSpace(release.Guid)
-		if key == "" {
-			key = strings.TrimSpace(release.Title) + "\x00" + release.Indexer
-		}
+		key := releaseFingerprint(release)
 		if seen[key] {
 			continue
 		}
@@ -784,7 +770,7 @@ func (m *Manager) PrepareSelected(ctx context.Context, id, guid string) (Movie, 
 	}
 	var selected Candidate
 	for _, candidate := range candidates {
-		if candidate.Guid == guid {
+		if candidate.Guid == guid || (candidate.sourceGuid != "" && candidate.sourceGuid == guid) {
 			selected = candidate
 			break
 		}

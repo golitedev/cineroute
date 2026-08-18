@@ -35,6 +35,7 @@ type Candidate struct {
 	Score            int       `json:"score"`
 	Reasons          []string  `json:"reasons"`
 	downloadURL      string
+	sourceGuid       string
 }
 
 const MaxCandidateResults = 5
@@ -55,9 +56,16 @@ var avcRe = regexp.MustCompile(`(?i)\b(?:avc|h[. _-]*264|x264)\b`)
 // the response to the configured indexer and search query, so stale release
 // metadata is evidence for ranking rather than a reason to hide a candidate.
 func FilterAndRank(releases []prowlarr.Release, title string, year, tmdbID int, policy Policy) []Candidate {
+	guidCounts := make(map[string]int, len(releases))
+	for _, release := range releases {
+		if guid := strings.TrimSpace(release.Guid); guid != "" {
+			guidCounts[guid]++
+		}
+	}
 	accepted := make([]Candidate, 0, len(releases))
 	for _, release := range releases {
-		candidate, ok := scoreRelease(release, title, year, tmdbID, policy)
+		guid := strings.TrimSpace(release.Guid)
+		candidate, ok := scoreRelease(release, title, year, tmdbID, policy, guid == "" || guidCounts[guid] > 1)
 		if ok {
 			accepted = append(accepted, candidate)
 		}
@@ -82,7 +90,7 @@ func FilterAndRank(releases []prowlarr.Release, title string, year, tmdbID int, 
 	return accepted
 }
 
-func scoreRelease(release prowlarr.Release, title string, year, tmdbID int, policy Policy) (Candidate, bool) {
+func scoreRelease(release prowlarr.Release, title string, year, tmdbID int, policy Policy, useFingerprint bool) (Candidate, bool) {
 	if strings.TrimSpace(release.Title) == "" {
 		return Candidate{}, false
 	}
@@ -108,7 +116,7 @@ func scoreRelease(release prowlarr.Release, title string, year, tmdbID int, poli
 	yearMatch := year == 0 || releaseYear == 0 || releaseYear == year
 
 	c := Candidate{
-		Guid:        releaseCandidateID(release),
+		Guid:        releaseCandidateID(release, useFingerprint),
 		Title:       release.Title,
 		Size:        release.Size,
 		Seeders:     release.Seeders,
@@ -118,6 +126,7 @@ func scoreRelease(release prowlarr.Release, title string, year, tmdbID int, poli
 		InfoURL:     release.InfoURL,
 		PublishDate: release.PublishDate,
 		downloadURL: release.DownloadURL,
+		sourceGuid:  strings.TrimSpace(release.Guid),
 	}
 	if exactTMDB {
 		c.Score += 100
@@ -229,18 +238,22 @@ func scoreRelease(release prowlarr.Release, title string, year, tmdbID int, poli
 }
 
 // releaseCandidateID keeps valid Prowlarr results reviewable when an indexer
-// omits guid. The opaque fallback is stable across the approval-time fresh
-// search without exposing or persisting the Prowlarr download URL.
-func releaseCandidateID(release prowlarr.Release) string {
-	if guid := strings.TrimSpace(release.Guid); guid != "" {
+// omits or reuses guid. The opaque fallback is stable across the approval-time
+// fresh search without exposing or persisting the Prowlarr download URL.
+func releaseCandidateID(release prowlarr.Release, useFingerprint bool) string {
+	if guid := strings.TrimSpace(release.Guid); guid != "" && !useFingerprint {
 		return guid
 	}
+	return "release-" + releaseFingerprint(release)
+}
+
+func releaseFingerprint(release prowlarr.Release) string {
 	value := strings.TrimSpace(release.Title) + "\x00" +
 		strconv.FormatInt(release.Size, 10) + "\x00" +
 		strconv.Itoa(release.IndexerID) + "\x00" +
 		strings.TrimSpace(release.Indexer)
 	sum := sha256.Sum256([]byte(value))
-	return "release-" + hex.EncodeToString(sum[:16])
+	return hex.EncodeToString(sum[:16])
 }
 
 func hasResolution(title, wanted string) bool {

@@ -195,6 +195,19 @@ func TestSearchIntervalBlocksTheNextRequest(t *testing.T) {
 	}
 }
 
+func TestCompanionSearchQueriesMatchTitleOnlyProwlarrSearchFirst(t *testing.T) {
+	got := companionSearchQueries(&Movie{Title: "12 Angry Men", Year: 1957})
+	want := []string{"12 angry men", "12 angry men 1957"}
+	if len(got) != len(want) {
+		t.Fatalf("queries = %v, want %v", got, want)
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Fatalf("query %d = %q, want %q", i, got[i], want[i])
+		}
+	}
+}
+
 func TestCanceledSearchReturnsToPending(t *testing.T) {
 	m := newTransitionManager(t, StatusSearching)
 	m.finishSearchFailure("movie", *m.state.Movies[0], context.Canceled)

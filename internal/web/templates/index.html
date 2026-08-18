@@ -32,6 +32,8 @@ button.icon-button .refresh-icon{display:block}
 button.icon-button.searching .refresh-icon{animation:companion-spin .8s linear infinite}
 @keyframes companion-spin{to{transform:rotate(360deg)}}
 button.primary{background:var(--accent);border-color:var(--accent);color:#fff}
+button.primary.approving{background:#111318;border-color:#343945;color:var(--dim)}
+.approval-spinner{display:inline-block;width:12px;height:12px;margin-right:7px;border:2px solid #4b5260;border-top-color:var(--text);border-radius:50%;vertical-align:-2px;animation:companion-spin .8s linear infinite}
 button.danger{color:#ff9b92;border-color:#7a2f2d}
 button:disabled{opacity:.5;cursor:not-allowed}
 a.tracker-link,a.tracker-link:visited{color:#ffb86c}
@@ -485,14 +487,29 @@ function candidateCard(c){
   const link=c.info_url&&/^https?:\/\//i.test(c.info_url)?'<a class="tracker-link" href="'+esc(c.info_url)+'" target="_blank" rel="noopener noreferrer">Open tracker</a>':"";
   return '<div class="candidate"><h3>'+esc(c.title)+"</h3><div class=\"facts\"><span class=\"badge\">"+fmtBytes(c.size)+"</span><span class=\"badge\">"+esc(seed)+" seeders</span><span class=\"badge\">"+esc(c.source)+"</span><span class=\"badge\">"+esc(c.codec)+"</span><span class=\"badge warn\">"+esc(c.language_evidence)+"</span><span class=\"badge\">Score "+esc(c.score)+"</span></div><div class=\"reason\">✓ "+esc((c.reasons||[]).join(" · "))+"</div><div class=\"actions\">"+link+'<button data-id="'+esc(openCompanion)+'" data-guid="'+esc(c.guid)+'" onclick="approveFromButton(this)" class="primary">Approve</button></div></div>';
 }
-function approveFromButton(button){approveCompanion(button.dataset.id,button.dataset.guid)}
+function approveFromButton(button){approveCompanion(button.dataset.id,button.dataset.guid,button)}
 function closeCompanionMovie(){openCompanion="";loadCompanions()}
 async function searchOneCompanion(id,button){
   if(button){button.disabled=true;button.classList.add("searching")}
   try{await postJSON("/api/companions/"+id+"/search",{});await loadCompanions(id)}catch(e){alert(e.message)}finally{if(button&&button.isConnected){button.disabled=false;button.classList.remove("searching")}}
 }
 async function skipCompanion(id){try{await postJSON("/api/companions/"+id+"/skip",{});await loadCompanions(id)}catch(e){alert(e.message)}}
-async function approveCompanion(id,guid){if(!confirm("Approve this release and add it to the existing movie folder?"))return;try{await postJSON("/api/companions/"+id+"/approve",{guid});await loadCompanions(id);alert("Companion torrent added, verified and started.")}catch(e){alert(e.message);await loadCompanions(id)}}
+async function approveCompanion(id,guid,button){
+  const buttons=[...document.querySelectorAll("#companionDetail .candidate button.primary")];
+  buttons.forEach(candidateButton=>candidateButton.disabled=true);
+  if(button){button.classList.add("approving");button.innerHTML='<span class="approval-spinner" aria-hidden="true"></span>Adding…'}
+  try{
+    const response=await postJSON("/api/companions/"+id+"/approve",{guid});
+    if(response&&response.view){companionData=response.view;renderCompanions()}else await loadCompanions(id);
+  }catch(e){
+    await loadCompanions(id);
+    const open=companionData&&companionData.open;
+    if(!open||!open.error)$("companionDetail").insertAdjacentHTML("afterbegin",'<div class="errbox">'+esc(e.message)+"</div>");
+  }finally{
+    if(button&&button.isConnected){button.classList.remove("approving");button.textContent="Approve"}
+    buttons.forEach(candidateButton=>{if(candidateButton.isConnected)candidateButton.disabled=false});
+  }
+}
 async function searchIntakeCompanion(id){try{showView("companions");const view=await postJSON("/api/intakes/"+id+"/companion-search",{});companionData=view;openCompanion=(view.open&&view.open.id)||id;companionFilter=(view.open&&view.open.status)||"all";companionPage=0;$("companionDetail").dataset.showAll="false";renderCompanions()}catch(e){alert(e.message)}}
 
 // ---- render ----
