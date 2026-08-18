@@ -34,11 +34,26 @@ func TestUnrelatedTitleAndYearAreNotCompanionCandidates(t *testing.T) {
 	seeders := 10
 	got := FilterAndRank([]prowlarr.Release{
 		{Guid: "alive", Title: "Alive.1993.1080p.WEB-DL.H.264-GROUP", Size: 5 << 30, IndexerID: 7, Seeders: &seeders},
+		{Guid: "alive-1991", Title: "Alive.1991.1080p.WEB-DL.H.264-GROUP", Size: 5 << 30, IndexerID: 7, Seeders: &seeders},
 		{Guid: "alice-1951", Title: "Alice.In.Wonderland.1951.1080p.WEB-DL.H.264-GROUP", Size: 4 << 30, IndexerID: 7, Seeders: &seeders},
 		{Guid: "alice-2010", Title: "Alice.In.Wonderland.2010.1080p.WEB-DL.H.264-GROUP", Size: 4 << 30, IndexerID: 7, Seeders: &seeders},
 	}, "Alive", 1993, 0, Policy{MaxBytes: 15 << 30, MinSeeders: 1, TargetIndexerID: 7})
 	if len(got) != 1 || got[0].Guid != "alive" {
 		t.Fatalf("unrelated releases were not filtered: %+v", got)
+	}
+}
+
+func TestMatchingTitlesWithinOneYearRemainReviewable(t *testing.T) {
+	seeders := 10
+	got := FilterAndRank([]prowlarr.Release{
+		{Guid: "portrait-2020", Title: "Portrait.of.a.Lady.on.Fire.2020.1080p.WEB-DL.H.264-LatTeam", Size: 7 << 30, IndexerID: 7, Seeders: &seeders},
+		{Guid: "portrait-2018", Title: "Portrait.of.a.Lady.on.Fire.2018.1080p.WEB-DL.H.264-LatTeam", Size: 7 << 30, IndexerID: 7, Seeders: &seeders},
+	}, "Portrait of a Lady on Fire", 2019, 0, Policy{MaxBytes: 15 << 30, MinSeeders: 1, TargetIndexerID: 7})
+	if len(got) != 2 {
+		t.Fatalf("one-year title matches were filtered: %+v", got)
+	}
+	if !strings.Contains(strings.Join(got[0].Reasons, " "), "year differs by 1") {
+		t.Fatalf("one-year mismatch was not explained: %+v", got[0].Reasons)
 	}
 }
 

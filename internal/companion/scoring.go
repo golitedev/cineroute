@@ -41,8 +41,9 @@ type Candidate struct {
 const MaxCandidateResults = 5
 
 const (
-	sweetSpotBytes = 8 << 30
-	underTenGiB    = 10 << 30
+	sweetSpotBytes      = 8 << 30
+	underTenGiB         = 10 << 30
+	maxReleaseYearDelta = 1
 )
 
 var resolutionRe = regexp.MustCompile(`(?i)\b(?:480|576|720|1008|1080|2160)p\b`)
@@ -54,7 +55,9 @@ var avcRe = regexp.MustCompile(`(?i)\b(?:avc|h[. _-]*264|x264)\b`)
 // FilterAndRank applies the intentionally small companion quality policy and
 // returns candidates ordered for manual review. Search results still need to
 // identify this movie: Prowlarr's query is not a substitute for title/year
-// validation because title-only searches can return unrelated releases.
+// validation because title-only searches can return unrelated releases. A
+// one-year release-date difference remains reviewable because trackers often
+// use a different regional or festival release year.
 func FilterAndRank(releases []prowlarr.Release, title string, year, tmdbID int, policy Policy) []Candidate {
 	guidCounts := make(map[string]int, len(releases))
 	for _, release := range releases {
@@ -118,7 +121,7 @@ func scoreRelease(release prowlarr.Release, title string, year, tmdbID int, poli
 	releaseTitle, releaseYear := releaseTitleAndYear(release.Title)
 	wantTitle := normalizedWords(title)
 	titleMatch := wordSequenceMatch(releaseTitle, wantTitle)
-	yearMatch := year == 0 || releaseYear == 0 || releaseYear == year
+	yearMatch := year == 0 || releaseYear == 0 || yearDistance(year, releaseYear) <= maxReleaseYearDelta
 	if !exactTMDB && (!titleMatch || !yearMatch) {
 		return Candidate{}, false
 	}
@@ -153,9 +156,11 @@ func scoreRelease(release prowlarr.Release, title string, year, tmdbID int, poli
 		c.Score -= 20
 		c.Reasons = append(c.Reasons, "alternate tracker title — inspect tracker")
 	}
+	if year > 0 && releaseYear > 0 && releaseYear != year {
+		c.Reasons = append(c.Reasons, "year differs by "+strconv.Itoa(yearDistance(year, releaseYear))+" — inspect tracker")
+	}
 	if !yearMatch {
 		c.Score -= 15
-		c.Reasons = append(c.Reasons, "year differs — inspect tracker")
 	}
 
 	switch {
@@ -358,4 +363,11 @@ func seedCount(seeders *int) int {
 
 func formatSeeders(n int) string {
 	return strconv.Itoa(n)
+}
+
+func yearDistance(left, right int) int {
+	if left > right {
+		return left - right
+	}
+	return right - left
 }
