@@ -129,6 +129,40 @@ func TestScanQueues1080pBluRayForWebDLCompanion(t *testing.T) {
 	}
 }
 
+func TestScanRecoversNeedsReviewWhenVideoIsNested(t *testing.T) {
+	root := t.TempDir()
+	folder := filepath.Join(root, "Movie (2024)")
+	releaseFolder := filepath.Join(folder, "Movie.2024.2160p.REMUX-GROUP")
+	if err := os.MkdirAll(releaseFolder, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(releaseFolder, "Movie.2024.2160p.REMUX.mkv"), nil, 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	cfg := config.Default()
+	cfg.Companion.StatePath = filepath.Join(t.TempDir(), "companions.db")
+	m := newTransitionManager(t, StatusNeedsReview)
+	m.cfg = cfg
+	m.lib = library.NewScan([]library.Drive{{ID: "hdd1", MovieRoot: root}})
+	m.state.Movies[0].ID = movieID("hdd1", "Movie (2024)")
+	m.state.Movies[0].Path = folder
+	m.state.Movies[0].Error = "no top-level video file found; manual review required"
+
+	if err := m.Scan(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if got := m.state.Movies[0].Status; got != StatusPending {
+		t.Fatalf("nested movie status = %s, want %s", got, StatusPending)
+	}
+	if got := m.state.Movies[0].ExistingCopy; got != "4k" {
+		t.Fatalf("nested movie quality = %s, want 4k", got)
+	}
+	if got := m.state.Movies[0].Error; got != "" {
+		t.Fatalf("nested movie retained review error: %q", got)
+	}
+}
+
 func TestSearchIntervalSettingPersists(t *testing.T) {
 	cfg := config.Default()
 	cfg.Companion.StatePath = filepath.Join(t.TempDir(), "companions.db")

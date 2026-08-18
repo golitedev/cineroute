@@ -252,7 +252,7 @@ func (m *Manager) ProwlarrStatus(ctx context.Context) (string, string) {
 // Scan reconciles the immediate children of all movie roots into durable
 // state. Live searching, review and submitting states are preserved; startup
 // recovery is handled separately when the state file is loaded. It never
-// renames, moves or recursively crawls media files.
+// renames or moves media files.
 func (m *Manager) Scan(ctx context.Context) error {
 	if !m.Enabled() {
 		return nil
@@ -335,7 +335,7 @@ func (m *Manager) Scan(ctx context.Context) error {
 			current = append(current, movie)
 			continue
 		}
-		if movie.Status == "" || (movie.Status == StatusAlready1080p && needsWebDLCompanion(inspection)) {
+		if movie.Status == "" || movie.Status == StatusNeedsReview || (movie.Status == StatusAlready1080p && needsWebDLCompanion(inspection)) {
 			movie.Status = StatusPending
 			movie.Error = ""
 		}

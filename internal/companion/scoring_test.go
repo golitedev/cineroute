@@ -2,6 +2,7 @@ package companion
 
 import (
 	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -119,7 +120,7 @@ func TestExactTMDBMatchAllowsAlternateReleaseTitle(t *testing.T) {
 	}
 }
 
-func TestCompanionScannerRecognizesTopLevelCopies(t *testing.T) {
+func TestCompanionScannerRecognizesMovieCopies(t *testing.T) {
 	root := t.TempDir()
 	makeMovie := func(name string, files ...string) string {
 		t.Helper()
@@ -145,5 +146,16 @@ func TestCompanionScannerRecognizesTopLevelCopies(t *testing.T) {
 	}
 	if got := inspectMovieFolder(makeMovie("1917 (2019)", "one.mkv", "two.mkv"), "1917 (2019)"); got.Quality != "multiple" {
 		t.Fatalf("multiple-file inspection: %+v", got)
+	}
+	nestedMovie := makeMovie("The Amazing Spider-Man (2012)")
+	releaseFolder := filepath.Join(nestedMovie, "The.Amazing.Spider-Man.2012.UHD.BluRay.2160p.REMUX")
+	if err := os.MkdirAll(releaseFolder, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(releaseFolder, "The.Amazing.Spider-Man.2012.2160p.REMUX.mkv"), nil, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if got := inspectMovieFolder(nestedMovie, "The Amazing Spider-Man (2012)"); got.Quality != "4k" || got.Error != "" {
+		t.Fatalf("nested 4k inspection: %+v", got)
 	}
 }
