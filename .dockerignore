@@ -1,0 +1,6 @@
+.git
+.github
+*.md
+compose.example.yaml
+config.example.yaml
+**/*_test.go
