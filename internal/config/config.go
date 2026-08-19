@@ -85,7 +85,7 @@ func Default() *Config {
 		Companion: Companion{
 			Enabled:               true,
 			StatePath:             "/data/companions.db",
-			MaxSizeGiB:            15,
+			MaxSizeGiB:            20,
 			MinSeeders:            1,
 			SearchLimit:           50,
 			SearchIntervalSeconds: DefaultCompanionSearchIntervalSeconds,
