@@ -236,7 +236,7 @@ const fmtBytes=n=>{
   if(n===0)return "0 B";
   const u=["B","KiB","MiB","GiB","TiB"];let i=0;let v=n;
   while(v>=1024&&i<u.length-1){v/=1024;i++}
-  return v.toFixed(i?1:0)+" "+u[i];
+  return v.toFixed(i?2:0)+" "+u[i];
 };
 const candidateAgeHours=c=>{
   const reported=Number(c.age_hours);
