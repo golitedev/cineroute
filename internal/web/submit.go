@@ -17,12 +17,13 @@ import (
 )
 
 type submissionRequest struct {
-	Bytes           []byte
-	Filename        string
-	Meta            *torrentmeta.MetaInfo
-	MediaType       string
-	Match           tmdb.Result
-	RequireExisting bool
+	Bytes              []byte
+	Filename           string
+	Meta               *torrentmeta.MetaInfo
+	MediaType          string
+	Match              tmdb.Result
+	RequireExisting    bool
+	UseMovieRemoteRoot bool
 }
 
 type submissionOutcome struct {
@@ -184,6 +185,9 @@ func (s *Server) submitTorrent(ctx context.Context, req submissionRequest) (*sub
 
 	// 3. Authoritative destination: fresh library scan + fresh space.
 	isTV := req.MediaType == "tv"
+	if req.UseMovieRemoteRoot && isTV {
+		return nil, errors.New("remote companion destinations are only supported for movies")
+	}
 	folder := library.FolderName(s.cfg.Library.FolderFormat, req.Match.DisplayTitle(), req.Match.Year())
 	var matches []library.Folder
 	if isTV {
@@ -210,6 +214,13 @@ func (s *Server) submitTorrent(ctx context.Context, req submissionRequest) (*sub
 		// space; a tight drive only produces a warning.
 		savePath = matches[0].Path
 		driveID = matches[0].DriveID
+		if req.UseMovieRemoteRoot {
+			// An omitted remote root preserves the legacy companion
+			// destination for older configurations.
+			if remotePath, ok := s.lib.MovieRemotePath(driveID, folder); ok {
+				savePath = remotePath
+			}
+		}
 	case len(matches) > 1:
 		return nil, errors.New("this title exists on multiple drives; resolve the duplicates before submitting")
 	default:

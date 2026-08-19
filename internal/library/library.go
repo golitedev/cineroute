@@ -13,11 +13,15 @@ import (
 	"unicode"
 )
 
-// Drive describes one physical drive with its movie and TV roots.
+// Drive describes one physical drive with its primary and optional remote
+// movie/TV roots. Remote roots are sibling directories on the same volume and
+// are used for alternate movie copies such as 1080p companion releases.
 type Drive struct {
-	ID        string
-	MovieRoot string
-	TVRoot    string
+	ID              string
+	MovieRoot       string
+	MovieRemoteRoot string
+	TVRoot          string
+	TVRemoteRoot    string
 }
 
 type Folder struct {
@@ -47,6 +51,33 @@ func (s *Scan) FindMovie(canonical string) []Folder {
 
 func (s *Scan) FindTV(canonical string) []Folder {
 	return s.find(canonical, func(d Drive) string { return d.TVRoot })
+}
+
+// MovieRemotePath returns the corresponding remote movie folder for a drive
+// and canonical folder name. The folder itself does not need to exist yet;
+// companion approval creates it before adding the torrent.
+func (s *Scan) MovieRemotePath(driveID, folderName string) (string, bool) {
+	for _, d := range s.drives {
+		if d.ID != driveID || d.MovieRemoteRoot == "" {
+			continue
+		}
+		return filepath.Join(d.MovieRemoteRoot, folderName), true
+	}
+	return "", false
+}
+
+// TVRemotePath returns the corresponding remote TV folder for a drive and
+// canonical folder name. It is kept alongside MovieRemotePath so drive
+// configuration remains symmetrical even though the companion workflow is
+// currently movie-only.
+func (s *Scan) TVRemotePath(driveID, folderName string) (string, bool) {
+	for _, d := range s.drives {
+		if d.ID != driveID || d.TVRemoteRoot == "" {
+			continue
+		}
+		return filepath.Join(d.TVRemoteRoot, folderName), true
+	}
+	return "", false
 }
 
 // Movies lists only immediate movie-root children in deterministic order. It

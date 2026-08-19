@@ -31,11 +31,21 @@ services:
       - /volume3/hdd2/movies:/m2
       - /volume4/hdd3/movies:/m3
       - /volume5/hdd4/movies:/m4
+      # Remote movie roots for 1080p companion copies:
+      - /volume1/hdd1/movies-remote:/mr1
+      - /volume3/hdd2/movies-remote:/mr2
+      - /volume4/hdd3/movies-remote:/mr3
+      - /volume5/hdd4/movies-remote:/mr4
       # TV roots:
       - /volume1/hdd1/tv:/t1
       - /volume3/hdd2/tv:/t2
       - /volume4/hdd3/tv:/t3
       - /volume5/hdd4/tv:/t4
+      # Remote TV roots (reserved for alternate TV copies):
+      - /volume1/hdd1/tv-remote:/tr1
+      - /volume3/hdd2/tv-remote:/tr2
+      - /volume4/hdd3/tv-remote:/tr3
+      - /volume5/hdd4/tv-remote:/tr4
     ports:
       - "8787:8787"
     restart: unless-stopped

@@ -43,6 +43,7 @@ type Movie struct {
 	ID                string           `json:"id"`
 	DriveID           string           `json:"drive_id"`
 	Path              string           `json:"path"`
+	RemotePath        string           `json:"remote_path,omitempty"`
 	FolderName        string           `json:"folder_name"`
 	Title             string           `json:"title"`
 	Year              int              `json:"year"`
@@ -53,6 +54,9 @@ type Movie struct {
 	ExistingCopy      string           `json:"existing_copy,omitempty"`
 	ExistingFiles     []string         `json:"existing_files,omitempty"`
 	ExistingFileSizes map[string]int64 `json:"existing_file_sizes,omitempty"`
+	RemoteCopy        string           `json:"remote_copy,omitempty"`
+	RemoteFiles       []string         `json:"remote_files,omitempty"`
+	RemoteFileSizes   map[string]int64 `json:"remote_file_sizes,omitempty"`
 	JellyfinWarning   string           `json:"jellyfin_warning,omitempty"`
 	Missing           bool             `json:"missing,omitempty"`
 	CreatedAt         time.Time        `json:"created_at"`
@@ -196,10 +200,17 @@ func cloneMovie(movie *Movie) *Movie {
 	}
 	copy := *movie
 	copy.ExistingFiles = append([]string(nil), movie.ExistingFiles...)
+	copy.RemoteFiles = append([]string(nil), movie.RemoteFiles...)
 	if movie.ExistingFileSizes != nil {
 		copy.ExistingFileSizes = make(map[string]int64, len(movie.ExistingFileSizes))
 		for path, size := range movie.ExistingFileSizes {
 			copy.ExistingFileSizes[path] = size
+		}
+	}
+	if movie.RemoteFileSizes != nil {
+		copy.RemoteFileSizes = make(map[string]int64, len(movie.RemoteFileSizes))
+		for path, size := range movie.RemoteFileSizes {
+			copy.RemoteFileSizes[path] = size
 		}
 	}
 	return &copy

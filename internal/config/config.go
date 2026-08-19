@@ -61,9 +61,11 @@ type Library struct {
 }
 
 type Drive struct {
-	ID        string `yaml:"id"`
-	MovieRoot string `yaml:"movie_root"`
-	TVRoot    string `yaml:"tv_root"`
+	ID              string `yaml:"id"`
+	MovieRoot       string `yaml:"movie_root"`
+	MovieRemoteRoot string `yaml:"movie_remote_root"`
+	TVRoot          string `yaml:"tv_root"`
+	TVRemoteRoot    string `yaml:"tv_remote_root"`
 }
 
 func Default() *Config {

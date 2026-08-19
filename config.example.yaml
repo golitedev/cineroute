@@ -47,21 +47,31 @@ companion:
 library:
   folder_format: "{title} ({year})"
 
-# The four drives. movie_root and tv_root must be the same paths CineRoute and
-# qBittorrent see (container-side aliases).
+# The four drives. The primary roots must be the same paths CineRoute and
+# qBittorrent see (container-side aliases). Remote roots are optional for
+# backwards compatibility; when configured, approved movie companions go to
+# the matching movie_remote_root folder on the same drive.
 drives:
   - id: "hdd1"
     movie_root: "/m1"
+    movie_remote_root: "/mr1"
     tv_root: "/t1"
+    tv_remote_root: "/tr1"
 
   - id: "hdd2"
     movie_root: "/m2"
+    movie_remote_root: "/mr2"
     tv_root: "/t2"
+    tv_remote_root: "/tr2"
 
   - id: "hdd3"
     movie_root: "/m3"
+    movie_remote_root: "/mr3"
     tv_root: "/t3"
+    tv_remote_root: "/tr3"
 
   - id: "hdd4"
     movie_root: "/m4"
+    movie_remote_root: "/mr4"
     tv_root: "/t4"
+    tv_remote_root: "/tr4"

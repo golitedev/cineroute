@@ -437,7 +437,8 @@ function renderCompanions(){
 }
 function companionRow(m){
   const warn=m.jellyfin_warning?'<div class="small">'+esc(m.jellyfin_warning)+"</div>":"";
-  return `<div class="companion-row"><div><div class="title">${esc(m.folder_name||m.title)}</div><div class="meta">${esc(m.drive_id)} · ${esc(m.existing_copy||"existing copy unknown")}${m.year?" · "+m.year:""}</div>${warn}</div><span class="badge ${companionStatusClass(m)} status">${esc(companionStatus(m))}</span><button data-id="${esc(m.id)}" onclick="openCompanionMovie(this.dataset.id)">Open</button></div>`;
+  const copies=(m.existing_copy||"main copy unknown")+(m.remote_path?" · remote "+(m.remote_copy||"empty"):"");
+  return `<div class="companion-row"><div><div class="title">${esc(m.folder_name||m.title)}</div><div class="meta">${esc(m.drive_id)} · ${esc(copies)}${m.year?" · "+m.year:""}</div>${warn}</div><span class="badge ${companionStatusClass(m)} status">${esc(companionStatus(m))}</span><button data-id="${esc(m.id)}" onclick="openCompanionMovie(this.dataset.id)">Open</button></div>`;
 }
 function setCompanionFilter(filter){companionFilter=filter;companionPage=0;renderCompanions()}
 async function scanCompanions(){
@@ -484,9 +485,13 @@ function renderCompanionDetail(){
   const candidates=companionData.candidates||[];
   const existingFiles=m.existing_files||[];
   const existingFileSizes=m.existing_file_sizes||{};
-  const existingHTML=existingFiles.length?'<div class="companion-existing-files"><div class="small">Current video file'+(existingFiles.length===1?"":"s")+'</div>'+existingFiles.map(path=>'<div class="small mono">'+esc(m.drive_id+" · "+path+(Object.prototype.hasOwnProperty.call(existingFileSizes,path)?" · "+fmtBytes(existingFileSizes[path]):""))+"</div>").join("")+"</div>":"";
+  const remoteFiles=m.remote_files||[];
+  const remoteFileSizes=m.remote_file_sizes||{};
+  const fileHTML=(label,files,sizes)=>files.length?'<div class="companion-existing-files"><div class="small">'+label+(files.length===1?"":"s")+'</div>'+files.map(path=>'<div class="small mono">'+esc(m.drive_id+" · "+path+(Object.prototype.hasOwnProperty.call(sizes,path)?" · "+fmtBytes(sizes[path]):""))+"</div>").join("")+"</div>":"";
+  const existingHTML=fileHTML("Main video file",existingFiles,existingFileSizes)+fileHTML("Remote video file",remoteFiles,remoteFileSizes);
+  const remotePathHTML=m.remote_path?'<div class="small">Remote destination · '+esc(m.remote_path)+"</div>":"";
   const refreshIcon='<span class="refresh-icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12a9 9 0 1 1-2.64-6.36L21 8"></path><path d="M21 3v5h-5"></path></svg></span>';
-  let html='<div class="companion-toolbar"><div><h2 style="margin-bottom:4px">'+esc(m.folder_name)+"</h2><div class=\"small\">"+esc(m.drive_id)+" · "+esc(m.path)+"</div>"+existingHTML+'</div><div class="actions" style="margin-top:0">'+(m.status==="review"?'<button class="icon-button" data-id="'+esc(m.id)+'" onclick="searchOneCompanion(this.dataset.id,this)" title="Search this movie again" aria-label="Search this movie again">'+refreshIcon+'</button>':"")+"<button onclick=\"closeCompanionMovie()\">Close</button></div></div>";
+  let html='<div class="companion-toolbar"><div><h2 style="margin-bottom:4px">'+esc(m.folder_name)+"</h2><div class=\"small\">"+esc(m.drive_id)+" · "+esc(m.path)+"</div>"+remotePathHTML+existingHTML+'</div><div class="actions" style="margin-top:0">'+(m.status==="review"?'<button class="icon-button" data-id="'+esc(m.id)+'" onclick="searchOneCompanion(this.dataset.id,this)" title="Search this movie again" aria-label="Search this movie again">'+refreshIcon+'</button>':"")+"<button onclick=\"closeCompanionMovie()\">Close</button></div></div>";
   html+='<div class="row" style="margin-top:12px"><span class="badge '+companionStatusClass(m)+'">'+esc(companionStatus(m))+"</span>"+(m.tmdb_id?'<span class="small">TMDB '+m.tmdb_id+"</span>":"")+"</div>";
   if(m.error)html+='<div class="errbox">'+esc(m.error)+"</div>";
   if(m.jellyfin_warning)html+='<div class="errbox" style="background:#2b2412;border-color:#6b5214;color:#e3b341">'+esc(m.jellyfin_warning)+"</div>";

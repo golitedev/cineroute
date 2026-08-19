@@ -82,8 +82,10 @@ qbittorrent:
 drives:
   - id: "hdd1"
     movie_root: "/m1"      # movie root
+    movie_remote_root: "/mr1" # 1080p companion root on the same drive
     tv_root: "/t1"         # TV root on the same physical drive
-  # hdd2..hdd4: /m2-/t2, /m3-/t3, /m4-/t4
+    tv_remote_root: "/tr1" # optional alternate TV root
+  # hdd2..hdd4: /m2-/mr2-/t2-/tr2, /m3-/mr3-/t3-/tr3, /m4-/mr4-/t4-/tr4
 ```
 
 Run:
@@ -103,8 +105,10 @@ mount the same media paths both CineRoute and qBittorrent use, e.g.:
 ```yaml
 volumes:
   - /volume1/hdd1/movies:/m1
+  - /volume1/hdd1/movies-remote:/mr1
   - /volume1/hdd1/tv:/t1
-  # ... hdd2..hdd4 as /m2-/t2, /m3-/t3, /m4-/t4
+  - /volume1/hdd1/tv-remote:/tr1
+  # ... hdd2..hdd4 with matching /m2,/mr2,/t2,/tr2 through /m4,/mr4,/t4,/tr4
 ```
 
 Set `CINEROUTE_LISTEN=0.0.0.0:8787` (already in the example) — the default
@@ -181,7 +185,10 @@ signal; open the tracker details and manually approve a candidate. At most
 five candidates are retained for each movie.
 CineRoute never downloads a companion automatically. Approved torrents use
 the same stopped-add, verification and explicit-start transaction as normal
-intake and must go into the movie's one existing canonical folder.
+intake. When a drive has `movie_remote_root` configured, the companion goes
+into the matching `Title (Year)` folder there; the folder is created if it is
+not already present. The main movie folder remains the authoritative drive
+anchor.
 
 The feature uses a small SQLite database (normally `/data/companions.db`) for
 the queue, search candidates and search history. Existing

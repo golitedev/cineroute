@@ -306,12 +306,13 @@ func (s *Server) approveCompanion(w http.ResponseWriter, r *http.Request) {
 	// This companion already has a canonical movie folder, so approval does not
 	// select or reserve a drive. Let separate approvals progress concurrently.
 	outcome, err := s.submitTorrent(r.Context(), submissionRequest{
-		Bytes:           data,
-		Filename:        "companion-" + movie.ID + ".torrent",
-		Meta:            meta,
-		MediaType:       "movie",
-		Match:           match,
-		RequireExisting: true,
+		Bytes:              data,
+		Filename:           "companion-" + movie.ID + ".torrent",
+		Meta:               meta,
+		MediaType:          "movie",
+		Match:              match,
+		RequireExisting:    true,
+		UseMovieRemoteRoot: true,
 	})
 	if err != nil {
 		s.companions.MarkError(movie.ID, err)

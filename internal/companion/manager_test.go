@@ -129,6 +129,52 @@ func TestScanQueues1080pBluRayForWebDLCompanion(t *testing.T) {
 	}
 }
 
+func TestScanRecognizes1080pCompanionInRemoteRoot(t *testing.T) {
+	mainRoot := t.TempDir()
+	remoteRoot := t.TempDir()
+	folderName := "Apollo 13 (1995)"
+	mainFolder := filepath.Join(mainRoot, folderName)
+	remoteFolder := filepath.Join(remoteRoot, folderName)
+	if err := os.MkdirAll(mainFolder, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(remoteFolder, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(mainFolder, "Apollo.13.1995.UHD.BluRay.2160p.REMUX.mkv"), nil, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	remoteFile := filepath.Join(remoteFolder, "Apollo.13.1995.REMASTERED.1080p.BluRay.WEB-DL.mkv")
+	if err := os.WriteFile(remoteFile, nil, 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	cfg := config.Default()
+	cfg.Companion.StatePath = filepath.Join(t.TempDir(), "companions.db")
+	m := newTransitionManager(t, StatusPending)
+	m.cfg = cfg
+	m.lib = library.NewScan([]library.Drive{{ID: "hdd4", MovieRoot: mainRoot, MovieRemoteRoot: remoteRoot}})
+	m.state.Movies[0].ID = movieID("hdd4", folderName)
+	m.state.Movies[0].Path = mainFolder
+
+	if err := m.Scan(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	movie := m.state.Movies[0]
+	if movie.Status != StatusAlready1080p {
+		t.Fatalf("remote WEB-DL status = %s, want %s", movie.Status, StatusAlready1080p)
+	}
+	if movie.RemotePath != remoteFolder {
+		t.Fatalf("remote path = %q, want %q", movie.RemotePath, remoteFolder)
+	}
+	if movie.RemoteCopy != "1080p" {
+		t.Fatalf("remote quality = %q, want 1080p", movie.RemoteCopy)
+	}
+	if len(movie.RemoteFiles) != 1 || movie.RemoteFiles[0] != remoteFile {
+		t.Fatalf("remote files = %v, want %q", movie.RemoteFiles, remoteFile)
+	}
+}
+
 func TestScanRecoversNeedsReviewWhenVideoIsNested(t *testing.T) {
 	root := t.TempDir()
 	folder := filepath.Join(root, "Movie (2024)")

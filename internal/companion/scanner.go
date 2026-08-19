@@ -26,6 +26,69 @@ type copyInspection struct {
 	Error           string
 }
 
+// inspectRemoteMovieFolder inspects the optional sibling folder used for a
+// second copy. A missing folder is expected: it is created when a companion
+// torrent is approved. An existing but empty remote folder is also valid.
+func inspectRemoteMovieFolder(path, folderName string) copyInspection {
+	if path == "" {
+		return copyInspection{}
+	}
+	if _, err := os.Stat(path); err != nil {
+		if os.IsNotExist(err) {
+			return copyInspection{}
+		}
+		return copyInspection{Error: fmt.Sprintf("cannot inspect remote movie folder: %v", err)}
+	}
+	inspection := inspectMovieFolder(path, folderName)
+	if inspection.Quality == "none" && inspection.Error != "" {
+		// A remote folder is a destination for a copy, so it is valid for it
+		// to exist before its first video is added.
+		inspection.Error = ""
+	}
+	return inspection
+}
+
+func inspectMovieCopies(path, remotePath, folderName string) (copyInspection, copyInspection) {
+	return inspectMovieFolder(path, folderName), inspectRemoteMovieFolder(remotePath, folderName)
+}
+
+func hasSuitableMovieCopy(main, remote copyInspection) bool {
+	return alreadyHasSuitable1080pCopy(main) || alreadyHasSuitable1080pCopy(remote)
+}
+
+func movieInspectionError(main, remote copyInspection) string {
+	if main.Error != "" {
+		return main.Error
+	}
+	return remote.Error
+}
+
+func movieInspectionWarnings(main, remote copyInspection) string {
+	if main.JellyfinWarning == "" {
+		if remote.JellyfinWarning == "" {
+			return ""
+		}
+		return "Remote copy: " + remote.JellyfinWarning
+	}
+	if remote.JellyfinWarning == "" {
+		return main.JellyfinWarning
+	}
+	return main.JellyfinWarning + "; Remote copy: " + remote.JellyfinWarning
+}
+
+func updateMovieInspection(movie *Movie, path, remotePath, folderName string) (copyInspection, copyInspection) {
+	main, remote := inspectMovieCopies(path, remotePath, folderName)
+	movie.RemotePath = remotePath
+	movie.ExistingCopy = main.Quality
+	movie.ExistingFiles = movieVideoPaths(path, main.Files)
+	movie.ExistingFileSizes = movieVideoSizes(path, main.Files)
+	movie.RemoteCopy = remote.Quality
+	movie.RemoteFiles = movieVideoPaths(remotePath, remote.Files)
+	movie.RemoteFileSizes = movieVideoSizes(remotePath, remote.Files)
+	movie.JellyfinWarning = movieInspectionWarnings(main, remote)
+	return main, remote
+}
+
 func inspectMovieFolder(path, folderName string) copyInspection {
 	videos, err := movieVideoFiles(path)
 	if err != nil {

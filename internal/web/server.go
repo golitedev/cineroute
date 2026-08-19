@@ -132,7 +132,13 @@ type Server struct {
 func New(cfg *config.Config, qb *qbittorrent.Client, tmdbClient *tmdb.Client, prowlarrClients ...*prowlarr.Client) *Server {
 	drives := make([]library.Drive, 0, len(cfg.Drives))
 	for _, d := range cfg.Drives {
-		drives = append(drives, library.Drive{ID: d.ID, MovieRoot: d.MovieRoot, TVRoot: d.TVRoot})
+		drives = append(drives, library.Drive{
+			ID:              d.ID,
+			MovieRoot:       d.MovieRoot,
+			MovieRemoteRoot: d.MovieRemoteRoot,
+			TVRoot:          d.TVRoot,
+			TVRemoteRoot:    d.TVRemoteRoot,
+		})
 	}
 	var prowlarrClient *prowlarr.Client
 	if len(prowlarrClients) > 0 {

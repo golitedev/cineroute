@@ -163,9 +163,13 @@ func (m *Manager) View(openID string) View {
 			}
 			view.Open = cloneMovie(movie)
 			if view.Open != nil && !view.Open.Missing && view.Open.Path != "" {
-				inspection := inspectMovieFolder(view.Open.Path, view.Open.FolderName)
-				view.Open.ExistingFiles = movieVideoPaths(view.Open.Path, inspection.Files)
-				view.Open.ExistingFileSizes = movieVideoSizes(view.Open.Path, inspection.Files)
+				remotePath := view.Open.RemotePath
+				if m.lib != nil {
+					if configuredPath, ok := m.lib.MovieRemotePath(view.Open.DriveID, view.Open.FolderName); ok {
+						remotePath = configuredPath
+					}
+				}
+				updateMovieInspection(view.Open, view.Open.Path, remotePath, view.Open.FolderName)
 			}
 			if result, ok := m.searches[openID]; ok {
 				view.Candidates = cloneCandidates(result.Candidates)
@@ -299,11 +303,8 @@ func (m *Manager) Scan(ctx context.Context) error {
 		}
 
 		title, year, parseErr := parseMovieFolder(folder)
-		inspection := inspectMovieFolder(folder.Path, folder.Name)
-		movie.ExistingCopy = inspection.Quality
-		movie.ExistingFiles = movieVideoPaths(folder.Path, inspection.Files)
-		movie.ExistingFileSizes = movieVideoSizes(folder.Path, inspection.Files)
-		movie.JellyfinWarning = inspection.JellyfinWarning
+		remotePath, _ := m.lib.MovieRemotePath(folder.DriveID, folder.Name)
+		mainInspection, remoteInspection := updateMovieInspection(movie, folder.Path, remotePath, folder.Name)
 		if parseErr != nil {
 			if !live {
 				movie.Status = StatusNeedsReview
@@ -328,21 +329,21 @@ func (m *Manager) Scan(ctx context.Context) error {
 			movie.Status = StatusPending
 			movie.Error = ""
 		}
-		if inspection.Error != "" {
+		if inspectionErr := movieInspectionError(mainInspection, remoteInspection); inspectionErr != "" {
 			movie.Status = StatusNeedsReview
-			movie.Error = inspection.Error
+			movie.Error = inspectionErr
 			movie.UpdatedAt = time.Now()
 			current = append(current, movie)
 			continue
 		}
-		if alreadyHasSuitable1080pCopy(inspection) {
+		if hasSuitableMovieCopy(mainInspection, remoteInspection) {
 			movie.Status = StatusAlready1080p
 			movie.Error = ""
 			movie.UpdatedAt = time.Now()
 			current = append(current, movie)
 			continue
 		}
-		if movie.Status == "" || movie.Status == StatusNeedsReview || (movie.Status == StatusAlready1080p && needsWebDLCompanion(inspection)) {
+		if movie.Status == "" || movie.Status == StatusNeedsReview || movie.Status == StatusAlready1080p {
 			movie.Status = StatusPending
 			movie.Error = ""
 		}
@@ -705,17 +706,17 @@ func (m *Manager) UpsertMovie(driveID, path, folderName, title string, year, tmd
 	movie.Year = year
 	movie.TmdbID = tmdbID
 	movie.Missing = false
-	inspection := inspectMovieFolder(path, folderName)
-	movie.ExistingCopy = inspection.Quality
-	movie.ExistingFiles = movieVideoPaths(path, inspection.Files)
-	movie.ExistingFileSizes = movieVideoSizes(path, inspection.Files)
-	movie.JellyfinWarning = inspection.JellyfinWarning
+	remotePath := ""
+	if m.lib != nil {
+		remotePath, _ = m.lib.MovieRemotePath(driveID, folderName)
+	}
+	mainInspection, remoteInspection := updateMovieInspection(movie, path, remotePath, folderName)
 	if movie.Status != StatusComplete && movie.Status != StatusSkipped && !isLiveWorkflowStatus(movie.Status) {
-		if alreadyHasSuitable1080pCopy(inspection) {
+		if hasSuitableMovieCopy(mainInspection, remoteInspection) {
 			movie.Status = StatusAlready1080p
-		} else if inspection.Error != "" {
+		} else if inspectionErr := movieInspectionError(mainInspection, remoteInspection); inspectionErr != "" {
 			movie.Status = StatusNeedsReview
-			movie.Error = inspection.Error
+			movie.Error = inspectionErr
 		} else {
 			movie.Status = StatusPending
 			movie.Error = ""
