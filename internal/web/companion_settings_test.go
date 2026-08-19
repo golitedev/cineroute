@@ -45,7 +45,7 @@ func TestCompanionSearchIntervalSettingsAPI(t *testing.T) {
 		t.Fatalf("settings batch size = %d, want 12", view.SearchBatchSize)
 	}
 
-	req, err = http.NewRequest(http.MethodPatch, httpSrv.URL+"/api/companions/settings", strings.NewReader(`{"search_interval_seconds":4}`))
+	req, err = http.NewRequest(http.MethodPatch, httpSrv.URL+"/api/companions/settings", strings.NewReader(`{"search_interval_seconds":1,"search_batch_size":504}`))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -55,8 +55,18 @@ func TestCompanionSearchIntervalSettingsAPI(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer resp.Body.Close()
-	if resp.StatusCode != http.StatusBadRequest {
-		t.Fatalf("invalid settings status = %d", resp.StatusCode)
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("custom settings status = %d", resp.StatusCode)
+	}
+	var custom struct {
+		SearchIntervalSeconds int `json:"search_interval_seconds"`
+		SearchBatchSize       int `json:"search_batch_size"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&custom); err != nil {
+		t.Fatal(err)
+	}
+	if custom.SearchIntervalSeconds != 1 || custom.SearchBatchSize != 504 {
+		t.Fatalf("custom settings = %+v, want interval 1 and batch 504", custom)
 	}
 
 	req, err = http.NewRequest(http.MethodPatch, httpSrv.URL+"/api/companions/settings", strings.NewReader(`{"search_batch_size":0}`))

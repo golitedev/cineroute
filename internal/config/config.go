@@ -34,7 +34,7 @@ type QBittorrent struct {
 
 const (
 	DefaultCompanionSearchIntervalSeconds = 10
-	MinCompanionSearchIntervalSeconds     = 5
+	MinCompanionSearchIntervalSeconds     = 1
 	MaxCompanionSearchIntervalSeconds     = 300
 	DefaultCompanionSearchBatchSize       = 20
 	MinCompanionSearchBatchSize           = 1

@@ -227,8 +227,8 @@ func TestSearchIntervalSettingPersists(t *testing.T) {
 	if got := m.View("").SearchIntervalSeconds; got != 30 {
 		t.Fatalf("runtime interval = %d, want 30", got)
 	}
-	if err := m.SetSearchIntervalSeconds(4); err == nil {
-		t.Fatal("expected interval below the minimum to be rejected")
+	if err := m.SetSearchIntervalSeconds(0); err == nil {
+		t.Fatal("expected zero-second interval to be rejected")
 	}
 	reloaded := NewManager(cfg, nil, nil)
 	if got := reloaded.View("").SearchIntervalSeconds; got != 30 {

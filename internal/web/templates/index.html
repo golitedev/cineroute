@@ -182,14 +182,16 @@ input[type=number]{width:90px}
         <button onclick="setCompanionBatchSize(10)">10</button>
         <button onclick="setCompanionBatchSize(20)">20</button>
         <button onclick="setCompanionBatchSize(50)">50</button>
+        <button onclick="setCompanionBatchSize(100)">100</button>
       </div>
       <div id="companionBatchNote" class="small" style="margin-top:6px">The next batch searches up to this many movies. Each movie may use two tracker searches.</div>
     </div>
     <div class="companion-settings">
       <label for="companionInterval">Search interval (seconds)</label>
       <div class="row">
-        <input id="companionInterval" type="number" min="5" max="300" step="1" value="10">
+        <input id="companionInterval" type="number" min="1" max="300" step="1" value="10">
         <button class="primary" onclick="saveCompanionSettings()">Save</button>
+        <button onclick="setCompanionInterval(5)">5s</button>
         <button onclick="setCompanionInterval(10)">10s</button>
         <button onclick="setCompanionInterval(30)">30s</button>
         <button onclick="setCompanionInterval(60)">60s</button>
