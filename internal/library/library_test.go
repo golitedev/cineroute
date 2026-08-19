@@ -46,3 +46,26 @@ func TestMoviesFailsWhenConfiguredRootCannotBeRead(t *testing.T) {
 		t.Fatalf("expected root-read error, got %v", err)
 	}
 }
+
+func TestRemotePathsInferMountedConventionalRoots(t *testing.T) {
+	base := t.TempDir()
+	mainRoot := filepath.Join(base, "m1")
+	remoteRoot := filepath.Join(base, "mr1")
+	tvRoot := filepath.Join(base, "t1")
+	tvRemoteRoot := filepath.Join(base, "tr1")
+	for _, root := range []string{remoteRoot, tvRemoteRoot} {
+		if err := os.MkdirAll(root, 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	scan := NewScan([]Drive{{ID: "hdd1", MovieRoot: mainRoot, TVRoot: tvRoot}})
+
+	moviePath, ok := scan.MovieRemotePath("hdd1", "Movie (2024)")
+	if !ok || moviePath != filepath.Join(remoteRoot, "Movie (2024)") {
+		t.Fatalf("movie remote path = %q, %v", moviePath, ok)
+	}
+	tvPath, ok := scan.TVRemotePath("hdd1", "Show (2024)")
+	if !ok || tvPath != filepath.Join(tvRemoteRoot, "Show (2024)") {
+		t.Fatalf("TV remote path = %q, %v", tvPath, ok)
+	}
+}

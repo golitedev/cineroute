@@ -53,15 +53,48 @@ func (s *Scan) FindTV(canonical string) []Folder {
 	return s.find(canonical, func(d Drive) string { return d.TVRoot })
 }
 
+// conventionalRemoteRoot detects the container aliases used by the example
+// deployment: /m1 -> /mr1 and /t1 -> /tr1. It only infers a root when the
+// corresponding directory is mounted and readable, so older deployments
+// without remote mounts keep their legacy behavior.
+func conventionalRemoteRoot(primaryRoot, primaryPrefix, remotePrefix string) (string, bool) {
+	clean := filepath.Clean(primaryRoot)
+	base := filepath.Base(clean)
+	if !strings.HasPrefix(base, primaryPrefix) {
+		return "", false
+	}
+	suffix := strings.TrimPrefix(base, primaryPrefix)
+	if suffix == "" {
+		return "", false
+	}
+	for _, r := range suffix {
+		if r < '0' || r > '9' {
+			return "", false
+		}
+	}
+	candidate := filepath.Join(filepath.Dir(clean), remotePrefix+suffix)
+	info, err := os.Stat(candidate)
+	if err != nil || !info.IsDir() {
+		return "", false
+	}
+	return candidate, true
+}
+
 // MovieRemotePath returns the corresponding remote movie folder for a drive
 // and canonical folder name. The folder itself does not need to exist yet;
 // companion approval creates it before adding the torrent.
 func (s *Scan) MovieRemotePath(driveID, folderName string) (string, bool) {
 	for _, d := range s.drives {
-		if d.ID != driveID || d.MovieRemoteRoot == "" {
+		if d.ID != driveID {
 			continue
 		}
-		return filepath.Join(d.MovieRemoteRoot, folderName), true
+		root := d.MovieRemoteRoot
+		if root == "" {
+			root, _ = conventionalRemoteRoot(d.MovieRoot, "m", "mr")
+		}
+		if root != "" {
+			return filepath.Join(root, folderName), true
+		}
 	}
 	return "", false
 }
@@ -72,10 +105,16 @@ func (s *Scan) MovieRemotePath(driveID, folderName string) (string, bool) {
 // currently movie-only.
 func (s *Scan) TVRemotePath(driveID, folderName string) (string, bool) {
 	for _, d := range s.drives {
-		if d.ID != driveID || d.TVRemoteRoot == "" {
+		if d.ID != driveID {
 			continue
 		}
-		return filepath.Join(d.TVRemoteRoot, folderName), true
+		root := d.TVRemoteRoot
+		if root == "" {
+			root, _ = conventionalRemoteRoot(d.TVRoot, "t", "tr")
+		}
+		if root != "" {
+			return filepath.Join(root, folderName), true
+		}
 	}
 	return "", false
 }

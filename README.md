@@ -185,10 +185,10 @@ signal; open the tracker details and manually approve a candidate. At most
 five candidates are retained for each movie.
 CineRoute never downloads a companion automatically. Approved torrents use
 the same stopped-add, verification and explicit-start transaction as normal
-intake. When a drive has `movie_remote_root` configured, the companion goes
-into the matching `Title (Year)` folder there; the folder is created if it is
-not already present. The main movie folder remains the authoritative drive
-anchor.
+intake. When a drive has `movie_remote_root` configured—or the conventional
+`/mN` and `/mrN` aliases are both mounted—the companion goes into the matching
+`Title (Year)` folder there; the folder is created if it is not already
+present. The main movie folder remains the authoritative drive anchor.
 
 The feature uses a small SQLite database (normally `/data/companions.db`) for
 the queue, search candidates and search history. Existing
