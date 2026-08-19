@@ -164,11 +164,11 @@ content path, file tree, empty category/tags, size, state).
 SQLite history, intake recovery after crash, singleton lease, archives,
 auto-submit mode.
 
-## 1080p companion copies
+## Companion copies
 
 CineRoute can optionally search one Prowlarr indexer (normally `LAT-Team`) for
 smaller 1080p companion releases for movies already in the library. Use the
-**1080p companions** view to scan the four movie roots, then search the queue
+**Companions** view to scan the four movie roots, then search the queue
 or open one movie at a time. The list is paginated and candidate details are
 loaded only for the movie being reviewed, which keeps a large backfill queue
 manageable.
@@ -201,14 +201,14 @@ CINEROUTE_PROWLARR_API_KEY
 CINEROUTE_PROWLARR_INDEXER
 ```
 
-The Companion page can run a limited next batch (default 20 movies), cancel a
+The Companions page can run a limited next batch (default 20 movies), cancel a
 running batch, and set the delay between actual Prowlarr searches. A movie can
 perform both a title-and-year search and a title-only fallback search, so a
 batch of 20 may make up to 40 tracker requests.
 
 Prowlarr remains optional; normal torrent routing works without it. The
 configured LAT-Team indexer must already exist and be enabled in Prowlarr.
-After a normal movie submission, **Find 1080p companion** opens the same
+After a normal movie submission, **Find companion** opens the same
 review flow for that movie.
 
 Companion searches are paced by `companion.search_interval_seconds` (1–300
