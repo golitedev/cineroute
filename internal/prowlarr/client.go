@@ -57,6 +57,7 @@ type Release struct {
 	Indexer     string    `json:"indexer"`
 	TmdbID      int       `json:"tmdbId"`
 	ImdbID      int       `json:"imdbId"`
+	AgeHours    float64   `json:"ageHours"`
 	Seeders     *int      `json:"seeders"`
 	Leechers    *int      `json:"leechers"`
 	PublishDate time.Time `json:"publishDate"`

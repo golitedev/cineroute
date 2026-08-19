@@ -24,6 +24,7 @@ type Candidate struct {
 	Title            string    `json:"title"`
 	Size             int64     `json:"size"`
 	Seeders          *int      `json:"seeders"`
+	AgeHours         float64   `json:"age_hours"`
 	Indexer          string    `json:"indexer"`
 	IndexerID        int       `json:"indexer_id"`
 	TmdbID           int       `json:"tmdb_id,omitempty"`
@@ -131,6 +132,7 @@ func scoreRelease(release prowlarr.Release, title string, year, tmdbID int, poli
 		Title:       release.Title,
 		Size:        release.Size,
 		Seeders:     release.Seeders,
+		AgeHours:    release.AgeHours,
 		Indexer:     release.Indexer,
 		IndexerID:   release.IndexerID,
 		TmdbID:      release.TmdbID,

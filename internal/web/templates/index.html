@@ -238,6 +238,24 @@ const fmtBytes=n=>{
   while(v>=1024&&i<u.length-1){v/=1024;i++}
   return v.toFixed(i?1:0)+" "+u[i];
 };
+const candidateAgeHours=c=>{
+  const reported=Number(c.age_hours);
+  if(Number.isFinite(reported)&&reported>0)return reported;
+  const published=Date.parse(c.publish_date||"");
+  if(Number.isFinite(published))return Math.max(0,(Date.now()-published)/3600000);
+  return Number.isFinite(reported)&&reported>=0?reported:null;
+};
+const fmtAge=hours=>{
+  if(hours===null||!Number.isFinite(hours)||hours<0)return "";
+  if(hours<24){if(hours<1)return "<1 day";const value=Math.max(1,Math.floor(hours));return value+" hour"+(value===1?"":"s")}
+  const days=hours/24;
+  if(days<30){const value=Math.floor(days);return value+" day"+(value===1?"":"s")}
+  const months=days/30;
+  if(days<365){const value=Math.max(1,Math.floor(months));return value+" month"+(value===1?"":"s")}
+  const years=days/365;
+  const value=years<2?Number(years.toFixed(1)):Math.floor(years);
+  return value+" year"+(value===1?"":"s");
+};
 const esc=s=>String(s??"").replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
 const seasonLbl=m=>m.season?("S"+String(m.season).padStart(2,"0")):"—";
 
@@ -509,12 +527,14 @@ function renderCompanionDetail(){
 }
 function candidateCard(c,m){
   const seed=c.seeders===null||c.seeders===undefined?"unknown":c.seeders;
+  const age=fmtAge(candidateAgeHours(c));
+  const ageBadge=age?'<span class="badge">Age '+esc(age)+'</span>':"";
   const link=c.info_url&&/^https?:\/\//i.test(c.info_url)?'<a class="tracker-link" href="'+esc(c.info_url)+'" target="_blank" rel="noopener noreferrer">Open tracker</a>':"";
   const adding=companionApprovals.get(m.id)===c.guid;
   const disabled=adding||m.status!=="review"?" disabled":"";
   const label=adding?'<span class="approval-spinner" aria-hidden="true"></span>Adding…':"Approve";
   const buttonClass=adding?"primary approving":"primary";
-  return '<div class="candidate"><h3>'+esc(c.title)+"</h3><div class=\"facts\"><span class=\"badge\">"+fmtBytes(c.size)+"</span><span class=\"badge\">"+esc(seed)+" seeders</span><span class=\"badge\">"+esc(c.source)+"</span><span class=\"badge\">"+esc(c.codec)+"</span><span class=\"badge warn\">"+esc(c.language_evidence)+"</span><span class=\"badge\">Score "+esc(c.score)+"</span></div><div class=\"reason\">✓ "+esc((c.reasons||[]).join(" · "))+"</div><div class=\"actions\">"+'<button data-id="'+esc(m.id)+'" data-guid="'+esc(c.guid)+'" onclick="approveFromButton(this)" class="'+buttonClass+'"'+disabled+'>'+label+'</button>'+link+'</div></div>';
+  return '<div class="candidate"><h3>'+esc(c.title)+"</h3><div class=\"facts\"><span class=\"badge\">"+fmtBytes(c.size)+"</span><span class=\"badge\">"+esc(seed)+" seeders</span>"+ageBadge+"<span class=\"badge\">"+esc(c.source)+"</span><span class=\"badge\">"+esc(c.codec)+"</span><span class=\"badge warn\">"+esc(c.language_evidence)+"</span><span class=\"badge\">Score "+esc(c.score)+"</span></div><div class=\"reason\">✓ "+esc((c.reasons||[]).join(" · "))+"</div><div class=\"actions\">"+'<button data-id="'+esc(m.id)+'" data-guid="'+esc(c.guid)+'" onclick="approveFromButton(this)" class="'+buttonClass+'"'+disabled+'>'+label+'</button>'+link+'</div></div>';
 }
 function approveFromButton(button){approveCompanion(button.dataset.id,button.dataset.guid,button)}
 function closeCompanionMovie(){openCompanion="";loadCompanions()}
