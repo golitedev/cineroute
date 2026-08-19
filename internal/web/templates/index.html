@@ -339,6 +339,7 @@ function showLogin(){
 }
 
 function showView(view,load=true){
+  if(view==="companions")$("companionView").appendChild($("companionDetail"));
   $("routeView").classList.toggle("hidden",view!=="route");
   $("companionView").classList.toggle("hidden",view!=="companions");
   $("routeTab").classList.toggle("primary",view==="route");
@@ -593,16 +594,18 @@ async function approveCompanion(id,guid,button){
   }
 }
 async function searchIntakeCompanion(id){
-  showView("companions",false);
   try{
     const view=await postJSON("/api/intakes/"+id+"/companion-search",{});
     companionData=view;
     openCompanion=(view.open&&view.open.id)||id;
     companionFilter=(view.open&&view.open.status)||"all";
     companionPage=0;
-    $("companionDetail").dataset.showAll="false";
+    const detail=$("companionDetail");
+    showView("route",false);
+    $("routeView").insertBefore(detail,$("historyCard"));
+    detail.dataset.showAll="false";
     renderCompanions();
-    $("companionView").scrollIntoView({behavior:"smooth",block:"start"});
+    detail.scrollIntoView({behavior:"smooth",block:"start"});
   }catch(e){alert(e.message)}
 }
 
