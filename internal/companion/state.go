@@ -57,6 +57,7 @@ type Movie struct {
 	Missing           bool             `json:"missing,omitempty"`
 	CreatedAt         time.Time        `json:"created_at"`
 	UpdatedAt         time.Time        `json:"updated_at"`
+	AddedAt           *time.Time       `json:"added_at,omitempty"`
 }
 
 type stateFile struct {

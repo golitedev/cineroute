@@ -384,6 +384,11 @@ function companionStatusClass(m){
   if(m.status==="review"||m.status==="searching"||m.status==="submitting")return "warn";
   return "";
 }
+function companionAddedTime(m){
+  const value=m.added_at||m.updated_at||m.created_at||"";
+  const timestamp=Date.parse(value);
+  return Number.isFinite(timestamp)?timestamp:0;
+}
 async function loadCompanions(openId){
   if(openId!==undefined){openCompanion=openId||"";$("companionDetail").dataset.showAll="false"}
   const loadToken=++companionLoadToken;
@@ -422,6 +427,7 @@ function renderCompanions(){
   $("companionMessage").innerHTML=companionData.state_error?'<div class="errbox">'+esc(companionData.state_error)+"</div>":"";
   document.querySelectorAll("#companionFilters button").forEach(btn=>btn.classList.toggle("active",btn.dataset.filter===companionFilter));
   const filtered=movies.filter(m=>companionFilter==="all"||m.status===companionFilter);
+  if(companionFilter==="complete")filtered.sort((a,b)=>companionAddedTime(b)-companionAddedTime(a));
   const pageSize=20,totalPages=Math.max(1,Math.ceil(filtered.length/pageSize));
   companionPage=Math.min(companionPage,totalPages-1);
   const page=filtered.slice(companionPage*pageSize,(companionPage+1)*pageSize);

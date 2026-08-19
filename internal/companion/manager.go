@@ -814,10 +814,12 @@ func (m *Manager) MarkComplete(id, hash string) error {
 	if movie == nil {
 		return errors.New("companion movie not found")
 	}
+	now := time.Now()
 	movie.Status = StatusComplete
 	movie.Error = ""
 	movie.QBHash = hash
-	movie.UpdatedAt = time.Now()
+	movie.UpdatedAt = now
+	movie.AddedAt = &now
 	delete(m.searches, id)
 	return m.persistLocked()
 }
