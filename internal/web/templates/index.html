@@ -86,7 +86,7 @@ th{color:var(--dim);font-weight:500;width:170px}
 .candidate .facts{display:flex;gap:6px;flex-wrap:wrap;margin-bottom:7px}
 .candidate .reason{color:var(--dim);font-size:12px;margin-top:6px}
 .pagination{display:flex;justify-content:space-between;align-items:center;margin-top:12px}
-.companion-detail-navigation{border-top:1px solid var(--border);padding-top:12px;justify-content:center}
+.companion-detail-navigation{border-top:1px solid var(--border);padding-top:12px}
 .companion-detail .companion-toolbar{align-items:flex-start;flex-wrap:nowrap}
 .companion-detail .companion-toolbar>div:first-child{min-width:0}
 .companion-detail .companion-toolbar>.actions{flex:none}
@@ -527,12 +527,12 @@ function companionReviewNavigation(m){
     for(let i=currentIndex+step;i>=0&&i<movies.length;i+=step){if(movies[i].status==="review")return movies[i]}
     return null;
   };
-  const next=findNeighbor(1);
+  const previous=findNeighbor(-1),next=findNeighbor(1);
   const reviewMovies=movies.filter(movie=>movie.status==="review");
   const reviewIndex=reviewMovies.findIndex(movie=>movie.id===m.id);
   const label=reviewIndex>=0?"Review "+(reviewIndex+1)+" of "+reviewMovies.length:reviewMovies.length+" review movie"+(reviewMovies.length===1?"":"s")+" remaining";
   const button=(text,target)=>'<button '+(target?'data-id="'+esc(target.id)+'" onclick="navigateCompanionReview(this.dataset.id)"':"disabled")+">"+text+"</button>";
-  return {next:button("Next",next),footer:'<div class="pagination companion-detail-navigation"><span class="small">'+esc(label)+"</span></div>"};
+  return {next:button("Next",next),footer:'<div class="pagination companion-detail-navigation">'+button("Previous",previous)+'<span class="small">'+esc(label)+"</span>"+button("Next",next)+"</div>"};
 }
 function setCompanionPageForMovie(id){
   const movies=(companionData&&companionData.movies)||[];
