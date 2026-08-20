@@ -86,7 +86,10 @@ th{color:var(--dim);font-weight:500;width:170px}
 .candidate .facts{display:flex;gap:6px;flex-wrap:wrap;margin-bottom:7px}
 .candidate .reason{color:var(--dim);font-size:12px;margin-top:6px}
 .pagination{display:flex;justify-content:space-between;align-items:center;margin-top:12px}
-.companion-detail-navigation{border-top:1px solid var(--border);padding-top:12px}
+.companion-detail-navigation{border-top:1px solid var(--border);padding-top:12px;justify-content:center}
+.companion-detail .companion-toolbar{align-items:flex-start;flex-wrap:nowrap}
+.companion-detail .companion-toolbar>div:first-child{min-width:0}
+.companion-detail .companion-toolbar>.actions{flex:none}
 @media(max-width:600px){.companion-row{grid-template-columns:1fr auto}.companion-row .status{grid-column:1}.companion-row button{grid-column:2;grid-row:1 / span 2}}
 input[type=text],input[type=number]{background:#0f1115;border:1px solid var(--border);border-radius:6px;color:var(--text);padding:7px 10px;font-size:13px}
 input[type=number]{width:90px}
@@ -519,17 +522,17 @@ async function openCompanionMovie(id){await loadCompanions(id);$("companionDetai
 function companionReviewNavigation(m){
   const movies=((companionData&&companionData.movies)||[]).filter(movie=>!movie.missing);
   const currentIndex=movies.findIndex(movie=>movie.id===m.id);
-  if(currentIndex<0)return "";
+  if(currentIndex<0)return {next:"",footer:""};
   const findNeighbor=step=>{
     for(let i=currentIndex+step;i>=0&&i<movies.length;i+=step){if(movies[i].status==="review")return movies[i]}
     return null;
   };
-  const previous=findNeighbor(-1),next=findNeighbor(1);
+  const next=findNeighbor(1);
   const reviewMovies=movies.filter(movie=>movie.status==="review");
   const reviewIndex=reviewMovies.findIndex(movie=>movie.id===m.id);
   const label=reviewIndex>=0?"Review "+(reviewIndex+1)+" of "+reviewMovies.length:reviewMovies.length+" review movie"+(reviewMovies.length===1?"":"s")+" remaining";
   const button=(text,target)=>'<button '+(target?'data-id="'+esc(target.id)+'" onclick="navigateCompanionReview(this.dataset.id)"':"disabled")+">"+text+"</button>";
-  return '<div class="pagination companion-detail-navigation">'+button("Previous",previous)+'<span class="small">'+esc(label)+"</span>"+button("Next",next)+"</div>";
+  return {next:button("Next",next),footer:'<div class="pagination companion-detail-navigation"><span class="small">'+esc(label)+"</span></div>"};
 }
 function setCompanionPageForMovie(id){
   const movies=(companionData&&companionData.movies)||[];
@@ -551,19 +554,19 @@ function renderCompanionDetail(){
   const existingHTML=fileHTML("Main video file",existingFiles,existingFileSizes)+fileHTML("Remote video file",remoteFiles,remoteFileSizes);
   const destinationPath=m.remote_path||m.path;
   const refreshIcon='<span class="refresh-icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12a9 9 0 1 1-2.64-6.36L21 8"></path><path d="M21 3v5h-5"></path></svg></span>';
-  let html='<div class="companion-toolbar"><div><h2 style="margin-bottom:4px">'+esc(m.folder_name)+"</h2><div class=\"small\">"+esc(m.drive_id)+" · "+esc(destinationPath)+"</div>"+existingHTML+'</div><div class="actions" style="margin-top:0">'+(m.status==="review"?'<button class="icon-button" data-id="'+esc(m.id)+'" onclick="searchOneCompanion(this.dataset.id,this)" title="Search this movie again" aria-label="Search this movie again">'+refreshIcon+'</button>':"")+"<button onclick=\"closeCompanionMovie()\">Close</button></div></div>";
+  const navigation=companionReviewNavigation(m);
+  let html='<div class="companion-toolbar"><div><h2 style="margin-bottom:4px">'+esc(m.folder_name)+"</h2><div class=\"small\">"+esc(m.drive_id)+" · "+esc(destinationPath)+"</div>"+existingHTML+'</div><div class="actions" style="margin-top:0">'+(m.status==="review"?'<button class="icon-button" data-id="'+esc(m.id)+'" onclick="searchOneCompanion(this.dataset.id,this)" title="Search this movie again" aria-label="Search this movie again">'+refreshIcon+'</button>':"")+"<button onclick=\"closeCompanionMovie()\">Close</button>"+navigation.next+"</div></div>";
   html+='<div class="row" style="margin-top:12px"><span class="badge '+companionStatusClass(m)+'">'+esc(companionStatus(m))+"</span>"+(m.tmdb_id?'<span class="small">TMDB '+m.tmdb_id+"</span>":"")+"</div>";
   if(m.error)html+='<div class="errbox">'+esc(m.error)+"</div>";
   if(m.jellyfin_warning)html+='<div class="errbox" style="background:#2b2412;border-color:#6b5214;color:#e3b341">'+esc(m.jellyfin_warning)+"</div>";
-  const navigation=companionReviewNavigation(m);
   if(!candidates.length){
     if(m.status!=="complete"&&m.status!=="already_has_1080p"){const searchLabel=m.status==="no_match"?"Search again":"Search";html+='<div class="actions"><button class="primary" data-id="'+esc(m.id)+'" onclick="searchOneCompanion(this.dataset.id,this)">'+searchLabel+'</button><button data-id="'+esc(m.id)+'" onclick="skipCompanion(this.dataset.id)">Skip</button></div>'}
-    box.innerHTML=html+navigation;return;
+    box.innerHTML=html+navigation.footer;return;
   }
   html+='<h2 style="margin-top:18px">Candidates <span class="small">'+candidates.length+' Prowlarr release'+(candidates.length===1?"":"s")+" · ranked for review; inspect the tracker details before approving</span></h2>";
   html+=candidates.map(candidate=>candidateCard(candidate,m)).join("");
   if(m.status!=="complete"&&m.status!=="submitting")html+='<div class="actions"><button data-id="'+esc(m.id)+'" onclick="skipCompanion(this.dataset.id)">Skip this movie</button></div>';
-  box.innerHTML=html+navigation;
+  box.innerHTML=html+navigation.footer;
 }
 function candidateCard(c,m){
   const seed=c.seeders===null||c.seeders===undefined?"unknown":c.seeders;
