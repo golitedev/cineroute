@@ -167,19 +167,19 @@ auto-submit mode.
 ## Companion copies
 
 CineRoute can optionally search one Prowlarr indexer (normally `LAT-Team`) for
-potential companion releases for movies already in the library. Use the
-**Companions** view to scan the four movie roots, then search the queue
-or open one movie at a time. The list is paginated and candidate details are
-loaded only for the movie being reviewed, which keeps a large backfill queue
-manageable.
+potential companion releases for movies and TV shows already in the library.
+Use **Movie Companions** or **TV Companions** to scan the corresponding primary
+roots, then search the queue or open one item at a time. The list is paginated
+and candidate details are loaded only for the item being reviewed, which keeps
+a large backfill queue manageable.
 
-The library scan is filesystem-only: existing folders are identified from
-their `Title (Year)` names and do not require a TMDB lookup. TMDB IDs remain
-available for movies entered through the normal intake flow and strengthen
-candidate matching when present.
+The library scan is filesystem-only: movie folders use `Title (Year)` names,
+while TV folders may use `Title (Year)` or simply `Title`; neither requires a
+TMDB lookup. TMDB IDs remain available for items entered through the normal
+intake flow and strengthen candidate matching when present.
 
 Search results are never filtered by CineRoute. Up to 50 Prowlarr releases are
-retained for each movie and ranked for manual review, with WEB-DL preferred,
+retained for each movie or show and ranked for manual review, with WEB-DL preferred,
 1080p treated as the target resolution, sub-8-GiB releases treated as the
 sweet spot, and compatible BluRay x264 as the next tier. 4K, REMUX, CAM,
 alternate-title, oversized, and low-seeder releases remain visible with lower
@@ -188,14 +188,17 @@ a major ranking signal; open the tracker details and manually approve a
 candidate.
 CineRoute never downloads a companion automatically. Approved torrents use
 the same stopped-add, verification and explicit-start transaction as normal
-intake. When a drive has `movie_remote_root` configured—or the conventional
-`/mN` and `/mrN` aliases are both mounted—the companion goes into the matching
-`Title (Year)` folder there; the folder is created if it is not already
-present. The main movie folder remains the authoritative drive anchor.
+intake. When a drive has `movie_remote_root` or `tv_remote_root` configured—or
+the conventional `/mN`/`/mrN` or `/tN`/`/trN` aliases are both mounted—the
+companion goes into the matching folder there; the folder is created if it is
+not already present. The main library folder remains the authoritative drive
+anchor. Scans never read remote roots as a source library and never rename
+files or folders.
 
-The feature uses a small SQLite database (normally `/data/companions.db`) for
-the queue, search candidates and search history. Existing
-`/data/companions.json` state is migrated automatically on first startup.
+The feature uses small SQLite databases for the queue, search candidates and
+search history: normally `/data/companions.db` for movies and
+`/data/companions-tv.db` for TV. Existing `/data/companions.json` state is
+migrated automatically on first startup for the movie queue.
 Mount `/data` writable when running in Docker and configure Prowlarr with:
 
 ```text
@@ -204,22 +207,26 @@ CINEROUTE_PROWLARR_API_KEY
 CINEROUTE_PROWLARR_INDEXER
 ```
 
-The Companions page can run a limited next batch (default 20 movies), cancel a
-running batch, and set the delay between actual Prowlarr searches. A movie can
-perform both a title-and-year search and a title-only fallback search, so a
-batch of 20 may make up to 40 tracker requests.
+Each companion item performs one Prowlarr search. Movie searches use the movie
+title and year; TV searches use the show title only. TV search results are all
+shown and ranked with the same evidence as movie results, but CineRoute only
+allows season or series packs to be approved. Individual releases such as
+`S03E04` remain visible for tracker inspection but cannot be added.
+
+Each companion page can run a limited next batch (default 20 items), cancel a
+running batch, and set the delay between actual Prowlarr searches.
 
 Prowlarr remains optional; normal torrent routing works without it. The
 configured LAT-Team indexer must already exist and be enabled in Prowlarr.
-After a normal movie submission, **Find companion** opens the same
-review flow for that movie.
+After a normal movie or TV submission, **Find companion** opens the same
+review flow for that item.
 
 Companion searches are paced by `companion.search_interval_seconds` (1–300
-seconds, default 10). The setting applies between every Prowlarr search,
-including fallback queries and manual searches; the UI can override it and
-stores that override in the companion JSON state. The settings fields accept
-custom values: batch sizes from 1–1000 movies and intervals from 1–300 seconds;
-the preset buttons are only shortcuts.
+seconds, default 10). The setting applies between every Prowlarr search and
+manual searches; the UI can override it and stores that override in the
+corresponding companion database. The settings fields accept custom values:
+batch sizes from 1–1000 items and intervals from 1–300 seconds; the preset
+buttons are only shortcuts.
 
 CineRoute preserves original torrent filenames. Jellyfin may not automatically
 group another version when its original filename does not begin with the

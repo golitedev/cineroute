@@ -15,7 +15,7 @@ import (
 
 // Drive describes one physical drive with its primary and optional remote
 // movie/TV roots. Remote roots are sibling directories on the same volume and
-// are used for alternate movie copies such as 1080p companion releases.
+// are used for alternate companion copies such as 1080p releases.
 type Drive struct {
 	ID              string
 	MovieRoot       string
@@ -101,8 +101,7 @@ func (s *Scan) MovieRemotePath(driveID, folderName string) (string, bool) {
 
 // TVRemotePath returns the corresponding remote TV folder for a drive and
 // canonical folder name. It is kept alongside MovieRemotePath so drive
-// configuration remains symmetrical even though the companion workflow is
-// currently movie-only.
+// configuration remains symmetrical for both companion workflows.
 func (s *Scan) TVRemotePath(driveID, folderName string) (string, bool) {
 	for _, d := range s.drives {
 		if d.ID != driveID {
@@ -123,20 +122,32 @@ func (s *Scan) TVRemotePath(driveID, folderName string) (string, bool) {
 // fails if a configured movie root cannot be read so callers do not reconcile
 // a partially visible library as though the missing drive had been emptied.
 func (s *Scan) Movies() ([]MovieFolder, error) {
+	return s.folders(func(d Drive) string { return d.MovieRoot }, "movie")
+}
+
+// TVShows lists only immediate TV-root children in deterministic order. Remote
+// TV roots are intentionally not scanned; they are inspected only as matching
+// destinations for shows found under the primary TV roots.
+func (s *Scan) TVShows() ([]Folder, error) {
+	return s.folders(func(d Drive) string { return d.TVRoot }, "TV")
+}
+
+func (s *Scan) folders(rootOf func(Drive) string, label string) ([]Folder, error) {
 	var out []MovieFolder
 	for _, d := range s.drives {
-		if d.MovieRoot == "" {
+		root := rootOf(d)
+		if root == "" {
 			continue
 		}
-		ents, err := os.ReadDir(d.MovieRoot)
+		ents, err := os.ReadDir(root)
 		if err != nil {
-			return nil, fmt.Errorf("read movie root %q (%s): %w", d.MovieRoot, d.ID, err)
+			return nil, fmt.Errorf("read %s root %q (%s): %w", label, root, d.ID, err)
 		}
 		for _, e := range ents {
 			if e.IsDir() {
 				out = append(out, MovieFolder{
 					DriveID: d.ID,
-					Path:    filepath.Join(d.MovieRoot, e.Name()),
+					Path:    filepath.Join(root, e.Name()),
 					Name:    e.Name(),
 				})
 			}

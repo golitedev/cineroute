@@ -314,6 +314,54 @@ func TestCompanionSearchUsesOnlyYearQualifiedSearch(t *testing.T) {
 	}
 }
 
+func TestTVCompanionUsesTitleOnlySearch(t *testing.T) {
+	got := tvCompanionSearchQueries(&Movie{Title: "Breaking Bad", Year: 2008})
+	if len(got) != 1 || got[0] != "Breaking Bad" {
+		t.Fatalf("TV queries = %v, want [Breaking Bad]", got)
+	}
+}
+
+func TestTVCompanionScansPrimaryRootsAndInspectsRemoteCopy(t *testing.T) {
+	primary := t.TempDir()
+	remote := t.TempDir()
+	folderName := "Breaking Bad (2008)"
+	mainFolder := filepath.Join(primary, folderName)
+	remoteFolder := filepath.Join(remote, folderName)
+	if err := os.MkdirAll(filepath.Join(mainFolder, "Breaking.Bad.S01.2160p.WEB-DL"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(mainFolder, "Breaking.Bad.S01.2160p.WEB-DL", "Breaking.Bad.S01E01.2160p.WEB-DL.mkv"), nil, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(remoteFolder, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(remoteFolder, "Breaking.Bad.S01.1080p.WEB-DL.mkv"), nil, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Join(remote, "Remote Only (2024)"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	cfg := config.Default()
+	cfg.Companion.StatePath = filepath.Join(t.TempDir(), "companions.db")
+	m := NewTVManager(cfg, library.NewScan([]library.Drive{{ID: "hdd1", TVRoot: primary, TVRemoteRoot: remote}}), nil)
+	if err := m.Scan(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	view := m.View("")
+	if view.MediaType != "tv" || len(view.Movies) != 1 {
+		t.Fatalf("TV companion view = %+v, want one primary-root show", view)
+	}
+	show := view.Movies[0]
+	if show.Title != "Breaking Bad" || show.Year != 2008 || show.Status != StatusAlready1080p {
+		t.Fatalf("TV show state = %+v", show)
+	}
+	if show.RemotePath != remoteFolder || show.RemoteCopy != "1080p" {
+		t.Fatalf("TV remote inspection = %+v", show)
+	}
+}
+
 func TestCanceledSearchReturnsToPending(t *testing.T) {
 	m := newTransitionManager(t, StatusSearching)
 	m.finishSearchFailure("movie", *m.state.Movies[0], context.Canceled)

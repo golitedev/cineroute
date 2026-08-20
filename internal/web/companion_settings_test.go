@@ -83,3 +83,36 @@ func TestCompanionSearchIntervalSettingsAPI(t *testing.T) {
 		t.Fatalf("invalid batch settings status = %d", resp.StatusCode)
 	}
 }
+
+func TestTVCompanionAPIUsesSeparateQueue(t *testing.T) {
+	cfg := config.Default()
+	cfg.Companion.StatePath = t.TempDir() + "/companions.db"
+	cfg.Drives = nil
+	srv := New(cfg, nil, nil)
+	httpSrv := httptest.NewServer(srv.Handler())
+	defer httpSrv.Close()
+
+	for _, tc := range []struct {
+		path string
+		want string
+	}{
+		{path: "/api/companions", want: "movie"},
+		{path: "/api/companions?type=tv", want: "tv"},
+	} {
+		resp, err := http.Get(httpSrv.URL + tc.path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		var view struct {
+			MediaType string `json:"media_type"`
+		}
+		decodeErr := json.NewDecoder(resp.Body).Decode(&view)
+		resp.Body.Close()
+		if decodeErr != nil {
+			t.Fatal(decodeErr)
+		}
+		if resp.StatusCode != http.StatusOK || view.MediaType != tc.want {
+			t.Fatalf("%s response = %d, media type %q, want %q", tc.path, resp.StatusCode, view.MediaType, tc.want)
+		}
+	}
+}

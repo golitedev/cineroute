@@ -50,8 +50,9 @@ library:
 
 # The four drives. The primary roots must be the same paths CineRoute and
 # qBittorrent see (container-side aliases). Remote roots are optional for
-# backwards compatibility; standard /mN -> /mrN aliases are also detected when
-# mounted. Approved movie companions go to the matching remote folder.
+# backwards compatibility; standard /mN -> /mrN and /tN -> /trN aliases are
+# also detected when mounted. Approved movie and TV companions go to the
+# matching remote folder.
 drives:
   - id: "hdd1"
     movie_root: "/m1"

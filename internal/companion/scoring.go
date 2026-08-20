@@ -37,6 +37,8 @@ type Candidate struct {
 	LanguageEvidence string    `json:"language_evidence"`
 	Score            int       `json:"score"`
 	Reasons          []string  `json:"reasons"`
+	TVPackEligible   bool      `json:"tv_pack_eligible"`
+	TVPackReason     string    `json:"tv_pack_reason,omitempty"`
 	downloadURL      string
 	sourceGuid       string
 }
@@ -54,6 +56,9 @@ var webDLRe = regexp.MustCompile(`(?i)\bweb[. _-]*dl\b`)
 var webRipRe = regexp.MustCompile(`(?i)\bweb[. _-]*rip\b`)
 var hevcRe = regexp.MustCompile(`(?i)\b(?:hevc|h[. _-]*265|x265)\b`)
 var avcRe = regexp.MustCompile(`(?i)\b(?:avc|h[. _-]*264|x264)\b`)
+var tvEpisodeRe = regexp.MustCompile(`(?i)(?:^|[^a-z0-9])(?:s[0-9]{1,3}[ ._-]*e[0-9]{1,3}|season[ ._-]*[0-9]{1,3}[ ._-]*(?:episode|ep)[ ._-]*[0-9]{1,3}|[0-9]{1,3}[ ._-]*x[ ._-]*[0-9]{1,3}|(?:episode|ep)[ ._-]*[0-9]{1,3})(?:[^a-z0-9]|$)`)
+var tvSeasonRe = regexp.MustCompile(`(?i)(?:^|[^a-z0-9])(?:s[0-9]{1,3}|season[ ._-]*[0-9]{1,3})(?:[^a-z0-9]|$)`)
+var tvCollectionRe = regexp.MustCompile(`(?i)(?:^|[^a-z0-9])(?:complete|collection|full[ ._-]*series|all[ ._-]*seasons)(?:[^a-z0-9]|$)`)
 
 // FilterAndRank keeps every release returned by Prowlarr, orders it for manual
 // review, and retains at most MaxCandidateResults rows. The name is kept for
@@ -89,6 +94,25 @@ func FilterAndRank(releases []prowlarr.Release, title string, year, tmdbID int, 
 		return ranked[:MaxCandidateResults]
 	}
 	return ranked
+}
+
+// MarkTVPackCandidates keeps every release visible while identifying which
+// releases are safe to approve for a TV companion. Individual episodes remain
+// reviewable for transparency but are never eligible for download.
+func MarkTVPackCandidates(candidates []Candidate) {
+	for i := range candidates {
+		candidates[i].TVPackEligible, candidates[i].TVPackReason = TVPackEligibility(candidates[i].Title)
+	}
+}
+
+func TVPackEligibility(title string) (bool, string) {
+	if tvEpisodeRe.MatchString(title) {
+		return false, "individual episode release — not eligible for TV companion"
+	}
+	if tvSeasonRe.MatchString(title) || tvCollectionRe.MatchString(title) {
+		return true, "season or series pack"
+	}
+	return false, "not identified as a season or series pack"
 }
 
 func scoreRelease(release prowlarr.Release, title string, year, tmdbID int, policy Policy, useFingerprint bool) Candidate {

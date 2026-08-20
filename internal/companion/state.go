@@ -36,7 +36,7 @@ func isLiveWorkflowStatus(status string) bool {
 	}
 }
 
-// Movie is the durable workflow record for one canonical movie folder.
+// Movie is the durable workflow record for one canonical companion folder.
 // Search results live in the companion store separately: Prowlarr download
 // URLs can contain the API key and are short-lived, so they are never written.
 type Movie struct {
@@ -82,6 +82,14 @@ type BatchStatus struct {
 func movieID(driveID, folderName string) string {
 	h := sha256.Sum256([]byte(driveID + "\x00" + folderName))
 	return "c_" + hex.EncodeToString(h[:])[:16]
+}
+
+func tvCompanionStatePath(configuredPath string) string {
+	ext := filepath.Ext(configuredPath)
+	if strings.EqualFold(ext, ".json") || strings.EqualFold(ext, ".db") {
+		return strings.TrimSuffix(configuredPath, ext) + "-tv" + ext
+	}
+	return configuredPath + "-tv"
 }
 
 func loadState(path string) (stateFile, error) {

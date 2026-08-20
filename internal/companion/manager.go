@@ -22,7 +22,15 @@ type searchState struct {
 	SearchedAt time.Time
 }
 
+type companionKind string
+
+const (
+	companionMovie companionKind = "movie"
+	companionTV    companionKind = "tv"
+)
+
 type View struct {
+	MediaType                string      `json:"media_type"`
 	Enabled                  bool        `json:"enabled"`
 	IndexerName              string      `json:"indexer_name"`
 	ProwlarrConfigured       bool        `json:"prowlarr_configured"`
@@ -45,6 +53,7 @@ type Manager struct {
 	lib      *library.Scan
 	prowlarr *prowlarr.Client
 	store    *stateStore
+	kind     companionKind
 
 	mu                    sync.RWMutex
 	state                 stateFile
@@ -62,10 +71,27 @@ type Manager struct {
 }
 
 func NewManager(cfg *config.Config, lib *library.Scan, prowlarrClient *prowlarr.Client) *Manager {
+	statePath := ""
+	if cfg != nil {
+		statePath = cfg.Companion.StatePath
+	}
+	return newManager(cfg, lib, prowlarrClient, companionMovie, statePath)
+}
+
+func NewTVManager(cfg *config.Config, lib *library.Scan, prowlarrClient *prowlarr.Client) *Manager {
+	statePath := ""
+	if cfg != nil {
+		statePath = tvCompanionStatePath(cfg.Companion.StatePath)
+	}
+	return newManager(cfg, lib, prowlarrClient, companionTV, statePath)
+}
+
+func newManager(cfg *config.Config, lib *library.Scan, prowlarrClient *prowlarr.Client, kind companionKind, statePath string) *Manager {
 	m := &Manager{
 		cfg:      cfg,
 		lib:      lib,
 		prowlarr: prowlarrClient,
+		kind:     kind,
 		searches: map[string]searchState{},
 		state:    stateFile{Version: stateVersion},
 	}
@@ -78,7 +104,7 @@ func NewManager(cfg *config.Config, lib *library.Scan, prowlarrClient *prowlarr.
 		m.searchIntervalSeconds = config.DefaultCompanionSearchIntervalSeconds
 	}
 	m.searchBatchSize = config.DefaultCompanionSearchBatchSize
-	store, st, searches, err := openStateStore(cfg.Companion.StatePath)
+	store, st, searches, err := openStateStore(statePath)
 	if err != nil {
 		m.stateErr = err
 	} else {
@@ -119,6 +145,51 @@ func NewManager(cfg *config.Config, lib *library.Scan, prowlarrClient *prowlarr.
 	return m
 }
 
+func (m *Manager) MediaType() string {
+	if m != nil && m.kind == companionTV {
+		return string(companionTV)
+	}
+	return string(companionMovie)
+}
+
+func (m *Manager) itemLabel() string {
+	if m.MediaType() == string(companionTV) {
+		return "TV show"
+	}
+	return "movie"
+}
+
+func (m *Manager) remotePath(driveID, folderName string) (string, bool) {
+	if m == nil || m.lib == nil {
+		return "", false
+	}
+	if m.kind == companionTV {
+		return m.lib.TVRemotePath(driveID, folderName)
+	}
+	return m.lib.MovieRemotePath(driveID, folderName)
+}
+
+func (m *Manager) libraryFolders() ([]library.MovieFolder, error) {
+	if m.kind == companionTV {
+		return m.lib.TVShows()
+	}
+	return m.lib.Movies()
+}
+
+func (m *Manager) parseFolder(folder library.MovieFolder) (string, int, error) {
+	if m.kind == companionTV {
+		return parseTVFolder(folder)
+	}
+	return parseMovieFolder(folder)
+}
+
+func (m *Manager) inspectFolder(item *Movie, path, remotePath, folderName string) (copyInspection, copyInspection) {
+	if m.kind == companionTV {
+		return updateTVInspection(item, path, remotePath, folderName)
+	}
+	return updateMovieInspection(item, path, remotePath, folderName)
+}
+
 func (m *Manager) Enabled() bool {
 	return m != nil && m.cfg != nil && m.cfg.Companion.Enabled
 }
@@ -133,7 +204,7 @@ func (m *Manager) StateError() error {
 }
 
 func (m *Manager) View(openID string) View {
-	view := View{Enabled: m.Enabled()}
+	view := View{Enabled: m.Enabled(), MediaType: m.MediaType()}
 	if m == nil || m.cfg == nil {
 		view.StateError = "companion manager is unavailable"
 		return view
@@ -164,15 +235,16 @@ func (m *Manager) View(openID string) View {
 			view.Open = cloneMovie(movie)
 			if view.Open != nil && !view.Open.Missing && view.Open.Path != "" {
 				remotePath := view.Open.RemotePath
-				if m.lib != nil {
-					if configuredPath, ok := m.lib.MovieRemotePath(view.Open.DriveID, view.Open.FolderName); ok {
-						remotePath = configuredPath
-					}
+				if configuredPath, ok := m.remotePath(view.Open.DriveID, view.Open.FolderName); ok {
+					remotePath = configuredPath
 				}
-				updateMovieInspection(view.Open, view.Open.Path, remotePath, view.Open.FolderName)
+				m.inspectFolder(view.Open, view.Open.Path, remotePath, view.Open.FolderName)
 			}
 			if result, ok := m.searches[openID]; ok {
 				view.Candidates = cloneCandidates(result.Candidates)
+				if m.kind == companionTV {
+					MarkTVPackCandidates(view.Candidates)
+				}
 				view.SearchedAt = result.SearchedAt
 			}
 			break
@@ -216,7 +288,11 @@ func (m *Manager) SetSearchSettings(intervalSeconds, batchSize *int) error {
 		newBatchSize = *batchSize
 	}
 	if newBatchSize < config.MinCompanionSearchBatchSize || newBatchSize > config.MaxCompanionSearchBatchSize {
-		return fmt.Errorf("search batch size must be between %d and %d movies", config.MinCompanionSearchBatchSize, config.MaxCompanionSearchBatchSize)
+		label := "movies"
+		if m.kind == companionTV {
+			label = "TV shows"
+		}
+		return fmt.Errorf("search batch size must be between %d and %d %s", config.MinCompanionSearchBatchSize, config.MaxCompanionSearchBatchSize, label)
 	}
 	previousInterval := m.searchIntervalSeconds
 	previousBatchSize := m.searchBatchSize
@@ -258,10 +334,11 @@ func (m *Manager) ProwlarrStatus(ctx context.Context) (string, string) {
 	return name, name
 }
 
-// Scan reconciles the immediate children of all movie roots into durable
-// state. Live searching, review and submitting states are preserved; startup
-// recovery is handled separately when the state file is loaded. It never
-// renames or moves media files.
+// Scan reconciles the immediate children of the configured primary library
+// roots into durable state. TV scans use only TV roots, never TV remote roots.
+// Live searching, review and submitting states are preserved; startup recovery
+// is handled separately when the state file is loaded. It never renames or
+// moves media files.
 func (m *Manager) Scan(ctx context.Context) error {
 	if !m.Enabled() {
 		return nil
@@ -279,9 +356,9 @@ func (m *Manager) Scan(ctx context.Context) error {
 	for _, movie := range m.state.Movies {
 		previous[movie.ID] = movie
 	}
-	folders, err := m.lib.Movies()
+	folders, err := m.libraryFolders()
 	if err != nil {
-		return fmt.Errorf("companion scan aborted: %w", err)
+		return fmt.Errorf("%s companion scan aborted: %w", m.itemLabel(), err)
 	}
 	seen := make(map[string]bool, len(folders))
 	current := make([]*Movie, 0, len(folders)+len(previous))
@@ -302,9 +379,9 @@ func (m *Manager) Scan(ctx context.Context) error {
 			movie.UpdatedAt = time.Now()
 		}
 
-		title, year, parseErr := parseMovieFolder(folder)
-		remotePath, _ := m.lib.MovieRemotePath(folder.DriveID, folder.Name)
-		mainInspection, remoteInspection := updateMovieInspection(movie, folder.Path, remotePath, folder.Name)
+		title, year, parseErr := m.parseFolder(folder)
+		remotePath, _ := m.remotePath(folder.DriveID, folder.Name)
+		mainInspection, remoteInspection := m.inspectFolder(movie, folder.Path, remotePath, folder.Name)
 		if parseErr != nil {
 			if !live {
 				movie.Status = StatusNeedsReview
@@ -359,7 +436,7 @@ func (m *Manager) Scan(ctx context.Context) error {
 		live := isLiveWorkflowStatus(missing.Status)
 		if !live && missing.Status != StatusComplete && missing.Status != StatusSkipped {
 			missing.Status = StatusError
-			missing.Error = "movie folder is no longer present in the configured library roots"
+			missing.Error = m.itemLabel() + " folder is no longer present in the configured library roots"
 		}
 		missing.UpdatedAt = time.Now()
 		current = append(current, missing)
@@ -398,7 +475,7 @@ func (m *Manager) SearchOne(ctx context.Context, id string) ([]Candidate, error)
 	current := m.movieLocked(id)
 	if current == nil {
 		m.mu.Unlock()
-		return nil, errors.New("companion movie not found")
+		return nil, fmt.Errorf("companion %s not found", m.itemLabel())
 	}
 	if current.Status != StatusSearching {
 		m.mu.Unlock()
@@ -406,14 +483,14 @@ func (m *Manager) SearchOne(ctx context.Context, id string) ([]Candidate, error)
 	}
 	if current.Missing {
 		current.Status = StatusError
-		current.Error = "movie folder is no longer present in the configured library roots"
+		current.Error = m.itemLabel() + " folder is no longer present in the configured library roots"
 		current.UpdatedAt = time.Now()
 		persistErr := m.persistLocked()
 		m.mu.Unlock()
 		if persistErr != nil {
 			return nil, persistErr
 		}
-		return nil, errors.New("movie folder is no longer present in the configured library roots")
+		return nil, errors.New(m.itemLabel() + " folder is no longer present in the configured library roots")
 	}
 	m.searches[id] = searchState{Candidates: cloneCandidates(candidates), SearchedAt: time.Now()}
 	if len(candidates) == 0 {
@@ -426,7 +503,7 @@ func (m *Manager) SearchOne(ctx context.Context, id string) ([]Candidate, error)
 	current.UpdatedAt = time.Now()
 	err = m.persistLocked(searchHistoryRecord{
 		MovieID:        id,
-		Query:          companionSearchHistoryQuery(&movie),
+		Query:          m.companionSearchHistoryQuery(&movie),
 		SearchedAt:     time.Now(),
 		Status:         current.Status,
 		CandidateCount: len(candidates),
@@ -460,7 +537,7 @@ func (m *Manager) finishSearchFailure(id string, movie Movie, searchErr error) {
 	current.UpdatedAt = time.Now()
 	_ = m.persistLocked(searchHistoryRecord{
 		MovieID:    id,
-		Query:      companionSearchHistoryQuery(&movie),
+		Query:      m.companionSearchHistoryQuery(&movie),
 		SearchedAt: time.Now(),
 		Status:     status,
 		Error:      searchErr.Error(),
@@ -475,7 +552,7 @@ func (m *Manager) searchMovie(ctx context.Context, movie *Movie) ([]Candidate, e
 		return nil, err
 	}
 	policy := m.policy(indexerID)
-	queries := companionSearchQueries(movie)
+	queries := m.companionSearchQueries(movie)
 	var results []prowlarr.Release
 	for _, searchQuery := range queries {
 		found, err := m.searchRelease(ctx, indexerID, searchQuery)
@@ -486,6 +563,9 @@ func (m *Manager) searchMovie(ctx context.Context, movie *Movie) ([]Candidate, e
 		results = mergeReleases(results, found)
 	}
 	candidates := FilterAndRank(results, movie.Title, movie.Year, movie.TmdbID, policy)
+	if m.kind == companionTV {
+		MarkTVPackCandidates(candidates)
+	}
 	return candidates, nil
 }
 
@@ -497,8 +577,23 @@ func companionSearchQueries(movie *Movie) []string {
 	return []string{title}
 }
 
+func tvCompanionSearchQueries(movie *Movie) []string {
+	return []string{strings.TrimSpace(movie.Title)}
+}
+
+func (m *Manager) companionSearchQueries(movie *Movie) []string {
+	if m.kind == companionTV {
+		return tvCompanionSearchQueries(movie)
+	}
+	return companionSearchQueries(movie)
+}
+
 func companionSearchHistoryQuery(movie *Movie) string {
 	return strings.Join(companionSearchQueries(movie), " | ")
+}
+
+func (m *Manager) companionSearchHistoryQuery(movie *Movie) string {
+	return strings.Join(m.companionSearchQueries(movie), " | ")
 }
 
 func mergeReleases(existing, additions []prowlarr.Release) []prowlarr.Release {
@@ -723,7 +818,7 @@ func (m *Manager) Skip(id string) error {
 	defer m.mu.Unlock()
 	movie := m.movieLocked(id)
 	if movie == nil {
-		return errors.New("companion movie not found")
+		return fmt.Errorf("companion %s not found", m.itemLabel())
 	}
 	if movie.Status == StatusComplete || movie.Status == StatusSearching || movie.Status == StatusSubmitting {
 		return errors.New("this companion cannot be skipped in its current state")
@@ -739,6 +834,15 @@ func (m *Manager) Skip(id string) error {
 // It does not search automatically; the UI's explicit companion button does
 // that so normal movie routing never adds tracker traffic by surprise.
 func (m *Manager) UpsertMovie(driveID, path, folderName, title string, year, tmdbID int) (string, error) {
+	return m.upsertItem(driveID, path, folderName, title, year, tmdbID)
+}
+
+// UpsertTV registers a TV show already accepted by the normal intake flow.
+func (m *Manager) UpsertTV(driveID, path, folderName, title string, year, tmdbID int) (string, error) {
+	return m.upsertItem(driveID, path, folderName, title, year, tmdbID)
+}
+
+func (m *Manager) upsertItem(driveID, path, folderName, title string, year, tmdbID int) (string, error) {
 	if !m.Enabled() {
 		return "", errors.New("1080p companions are disabled")
 	}
@@ -761,10 +865,8 @@ func (m *Manager) UpsertMovie(driveID, path, folderName, title string, year, tmd
 	movie.TmdbID = tmdbID
 	movie.Missing = false
 	remotePath := ""
-	if m.lib != nil {
-		remotePath, _ = m.lib.MovieRemotePath(driveID, folderName)
-	}
-	mainInspection, remoteInspection := updateMovieInspection(movie, path, remotePath, folderName)
+	remotePath, _ = m.remotePath(driveID, folderName)
+	mainInspection, remoteInspection := m.inspectFolder(movie, path, remotePath, folderName)
 	if movie.Status != StatusComplete && movie.Status != StatusSkipped && !isLiveWorkflowStatus(movie.Status) {
 		if hasSuitableMovieCopy(mainInspection, remoteInspection) {
 			movie.Status = StatusAlready1080p
@@ -800,11 +902,11 @@ func (m *Manager) PrepareSelected(ctx context.Context, id, guid string) (Movie, 
 	current := m.movieLocked(id)
 	if current == nil {
 		m.mu.Unlock()
-		return Movie{}, Candidate{}, nil, errors.New("companion movie not found")
+		return Movie{}, Candidate{}, nil, fmt.Errorf("companion %s not found", m.itemLabel())
 	}
 	if current.Missing {
 		m.mu.Unlock()
-		return Movie{}, Candidate{}, nil, errors.New("movie folder is no longer present in the configured library roots")
+		return Movie{}, Candidate{}, nil, fmt.Errorf("%s folder is no longer present in the configured library roots", m.itemLabel())
 	}
 	if current.Status == StatusComplete {
 		m.mu.Unlock()
@@ -849,6 +951,13 @@ func (m *Manager) PrepareSelected(ctx context.Context, id, guid string) (Movie, 
 		m.MarkError(id, err)
 		return Movie{}, Candidate{}, nil, err
 	}
+	if m.kind == companionTV && !selected.TVPackEligible {
+		err := errors.New("individual episode releases or unrecognized TV releases cannot be approved; select a season or series pack")
+		if resetErr := m.restoreReview(id); resetErr != nil {
+			return Movie{}, Candidate{}, nil, resetErr
+		}
+		return Movie{}, Candidate{}, nil, err
+	}
 	if selected.downloadURL == "" {
 		err := errors.New("selected Prowlarr release has no download URL")
 		m.MarkError(id, err)
@@ -862,12 +971,25 @@ func (m *Manager) PrepareSelected(ctx context.Context, id, guid string) (Movie, 
 	return movie, selected, data, nil
 }
 
+func (m *Manager) restoreReview(id string) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	current := m.movieLocked(id)
+	if current == nil || current.Status != StatusSubmitting {
+		return nil
+	}
+	current.Status = StatusReview
+	current.Error = ""
+	current.UpdatedAt = time.Now()
+	return m.persistLocked()
+}
+
 func (m *Manager) MarkComplete(id, hash string) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	movie := m.movieLocked(id)
 	if movie == nil {
-		return errors.New("companion movie not found")
+		return fmt.Errorf("companion %s not found", m.itemLabel())
 	}
 	now := time.Now()
 	movie.Status = StatusComplete
@@ -901,10 +1023,10 @@ func (m *Manager) beginSearch(id string) (Movie, error) {
 	}
 	movie := m.movieLocked(id)
 	if movie == nil {
-		return Movie{}, errors.New("companion movie not found")
+		return Movie{}, fmt.Errorf("companion %s not found", m.itemLabel())
 	}
 	if movie.Missing {
-		return Movie{}, errors.New("movie folder is no longer present in the configured library roots")
+		return Movie{}, fmt.Errorf("%s folder is no longer present in the configured library roots", m.itemLabel())
 	}
 	switch movie.Status {
 	case StatusSearching:

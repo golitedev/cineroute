@@ -48,8 +48,29 @@ func inspectRemoteMovieFolder(path, folderName string) copyInspection {
 	return inspection
 }
 
+func inspectRemoteTVFolder(path, folderName string) copyInspection {
+	if path == "" {
+		return copyInspection{}
+	}
+	if _, err := os.Stat(path); err != nil {
+		if os.IsNotExist(err) {
+			return copyInspection{}
+		}
+		return copyInspection{Error: fmt.Sprintf("cannot inspect remote TV show folder: %v", err)}
+	}
+	inspection := inspectTVFolder(path, folderName)
+	if inspection.Quality == "none" && inspection.Error != "" {
+		inspection.Error = ""
+	}
+	return inspection
+}
+
 func inspectMovieCopies(path, remotePath, folderName string) (copyInspection, copyInspection) {
 	return inspectMovieFolder(path, folderName), inspectRemoteMovieFolder(remotePath, folderName)
+}
+
+func inspectTVCopies(path, remotePath, folderName string) (copyInspection, copyInspection) {
+	return inspectTVFolder(path, folderName), inspectRemoteTVFolder(remotePath, folderName)
 }
 
 func hasSuitableMovieCopy(main, remote copyInspection) bool {
@@ -78,6 +99,15 @@ func movieInspectionWarnings(main, remote copyInspection) string {
 
 func updateMovieInspection(movie *Movie, path, remotePath, folderName string) (copyInspection, copyInspection) {
 	main, remote := inspectMovieCopies(path, remotePath, folderName)
+	return updateInspection(movie, path, remotePath, main, remote, true)
+}
+
+func updateTVInspection(movie *Movie, path, remotePath, folderName string) (copyInspection, copyInspection) {
+	main, remote := inspectTVCopies(path, remotePath, folderName)
+	return updateInspection(movie, path, remotePath, main, remote, false)
+}
+
+func updateInspection(movie *Movie, path, remotePath string, main, remote copyInspection, includeWarnings bool) (copyInspection, copyInspection) {
 	movie.RemotePath = remotePath
 	movie.ExistingCopy = main.Quality
 	movie.ExistingFiles = movieVideoPaths(path, main.Files)
@@ -85,7 +115,11 @@ func updateMovieInspection(movie *Movie, path, remotePath, folderName string) (c
 	movie.RemoteCopy = remote.Quality
 	movie.RemoteFiles = movieVideoPaths(remotePath, remote.Files)
 	movie.RemoteFileSizes = movieVideoSizes(remotePath, remote.Files)
-	movie.JellyfinWarning = movieInspectionWarnings(main, remote)
+	if includeWarnings {
+		movie.JellyfinWarning = movieInspectionWarnings(main, remote)
+	} else {
+		movie.JellyfinWarning = ""
+	}
 	return main, remote
 }
 
@@ -138,6 +172,48 @@ func inspectMovieFolder(path, folderName string) copyInspection {
 		Quality:         quality,
 		JellyfinWarning: jellyfinWarning(folderName, filepath.Base(name)),
 	}
+}
+
+// inspectTVFolder aggregates the files under an entire show folder. Multiple
+// episode files are expected for TV and must not be mistaken for an invalid
+// movie folder or a request to review the folder manually.
+func inspectTVFolder(path, folderName string) copyInspection {
+	videos, err := movieVideoFiles(path)
+	if err != nil {
+		return copyInspection{Error: fmt.Sprintf("cannot inspect TV show folder: %v", err)}
+	}
+	inspection := copyInspection{Files: append([]string(nil), videos...)}
+	if len(videos) == 0 {
+		inspection.Quality = "none"
+		inspection.Error = "no video file found in TV show folder; manual review required"
+		return inspection
+	}
+	has1080p := false
+	has4k := false
+	for _, name := range videos {
+		lower := strings.ToLower(name)
+		if strings.Contains(lower, "1080p") {
+			has1080p = true
+			if webDLRe.MatchString(name) {
+				inspection.Has1080pWebDL = true
+			}
+			if isBluRayLike(name) {
+				inspection.Has1080pBluRay = true
+			}
+		}
+		if strings.Contains(lower, "2160p") || strings.Contains(lower, "uhd") || strings.Contains(lower, "4k") || strings.Contains(lower, "remux") {
+			has4k = true
+		}
+	}
+	switch {
+	case has1080p:
+		inspection.Quality = "1080p"
+	case has4k:
+		inspection.Quality = "4k"
+	default:
+		inspection.Quality = "unknown"
+	}
+	return inspection
 }
 
 func movieVideoPaths(root string, relative []string) []string {
@@ -240,4 +316,15 @@ func parseMovieFolder(folder library.MovieFolder) (title string, year int, err e
 		return "", 0, fmt.Errorf("folder name is not canonical; manual review required")
 	}
 	return title, year, nil
+}
+
+func parseTVFolder(folder library.MovieFolder) (title string, year int, err error) {
+	if title, year, ok := library.ParseMovieFolder(folder.Name); ok {
+		return title, year, nil
+	}
+	title = strings.TrimSpace(folder.Name)
+	if title == "" {
+		return "", 0, fmt.Errorf("TV show folder name is empty; manual review required")
+	}
+	return title, 0, nil
 }

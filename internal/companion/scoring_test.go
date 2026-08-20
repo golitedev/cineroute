@@ -40,6 +40,41 @@ func TestRankCompanionReleasesKeepsAllQualityVariants(t *testing.T) {
 	}
 }
 
+func TestTVPackEligibilityKeepsEpisodesVisibleButBlocksApproval(t *testing.T) {
+	tests := []struct {
+		title    string
+		eligible bool
+	}{
+		{"Breaking.Bad.S03E04.1080p.WEB-DL", false},
+		{"Breaking.Bad.3x04.1080p.WEB-DL", false},
+		{"Breaking.Bad.S03.1080p.WEB-DL", true},
+		{"Breaking.Bad.Season.3.1080p.WEB-DL", true},
+		{"Breaking.Bad.Complete.Series.1080p.WEB-DL", true},
+		{"Breaking.Bad.1080p.WEB-DL", false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.title, func(t *testing.T) {
+			eligible, _ := TVPackEligibility(tt.title)
+			if eligible != tt.eligible {
+				t.Fatalf("TVPackEligibility(%q) = %v, want %v", tt.title, eligible, tt.eligible)
+			}
+		})
+	}
+
+	releases := []prowlarr.Release{
+		{Guid: "episode", Title: "Breaking.Bad.S03E04.1080p.WEB-DL"},
+		{Guid: "season", Title: "Breaking.Bad.S03.1080p.WEB-DL"},
+	}
+	candidates := FilterAndRank(releases, "Breaking Bad", 0, 0, Policy{})
+	MarkTVPackCandidates(candidates)
+	if len(candidates) != len(releases) {
+		t.Fatalf("TV candidates were filtered: %+v", candidates)
+	}
+	if candidates[0].TVPackEligible == candidates[1].TVPackEligible {
+		t.Fatalf("TV pack annotations = %+v", candidates)
+	}
+}
+
 func TestPossessiveTitleSpellingsRemainEligible(t *testing.T) {
 	seeders := 36
 	release := prowlarr.Release{

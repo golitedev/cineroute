@@ -128,7 +128,8 @@ input[type=number]{width:90px}
 
 <div class="view-nav" id="viewNav">
   <button id="routeTab" class="primary" onclick="showView('route')">Route torrents</button>
-  <button id="companionTab" onclick="showView('companions')">Companions</button>
+  <button id="movieCompanionTab" onclick="showView('companions',true,'movie')">Movie Companions</button>
+  <button id="tvCompanionTab" onclick="showView('companions',true,'tv')">TV Companions</button>
 </div>
 
 <div class="card hidden" id="loginCard">
@@ -171,8 +172,8 @@ input[type=number]{width:90px}
   <div class="card">
     <div class="companion-toolbar">
       <div>
-        <h2 style="margin-bottom:4px">Companions</h2>
-        <div class="small">Searches the configured Prowlarr indexer. Every download still needs your approval.</div>
+        <h2 id="companionTitle" style="margin-bottom:4px">Movie Companions</h2>
+        <div id="companionDescription" class="small">Searches the configured Prowlarr indexer. Every download still needs your approval.</div>
       </div>
       <div class="actions" style="margin-top:0">
         <button onclick="scanCompanions()">Scan library</button>
@@ -182,7 +183,7 @@ input[type=number]{width:90px}
       </div>
     </div>
     <div class="companion-settings">
-      <label for="companionBatchSize">Search batch size (movies)</label>
+      <label id="companionBatchLabel" for="companionBatchSize">Search batch size (movies)</label>
       <div class="row">
         <input id="companionBatchSize" type="number" min="1" max="1000" step="1" value="20">
         <button class="primary" onclick="saveCompanionSettings()">Save</button>
@@ -191,7 +192,7 @@ input[type=number]{width:90px}
         <button onclick="setCompanionBatchSize(50)">50</button>
         <button onclick="setCompanionBatchSize(100)">100</button>
       </div>
-      <div id="companionBatchNote" class="small" style="margin-top:6px">The next batch searches up to this many movies. Each movie may use two tracker searches.</div>
+      <div id="companionBatchNote" class="small" style="margin-top:6px">The next batch searches up to this many movies. Each movie uses one tracker search.</div>
     </div>
     <div class="companion-settings">
       <label for="companionInterval">Search interval (seconds)</label>
@@ -238,6 +239,7 @@ const $=id=>document.getElementById(id);
 let intakes=[];
 const busy=new Set();
 let companionData=null;
+let companionType="movie";
 let companionFilter="pending";
 let companionSearchTerm="";
 let companionPage=0;
@@ -339,12 +341,21 @@ function showLogin(){
   }
 }
 
-function showView(view,load=true){
-  if(view==="companions")$("companionView").appendChild($("companionDetail"));
+function companionURL(path="",openId=""){
+  const query=["type="+encodeURIComponent(companionType)];
+  if(openId)query.push("open="+encodeURIComponent(openId));
+  return "/api/companions"+path+"?"+query.join("&");
+}
+function showView(view,load=true,type){
+  if(view==="companions"){
+    if(type&&type!==companionType){companionType=type;openCompanion="";companionPage=0;companionData=null}
+    $("companionView").appendChild($("companionDetail"));
+  }
   $("routeView").classList.toggle("hidden",view!=="route");
   $("companionView").classList.toggle("hidden",view!=="companions");
   $("routeTab").classList.toggle("primary",view==="route");
-  $("companionTab").classList.toggle("primary",view==="companions");
+  $("movieCompanionTab").classList.toggle("primary",view==="companions"&&companionType==="movie");
+  $("tvCompanionTab").classList.toggle("primary",view==="companions"&&companionType==="tv");
   if(view==="companions"&&load)loadCompanions();
 }
 
@@ -427,10 +438,8 @@ function companionAddedTime(m){
 async function loadCompanions(openId){
   if(openId!==undefined){openCompanion=openId||"";$("companionDetail").dataset.showAll="false"}
   const loadToken=++companionLoadToken;
-  let path="/api/companions";
-  if(openCompanion)path+="?open="+encodeURIComponent(openCompanion);
   try{
-    const nextData=await api(path);
+    const nextData=await api(companionURL("",openCompanion));
     if(loadToken!==companionLoadToken)return;
     companionData=nextData;
     renderCompanions();
@@ -442,19 +451,25 @@ async function loadCompanions(openId){
 function renderCompanions(){
   if(!companionData)return;
   const movies=companionData.movies||[];
+  const isTV=companionType==="tv";
+  const noun=isTV?"TV shows":"movies";
+  const singular=isTV?"TV show":"movie";
   const interval=companionData.search_interval_seconds||10;
   const batchSize=companionData.search_batch_size||20;
   const rate=60/interval;
   const rateText=rate>=1?(rate%1?rate.toFixed(1):String(rate)):rate.toFixed(1);
   if(document.activeElement!==$("companionInterval"))$("companionInterval").value=interval;
   if(document.activeElement!==$("companionBatchSize"))$("companionBatchSize").value=batchSize;
+  $("companionTitle").textContent=isTV?"TV Companions":"Movie Companions";
+  $("companionDescription").textContent=isTV?"Searches Prowlarr by TV show title. Season and series packs can be approved; individual episodes stay visible for review but cannot be added.":"Searches the configured Prowlarr indexer. Every download still needs your approval.";
+  $("companionBatchLabel").textContent="Search batch size ("+noun+")";
   $("companionIntervalNote").textContent="Delay between Prowlarr tracker searches. "+interval+"s ≈ "+rateText+" searches/minute.";
-  $("companionBatchNote").textContent="The next batch searches up to "+batchSize+" movies. Each movie may use two tracker searches.";
+  $("companionBatchNote").textContent="The next batch searches up to "+batchSize+" "+noun+". Each "+singular+" uses one tracker search.";
   const count=status=>movies.filter(m=>m.status===status&&!m.missing).length;
   const reviewCount=count("review");
   const missing=movies.filter(m=>m.missing).length;
   $("companionStats").innerHTML=[
-    [movies.length-missing,"Movies"],[count("pending"),"Needs search"],[reviewCount,"Review"],[count("no_match"),"No releases"],[count("complete"),"Added"],[count("skipped"),"Skipped"]
+    [movies.length-missing,isTV?"TV shows":"Movies"],[count("pending"),"Needs search"],[reviewCount,"Review"],[count("no_match"),"No releases"],[count("complete"),"Added"],[count("skipped"),"Skipped"]
   ].map(x=>'<div class="companion-stat"><strong>'+x[0]+"</strong><span>"+x[1]+"</span></div>").join("");
   const b=companionData.batch||{};
   $("companionProgress").textContent=b.running?"Searching "+b.done+" / "+b.total+(b.error?" — "+b.error:""):b.canceled?"Search canceled after "+b.done+" / "+b.total:b.error||(companionData.prowlarr_configured?"Indexer: "+(companionData.indexer_name||"LAT-Team"):"Prowlarr not configured — set the API key before searching");
@@ -477,8 +492,8 @@ function renderCompanions(){
   const pageSize=20,totalPages=Math.max(1,Math.ceil(filtered.length/pageSize));
   companionPage=Math.min(companionPage,totalPages-1);
   const page=filtered.slice(companionPage*pageSize,(companionPage+1)*pageSize);
-  $("companionList").innerHTML=page.length?page.map(companionRow).join(""):'<div class="small">No movies in this filter. Scan the library to populate the queue.</div>';
-  $("companionPagination").innerHTML=filtered.length?'<button '+(companionPage===0?"disabled":"")+' onclick="companionPage--;renderCompanions()">Previous</button><span class="small">Page '+(companionPage+1)+" of "+totalPages+" · "+filtered.length+" movies</span><button "+(companionPage>=totalPages-1?"disabled":"")+' onclick="companionPage++;renderCompanions()">Next</button>':"";
+  $("companionList").innerHTML=page.length?page.map(companionRow).join(""):'<div class="small">No '+noun+' in this filter. Scan the library to populate the queue.</div>';
+  $("companionPagination").innerHTML=filtered.length?'<button '+(companionPage===0?"disabled":"")+' onclick="companionPage--;renderCompanions()">Previous</button><span class="small">Page '+(companionPage+1)+" of "+totalPages+" · "+filtered.length+" "+noun+'</span><button '+(companionPage>=totalPages-1?"disabled":"")+' onclick="companionPage++;renderCompanions()">Next</button>':"";
   renderCompanionDetail();
 }
 function companionSearchText(m){
@@ -493,17 +508,18 @@ function setCompanionFilter(filter){companionFilter=filter;companionPage=0;rende
 function setCompanionSearch(value){companionSearchTerm=value;companionPage=0;renderCompanions()}
 function clearCompanionSearch(){companionSearchTerm="";companionPage=0;renderCompanions();$("companionSearchInput").focus()}
 async function scanCompanions(){
-  try{await postJSON("/api/companions/scan",{});companionPage=0;await loadCompanions()}catch(e){alert(e.message)}
+  try{await postJSON(companionURL("/scan"),{});companionPage=0;await loadCompanions()}catch(e){alert(e.message)}
 }
 async function searchMissingCompanions(){
-  try{await postJSON("/api/companions/search-missing",{});await loadCompanions()}catch(e){alert(e.message)}
+  try{await postJSON(companionURL("/search-missing"),{});await loadCompanions()}catch(e){alert(e.message)}
 }
 async function clearCompanionReviews(){
-  if(!confirm("Clear all review movies? Their current Prowlarr results will be removed and they will return to Needs search."))return;
+  const itemWord=companionType==="tv"?"TV shows":"movies";
+  if(!confirm("Clear all review "+itemWord+"? Their current Prowlarr results will be removed and they will return to Needs search."))return;
   const button=$("companionClearReviewsButton");
   button.disabled=true;
   try{
-    await postJSON("/api/companions/clear-reviews",{});
+    await postJSON(companionURL("/clear-reviews"),{});
     companionFilter="pending";
     companionPage=0;
     openCompanion="";
@@ -511,10 +527,10 @@ async function clearCompanionReviews(){
   }catch(e){alert(e.message)}finally{if(button.isConnected)button.disabled=false}
 }
 async function cancelCompanionSearch(){
-  try{await postJSON("/api/companions/search-missing/cancel",{});await loadCompanions()}catch(e){alert(e.message)}
+  try{await postJSON(companionURL("/search-missing/cancel"),{});await loadCompanions()}catch(e){alert(e.message)}
 }
 async function saveCompanionSettings(){
-  try{companionData=await patchJSON("/api/companions/settings",{search_interval_seconds:+$("companionInterval").value,search_batch_size:+$("companionBatchSize").value});renderCompanions()}catch(e){alert(e.message)}
+  try{companionData=await patchJSON(companionURL("/settings"),{search_interval_seconds:+$("companionInterval").value,search_batch_size:+$("companionBatchSize").value});renderCompanions()}catch(e){alert(e.message)}
 }
 async function setCompanionInterval(value){$("companionInterval").value=value;await saveCompanionSettings()}
 async function setCompanionBatchSize(value){$("companionBatchSize").value=value;await saveCompanionSettings()}
@@ -530,7 +546,8 @@ function companionReviewNavigation(m){
   const previous=findNeighbor(-1),next=findNeighbor(1);
   const reviewMovies=movies.filter(movie=>movie.status==="review");
   const reviewIndex=reviewMovies.findIndex(movie=>movie.id===m.id);
-  const label=reviewIndex>=0?"Review "+(reviewIndex+1)+" of "+reviewMovies.length:reviewMovies.length+" review movie"+(reviewMovies.length===1?"":"s")+" remaining";
+  const itemWord=companionType==="tv"?"TV show":"movie";
+  const label=reviewIndex>=0?"Review "+(reviewIndex+1)+" of "+reviewMovies.length:reviewMovies.length+" review "+itemWord+(reviewMovies.length===1?"":"s")+" remaining";
   const button=(text,target)=>'<button '+(target?'data-id="'+esc(target.id)+'" onclick="navigateCompanionReview(this.dataset.id)"':"disabled")+">"+text+"</button>";
   return {next:button("Next",next),footer:'<div class="pagination companion-detail-navigation">'+button("Previous",previous)+'<span class="small">'+esc(label)+"</span>"+button("Next",next)+"</div>"};
 }
@@ -546,6 +563,7 @@ function renderCompanionDetail(){
   if(!m){box.classList.add("hidden");box.innerHTML="";return}
   box.classList.remove("hidden");
   const candidates=companionData.candidates||[];
+  const isTV=companionType==="tv";
   const existingFiles=m.existing_files||[];
   const existingFileSizes=m.existing_file_sizes||{};
   const remoteFiles=m.remote_files||[];
@@ -555,7 +573,8 @@ function renderCompanionDetail(){
   const destinationPath=m.remote_path||m.path;
   const refreshIcon='<span class="refresh-icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12a9 9 0 1 1-2.64-6.36L21 8"></path><path d="M21 3v5h-5"></path></svg></span>';
   const navigation=companionReviewNavigation(m);
-  let html='<div class="companion-toolbar"><div><h2 style="margin-bottom:4px">'+esc(m.folder_name)+"</h2><div class=\"small\">"+esc(m.drive_id)+" · "+esc(destinationPath)+"</div>"+existingHTML+'</div><div class="actions" style="margin-top:0"><button onclick="closeCompanionMovie()">Close</button>'+(m.status==="review"?'<button class="icon-button" data-id="'+esc(m.id)+'" onclick="searchOneCompanion(this.dataset.id,this)" title="Search this movie again" aria-label="Search this movie again">'+refreshIcon+'</button>':"")+navigation.next+"</div></div>";
+  const itemWord=isTV?"TV show":"movie";
+  let html='<div class="companion-toolbar"><div><h2 style="margin-bottom:4px">'+esc(m.folder_name)+"</h2><div class=\"small\">"+esc(m.drive_id)+" · "+esc(destinationPath)+"</div>"+existingHTML+'</div><div class="actions" style="margin-top:0"><button onclick="closeCompanionMovie()">Close</button>'+(m.status==="review"?'<button class="icon-button" data-id="'+esc(m.id)+'" onclick="searchOneCompanion(this.dataset.id,this)" title="Search this '+itemWord+' again" aria-label="Search this '+itemWord+' again">'+refreshIcon+'</button>':"")+navigation.next+"</div></div>";
   if(m.error)html+='<div class="errbox">'+esc(m.error)+"</div>";
   if(!candidates.length){
     if(m.status!=="complete"&&m.status!=="already_has_1080p"){const searchLabel=m.status==="no_match"?"Search again":"Search";html+='<div class="actions"><button class="primary" data-id="'+esc(m.id)+'" onclick="searchOneCompanion(this.dataset.id,this)">'+searchLabel+'</button><button data-id="'+esc(m.id)+'" onclick="skipCompanion(this.dataset.id)">Skip</button></div>'}
@@ -563,7 +582,7 @@ function renderCompanionDetail(){
   }
   html+='<h2 style="margin-top:18px">Candidates <span class="small">'+candidates.length+' Prowlarr release'+(candidates.length===1?"":"s")+" · ranked for review; inspect the tracker details before approving</span></h2>";
   html+=candidates.map(candidate=>candidateCard(candidate,m)).join("");
-  if(m.status!=="complete"&&m.status!=="submitting")html+='<div class="actions"><button data-id="'+esc(m.id)+'" onclick="skipCompanion(this.dataset.id)">Skip this movie</button></div>';
+  if(m.status!=="complete"&&m.status!=="submitting")html+='<div class="actions"><button data-id="'+esc(m.id)+'" onclick="skipCompanion(this.dataset.id)">Skip this '+itemWord+'</button></div>';
   box.innerHTML=html+navigation.footer;
 }
 function candidateCard(c,m){
@@ -572,19 +591,21 @@ function candidateCard(c,m){
   const ageBadge=age?'<span class="badge">Age '+esc(age)+'</span>':"";
   const link=c.info_url&&/^https?:\/\//i.test(c.info_url)?'<a class="tracker-link" href="'+esc(c.info_url)+'" target="_blank" rel="noopener noreferrer">Open tracker</a>':"";
   const adding=companionApprovals.get(m.id)===c.guid;
-  const disabled=adding||m.status!=="review"?" disabled":"";
-  const label=adding?'<span class="approval-spinner" aria-hidden="true"></span>Adding…':"Approve";
+  const tvPackBlocked=companionType==="tv"&&c.tv_pack_eligible!==true;
+  const disabled=adding||m.status!=="review"||tvPackBlocked?" disabled":"";
+  const label=adding?'<span class="approval-spinner" aria-hidden="true"></span>Adding…':tvPackBlocked?"Not eligible":"Approve";
   const buttonClass=adding?"primary approving":"primary";
-  return '<div class="candidate"><h3>'+esc(c.title)+"</h3><div class=\"facts\"><span class=\"badge\">"+fmtBytes(c.size)+"</span><span class=\"badge\">"+esc(seed)+" seeders</span>"+ageBadge+"<span class=\"badge\">"+esc(c.source)+"</span><span class=\"badge\">"+esc(c.codec)+"</span><span class=\"badge warn\">"+esc(c.language_evidence)+"</span><span class=\"badge\">Score "+esc(c.score)+"</span></div><div class=\"reason\">✓ "+esc((c.reasons||[]).join(" · "))+"</div><div class=\"actions\">"+'<button data-id="'+esc(m.id)+'" data-guid="'+esc(c.guid)+'" onclick="approveFromButton(this)" class="'+buttonClass+'"'+disabled+'>'+label+'</button>'+link+'</div></div>';
+  const packReason=companionType==="tv"?'<div class="reason">TV companion: '+esc(c.tv_pack_reason||"not identified as a season or series pack")+'</div>':"";
+  return '<div class="candidate"><h3>'+esc(c.title)+"</h3><div class=\"facts\"><span class=\"badge\">"+fmtBytes(c.size)+"</span><span class=\"badge\">"+esc(seed)+" seeders</span>"+ageBadge+"<span class=\"badge\">"+esc(c.source)+"</span><span class=\"badge\">"+esc(c.codec)+"</span><span class=\"badge warn\">"+esc(c.language_evidence)+"</span><span class=\"badge\">Score "+esc(c.score)+"</span></div><div class=\"reason\">✓ "+esc((c.reasons||[]).join(" · "))+"</div>"+packReason+"<div class=\"actions\">"+'<button data-id="'+esc(m.id)+'" data-guid="'+esc(c.guid)+'" onclick="approveFromButton(this)" class="'+buttonClass+'"'+disabled+'>'+label+'</button>'+link+'</div></div>';
 }
 function approveFromButton(button){approveCompanion(button.dataset.id,button.dataset.guid,button)}
 function closeCompanionMovie(){openCompanion="";loadCompanions()}
 async function searchOneCompanion(id,button){
   const originalHTML=button&&button.innerHTML;
   if(button){button.disabled=true;button.classList.add("searching");if(!button.classList.contains("icon-button"))button.innerHTML='<span class="approval-spinner" aria-hidden="true"></span>Searching…'}
-  try{await postJSON("/api/companions/"+id+"/search",{});await loadCompanions(id)}catch(e){alert(e.message)}finally{if(button&&button.isConnected){button.disabled=false;button.classList.remove("searching");button.innerHTML=originalHTML}}
+  try{await postJSON(companionURL("/"+id+"/search"),{});await loadCompanions(id)}catch(e){alert(e.message)}finally{if(button&&button.isConnected){button.disabled=false;button.classList.remove("searching");button.innerHTML=originalHTML}}
 }
-async function skipCompanion(id){try{await postJSON("/api/companions/"+id+"/skip",{});await loadCompanions(id)}catch(e){alert(e.message)}}
+async function skipCompanion(id){try{await postJSON(companionURL("/"+id+"/skip"),{});await loadCompanions(id)}catch(e){alert(e.message)}}
 async function approveCompanion(id,guid,button){
   if(companionApprovals.has(id))return;
   companionApprovals.set(id,guid);
@@ -592,7 +613,7 @@ async function approveCompanion(id,guid,button){
   buttons.forEach(candidateButton=>candidateButton.disabled=true);
   if(button){button.classList.add("approving");button.innerHTML='<span class="approval-spinner" aria-hidden="true"></span>Adding…'}
   try{
-    await postJSON("/api/companions/"+id+"/approve",{guid});
+    await postJSON(companionURL("/"+id+"/approve"),{guid});
     await loadCompanions(openCompanion);
   }catch(e){
     const currentOpen=openCompanion;
@@ -611,6 +632,7 @@ async function searchIntakeCompanion(id){
   try{
     const view=await postJSON("/api/intakes/"+id+"/companion-search",{});
     companionData=view;
+    companionType=view.media_type==="tv"?"tv":"movie";
     openCompanion=(view.open&&view.open.id)||id;
     companionFilter=(view.open&&view.open.status)||"all";
     companionPage=0;
@@ -734,7 +756,7 @@ function destHTML(x){
       "<tr><td>Hash</td><td class='mono'>"+esc(x.result.hash)+"</td></tr>"+
       "</tbody></table>"+
       '<span class="small">CineRoute will perform no further operations on this torrent.</span>'+
-      (x.media_type==="movie"?'<div class="actions"><button data-id="'+esc(x.id)+'" onclick="searchIntakeCompanion(this.dataset.id)">Find companion</button></div>':"")+"</div>";
+      (x.media_type==="movie"||x.media_type==="tv"?'<div class="actions"><button data-id="'+esc(x.id)+'" onclick="searchIntakeCompanion(this.dataset.id)">Find companion</button></div>':"")+"</div>";
   }else if(x.status==="submitting"||busy.has(x.group)){
     html+='<div class="okbox">Adding stopped, verifying, starting…</div>';
   }else{
@@ -779,6 +801,7 @@ function cardTV(g){
       return "";
     }).filter(Boolean).join("<br>");
     if(msgs)html+='<div class="'+(g.some(x=>x.status==="failed")?"errbox":"okbox")+'" style="margin-top:8px">'+msgs+"</div>";
+    if(allSubmitted)html+='<div class="actions"><button data-id="'+esc(rep.id)+'" onclick="searchIntakeCompanion(this.dataset.id)">Find companion</button></div>';
     if(!allSubmitted&&!busy.has(busyKey)){
       html+='<div class="actions"><button class="primary" onclick="submit(\''+rep.id+'\')">Add all '+g.length+' to qBittorrent (stopped, verify, start)</button></div>';
     }

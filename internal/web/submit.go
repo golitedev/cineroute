@@ -24,6 +24,7 @@ type submissionRequest struct {
 	Match              tmdb.Result
 	RequireExisting    bool
 	UseMovieRemoteRoot bool
+	UseTVRemoteRoot    bool
 }
 
 type submissionOutcome struct {
@@ -188,6 +189,13 @@ func (s *Server) submitTorrent(ctx context.Context, req submissionRequest) (*sub
 	if req.UseMovieRemoteRoot && isTV {
 		return nil, errors.New("remote companion destinations are only supported for movies")
 	}
+	if req.UseTVRemoteRoot && !isTV {
+		return nil, errors.New("TV remote companion destinations are only supported for TV shows")
+	}
+	itemLabel := "movie"
+	if isTV {
+		itemLabel = "TV show"
+	}
 	folder := library.FolderName(s.cfg.Library.FolderFormat, req.Match.DisplayTitle(), req.Match.Year())
 	var matches []library.Folder
 	if isTV {
@@ -198,11 +206,11 @@ func (s *Server) submitTorrent(ctx context.Context, req submissionRequest) (*sub
 	if req.RequireExisting {
 		switch len(matches) {
 		case 0:
-			return nil, errors.New("movie folder no longer exists; rescan the library before approving the companion")
+			return nil, fmt.Errorf("%s folder no longer exists; rescan the library before approving the companion", itemLabel)
 		case 1:
 			// Use the only canonical folder below.
 		default:
-			return nil, errors.New("movie exists on multiple drives; resolve the duplicate folders before approving the companion")
+			return nil, fmt.Errorf("%s exists on multiple drives; resolve the duplicate folders before approving the companion", itemLabel)
 		}
 	}
 
@@ -220,12 +228,16 @@ func (s *Server) submitTorrent(ctx context.Context, req submissionRequest) (*sub
 			if remotePath, ok := s.lib.MovieRemotePath(driveID, folder); ok {
 				savePath = remotePath
 			}
+		} else if req.UseTVRemoteRoot {
+			if remotePath, ok := s.lib.TVRemotePath(driveID, folder); ok {
+				savePath = remotePath
+			}
 		}
 	case len(matches) > 1:
 		return nil, errors.New("this title exists on multiple drives; resolve the duplicates before submitting")
 	default:
 		if req.RequireExisting {
-			return nil, errors.New("movie folder no longer exists; rescan the library before approving the companion")
+			return nil, fmt.Errorf("%s folder no longer exists; rescan the library before approving the companion", itemLabel)
 		}
 		pending := s.pendingReservations()
 		sel, err := s.alloc.Select(s.cfg.Drives, pending, req.Meta.Size)

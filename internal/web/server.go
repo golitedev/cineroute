@@ -115,14 +115,15 @@ type SubmitResult struct {
 }
 
 type Server struct {
-	cfg        *config.Config
-	qb         *qbittorrent.Client
-	tmdb       *tmdb.Client
-	alloc      *allocator.Allocator
-	lib        *library.Scan
-	companions *companion.Manager
-	allocMu    sync.Mutex
-	page       *template.Template
+	cfg          *config.Config
+	qb           *qbittorrent.Client
+	tmdb         *tmdb.Client
+	alloc        *allocator.Allocator
+	lib          *library.Scan
+	companions   *companion.Manager
+	tvCompanions *companion.Manager
+	allocMu      sync.Mutex
+	page         *template.Template
 
 	mu      sync.RWMutex
 	intakes map[string]*Intake
@@ -146,13 +147,14 @@ func New(cfg *config.Config, qb *qbittorrent.Client, tmdbClient *tmdb.Client, pr
 	}
 	scan := library.NewScan(drives)
 	s := &Server{
-		cfg:        cfg,
-		qb:         qb,
-		tmdb:       tmdbClient,
-		alloc:      allocator.New(),
-		lib:        scan,
-		companions: companion.NewManager(cfg, scan, prowlarrClient),
-		intakes:    map[string]*Intake{},
+		cfg:          cfg,
+		qb:           qb,
+		tmdb:         tmdbClient,
+		alloc:        allocator.New(),
+		lib:          scan,
+		companions:   companion.NewManager(cfg, scan, prowlarrClient),
+		tvCompanions: companion.NewTVManager(cfg, scan, prowlarrClient),
+		intakes:      map[string]*Intake{},
 	}
 	s.page = template.Must(template.New("index.html").ParseFS(assetsFS, "templates/index.html"))
 	go s.cleanupLoop()

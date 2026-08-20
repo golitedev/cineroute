@@ -47,6 +47,26 @@ func TestMoviesFailsWhenConfiguredRootCannotBeRead(t *testing.T) {
 	}
 }
 
+func TestTVShowsScanOnlyPrimaryRoots(t *testing.T) {
+	base := t.TempDir()
+	primary := filepath.Join(base, "t1")
+	remote := filepath.Join(base, "tr1")
+	if err := os.MkdirAll(filepath.Join(primary, "Breaking Bad (2008)"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Join(remote, "Remote Only (2024)"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	shows, err := NewScan([]Drive{{ID: "hdd1", TVRoot: primary, TVRemoteRoot: remote}}).TVShows()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(shows) != 1 || shows[0].Name != "Breaking Bad (2008)" || shows[0].Path != filepath.Join(primary, "Breaking Bad (2008)") {
+		t.Fatalf("TV shows = %+v, want only the primary-root show", shows)
+	}
+}
+
 func TestRemotePathsInferMountedConventionalRoots(t *testing.T) {
 	base := t.TempDir()
 	mainRoot := filepath.Join(base, "m1")

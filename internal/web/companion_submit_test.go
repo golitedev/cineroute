@@ -98,3 +98,40 @@ func TestCompanionSubmissionRequiresExistingMovieFolder(t *testing.T) {
 		t.Fatalf("missing companion must not be added, got %d adds", len(fake.added))
 	}
 }
+
+func TestCompanionSubmissionUsesTVRemoteFolder(t *testing.T) {
+	srv, fake, _, roots := newTestServer(t)
+	mainFolder := filepath.Join(roots["/t3"], "Lost (2004)")
+	remoteRoot := filepath.Join(t.TempDir(), "tv-remote")
+	if err := os.MkdirAll(mainFolder, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(remoteRoot, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	srv.cfg.Drives = []config.Drive{{ID: "hdd3", MovieRoot: roots["/m3"], TVRoot: roots["/t3"], TVRemoteRoot: remoteRoot}}
+	srv.lib = library.NewScan([]library.Drive{{ID: "hdd3", MovieRoot: roots["/m3"], TVRoot: roots["/t3"], TVRemoteRoot: remoteRoot}})
+
+	raw := singleFileTorrent("Lost.S01.2004.1080p.WEB-DL.mkv", 100)
+	meta, err := torrentmeta.Parse(raw)
+	if err != nil {
+		t.Fatal(err)
+	}
+	out, err := srv.submitTorrent(context.Background(), submissionRequest{
+		Bytes: raw, Filename: "tv-companion.torrent", Meta: meta, MediaType: "tv",
+		Match:           tmdb.Result{ID: 4607, Name: "Lost", FirstAirDate: "2004-09-22"},
+		RequireExisting: true, UseTVRemoteRoot: true,
+	})
+	if err != nil {
+		t.Fatalf("TV remote companion submission failed: %v", err)
+	}
+	want := filepath.Join(remoteRoot, "Lost (2004)")
+	if out == nil || out.Dest == nil || out.Dest.SavePath != want || out.Dest.DriveID != "hdd3" {
+		t.Fatalf("TV companion destination = %+v, want %s on hdd3", out, want)
+	}
+	fake.mu.Lock()
+	defer fake.mu.Unlock()
+	if len(fake.added) != 1 || fake.added[0].savepath != want {
+		t.Fatalf("qBittorrent TV save path = %+v, want %s", fake.added, want)
+	}
+}
