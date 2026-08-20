@@ -461,7 +461,7 @@ function renderCompanions(){
   if(document.activeElement!==$("companionInterval"))$("companionInterval").value=interval;
   if(document.activeElement!==$("companionBatchSize"))$("companionBatchSize").value=batchSize;
   $("companionTitle").textContent=isTV?"TV Companions":"Movie Companions";
-  $("companionDescription").textContent=isTV?"Searches Prowlarr by TV show title. Season and series packs can be approved; individual episodes stay visible for review but cannot be added.":"Searches the configured Prowlarr indexer. Every download still needs your approval.";
+  $("companionDescription").textContent=isTV?"Searches Prowlarr by TV show title. Season and series packs can be approved; individual episodes are hidden.":"Searches the configured Prowlarr indexer. Every download still needs your approval.";
   $("companionBatchLabel").textContent="Search batch size ("+noun+")";
   $("companionIntervalNote").textContent="Delay between Prowlarr tracker searches. "+interval+"s ≈ "+rateText+" searches/minute.";
   $("companionBatchNote").textContent="The next batch searches up to "+batchSize+" "+noun+". Each "+singular+" uses one tracker search.";

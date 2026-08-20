@@ -57,6 +57,7 @@ var webRipRe = regexp.MustCompile(`(?i)\bweb[. _-]*rip\b`)
 var hevcRe = regexp.MustCompile(`(?i)\b(?:hevc|h[. _-]*265|x265)\b`)
 var avcRe = regexp.MustCompile(`(?i)\b(?:avc|h[. _-]*264|x264)\b`)
 var tvEpisodeRe = regexp.MustCompile(`(?i)(?:^|[^a-z0-9])(?:s[0-9]{1,3}[ ._-]*e[0-9]{1,3}|season[ ._-]*[0-9]{1,3}[ ._-]*(?:episode|ep)[ ._-]*[0-9]{1,3}|[0-9]{1,3}[ ._-]*x[ ._-]*[0-9]{1,3}|(?:episode|ep)[ ._-]*[0-9]{1,3})(?:[^a-z0-9]|$)`)
+var tvEpisodeMarkerRe = regexp.MustCompile(`(?i)s[0-9]{2}e[0-9]{2}`)
 var tvSeasonRe = regexp.MustCompile(`(?i)(?:^|[^a-z0-9])(?:s[0-9]{1,3}|season[ ._-]*[0-9]{1,3})(?:[^a-z0-9]|$)`)
 var tvCollectionRe = regexp.MustCompile(`(?i)(?:^|[^a-z0-9])(?:complete|collection|full[ ._-]*series|all[ ._-]*seasons)(?:[^a-z0-9]|$)`)
 
@@ -96,9 +97,39 @@ func FilterAndRank(releases []prowlarr.Release, title string, year, tmdbID int, 
 	return ranked
 }
 
-// MarkTVPackCandidates keeps every release visible while identifying which
-// releases are safe to approve for a TV companion. Individual episodes remain
-// reviewable for transparency but are never eligible for download.
+// filterTVEpisodeReleases removes individual episode torrents before TV
+// results are ranked and capped. This keeps a large batch of episode releases
+// from pushing season and series packs out of the review list.
+func filterTVEpisodeReleases(releases []prowlarr.Release) []prowlarr.Release {
+	filtered := make([]prowlarr.Release, 0, len(releases))
+	for _, release := range releases {
+		if isTVEpisodeTitle(release.Title) {
+			continue
+		}
+		filtered = append(filtered, release)
+	}
+	return filtered
+}
+
+// filterTVEpisodeCandidates hides individual episodes already stored by an
+// older search, so the UI changes immediately without requiring a new search.
+func filterTVEpisodeCandidates(candidates []Candidate) []Candidate {
+	filtered := make([]Candidate, 0, len(candidates))
+	for _, candidate := range candidates {
+		if isTVEpisodeTitle(candidate.Title) {
+			continue
+		}
+		filtered = append(filtered, candidate)
+	}
+	return filtered
+}
+
+func isTVEpisodeTitle(title string) bool {
+	return tvEpisodeRe.MatchString(title) || tvEpisodeMarkerRe.MatchString(title)
+}
+
+// MarkTVPackCandidates identifies which remaining release is safe to approve
+// for a TV companion.
 func MarkTVPackCandidates(candidates []Candidate) {
 	for i := range candidates {
 		candidates[i].TVPackEligible, candidates[i].TVPackReason = TVPackEligibility(candidates[i].Title)
@@ -106,7 +137,7 @@ func MarkTVPackCandidates(candidates []Candidate) {
 }
 
 func TVPackEligibility(title string) (bool, string) {
-	if tvEpisodeRe.MatchString(title) {
+	if isTVEpisodeTitle(title) {
 		return false, "individual episode release — not eligible for TV companion"
 	}
 	if tvSeasonRe.MatchString(title) || tvCollectionRe.MatchString(title) {

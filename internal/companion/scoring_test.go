@@ -40,7 +40,7 @@ func TestRankCompanionReleasesKeepsAllQualityVariants(t *testing.T) {
 	}
 }
 
-func TestTVPackEligibilityKeepsEpisodesVisibleButBlocksApproval(t *testing.T) {
+func TestTVPackEligibilityClassifiesEpisodesAndPacks(t *testing.T) {
 	tests := []struct {
 		title    string
 		eligible bool
@@ -72,6 +72,20 @@ func TestTVPackEligibilityKeepsEpisodesVisibleButBlocksApproval(t *testing.T) {
 	}
 	if candidates[0].TVPackEligible == candidates[1].TVPackEligible {
 		t.Fatalf("TV pack annotations = %+v", candidates)
+	}
+}
+
+func TestFilterTVEpisodeReleasesRemovesEpisodeMarkers(t *testing.T) {
+	releases := []prowlarr.Release{
+		{Guid: "episode-06", Title: "Show.S01E06.1080p.WEB-DL"},
+		{Guid: "episode-34", Title: "Show.S04E34.1080p.WEB-DL"},
+		{Guid: "attached-episode", Title: "ShowS05E02WEB-DL"},
+		{Guid: "season", Title: "Show.S01.1080p.WEB-DL"},
+		{Guid: "series", Title: "Show.Complete.Series.1080p.WEB-DL"},
+	}
+	got := filterTVEpisodeReleases(releases)
+	if len(got) != 2 || got[0].Guid != "season" || got[1].Guid != "series" {
+		t.Fatalf("TV episode releases were not filtered: %+v", got)
 	}
 }
 

@@ -208,10 +208,10 @@ CINEROUTE_PROWLARR_INDEXER
 ```
 
 Each companion item performs one Prowlarr search. Movie searches use the movie
-title and year; TV searches use the show title only. TV search results are all
-shown and ranked with the same evidence as movie results, but CineRoute only
-allows season or series packs to be approved. Individual releases such as
-`S03E04` remain visible for tracker inspection but cannot be added.
+title and year; TV searches use the show title only. TV search results are
+ranked with the same evidence as movie results, but CineRoute hides individual
+episode releases such as `S03E04` and only allows season or series packs to be
+approved.
 Every TV folder is placed in the searchable review queue regardless of its
 current quality, size, or existing remote copy, so language companions can be
 reviewed deliberately; skip shows that do not need one.

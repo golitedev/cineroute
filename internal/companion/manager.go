@@ -243,6 +243,7 @@ func (m *Manager) View(openID string) View {
 			if result, ok := m.searches[openID]; ok {
 				view.Candidates = cloneCandidates(result.Candidates)
 				if m.kind == companionTV {
+					view.Candidates = filterTVEpisodeCandidates(view.Candidates)
 					MarkTVPackCandidates(view.Candidates)
 				}
 				view.SearchedAt = result.SearchedAt
@@ -549,6 +550,11 @@ func (m *Manager) searchMovie(ctx context.Context, movie *Movie) ([]Candidate, e
 			return nil, err
 		}
 		results = mergeReleases(results, found)
+	}
+	if m.kind == companionTV {
+		// Filter before FilterAndRank's result cap so individual episodes do
+		// not crowd season and series packs out of the review list.
+		results = filterTVEpisodeReleases(results)
 	}
 	candidates := FilterAndRank(results, movie.Title, movie.Year, movie.TmdbID, policy)
 	if m.kind == companionTV {
