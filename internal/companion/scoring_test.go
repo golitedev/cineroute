@@ -89,6 +89,33 @@ func TestFilterTVEpisodeReleasesRemovesEpisodeMarkers(t *testing.T) {
 	}
 }
 
+func TestSortTVPackCandidatesGroupsSeasonsAndPreservesRank(t *testing.T) {
+	candidates := []Candidate{
+		{Guid: "s03-best", Title: "Show.S03.1080p.WEB-DL"},
+		{Guid: "s01-best", Title: "Show.S01.1080p.WEB-DL"},
+		{Guid: "s03-alt", Title: "Show.S03.REPACK.1080p.WEB-DL"},
+		{Guid: "series", Title: "Show.Complete.Series.1080p.WEB-DL"},
+		{Guid: "s02-best", Title: "Show.S02.1080p.WEB-DL"},
+		{Guid: "s01-alt", Title: "Show.S01.REPACK.1080p.WEB-DL"},
+	}
+	sortTVPackCandidates(candidates)
+
+	want := []string{"s01-best", "s01-alt", "s02-best", "s03-best", "s03-alt", "series"}
+	for i, guid := range want {
+		if candidates[i].Guid != guid {
+			t.Fatalf("candidate order = %v, want %v", candidateGuids(candidates), want)
+		}
+	}
+}
+
+func candidateGuids(candidates []Candidate) []string {
+	guids := make([]string, len(candidates))
+	for i, candidate := range candidates {
+		guids[i] = candidate.Guid
+	}
+	return guids
+}
+
 func TestPossessiveTitleSpellingsRemainEligible(t *testing.T) {
 	seeders := 36
 	release := prowlarr.Release{

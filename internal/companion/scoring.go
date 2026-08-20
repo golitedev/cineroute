@@ -58,7 +58,7 @@ var hevcRe = regexp.MustCompile(`(?i)\b(?:hevc|h[. _-]*265|x265)\b`)
 var avcRe = regexp.MustCompile(`(?i)\b(?:avc|h[. _-]*264|x264)\b`)
 var tvEpisodeRe = regexp.MustCompile(`(?i)(?:^|[^a-z0-9])(?:s[0-9]{1,3}[ ._-]*e[0-9]{1,3}|season[ ._-]*[0-9]{1,3}[ ._-]*(?:episode|ep)[ ._-]*[0-9]{1,3}|[0-9]{1,3}[ ._-]*x[ ._-]*[0-9]{1,3}|(?:episode|ep)[ ._-]*[0-9]{1,3})(?:[^a-z0-9]|$)`)
 var tvEpisodeMarkerRe = regexp.MustCompile(`(?i)s[0-9]{2}e[0-9]{2}`)
-var tvSeasonRe = regexp.MustCompile(`(?i)(?:^|[^a-z0-9])(?:s[0-9]{1,3}|season[ ._-]*[0-9]{1,3})(?:[^a-z0-9]|$)`)
+var tvSeasonNumberRe = regexp.MustCompile(`(?i)(?:^|[^a-z0-9])(?:s([0-9]{1,3})|season[ ._-]*([0-9]{1,3}))`)
 var tvCollectionRe = regexp.MustCompile(`(?i)(?:^|[^a-z0-9])(?:complete|collection|full[ ._-]*series|all[ ._-]*seasons)(?:[^a-z0-9]|$)`)
 
 // FilterAndRank keeps every release returned by Prowlarr, orders it for manual
@@ -136,11 +136,52 @@ func MarkTVPackCandidates(candidates []Candidate) {
 	}
 }
 
+// sortTVPackCandidates groups numbered seasons in ascending order while
+// preserving the existing rank within each season. Series and unrecognized
+// packs stay visible after numbered seasons.
+func sortTVPackCandidates(candidates []Candidate) {
+	sort.SliceStable(candidates, func(i, j int) bool {
+		leftGroup, leftSeason := tvCandidateSortKey(candidates[i].Title)
+		rightGroup, rightSeason := tvCandidateSortKey(candidates[j].Title)
+		if leftGroup != rightGroup {
+			return leftGroup < rightGroup
+		}
+		return leftSeason < rightSeason
+	})
+}
+
+func tvCandidateSortKey(title string) (group, season int) {
+	if season, ok := tvSeasonNumber(title); ok {
+		return 0, season
+	}
+	if tvCollectionRe.MatchString(title) {
+		return 1, 0
+	}
+	return 2, 0
+}
+
+func tvSeasonNumber(title string) (int, bool) {
+	matches := tvSeasonNumberRe.FindStringSubmatch(title)
+	if len(matches) == 0 {
+		return 0, false
+	}
+	for _, raw := range matches[1:] {
+		if raw == "" {
+			continue
+		}
+		season, err := strconv.Atoi(raw)
+		if err == nil {
+			return season, true
+		}
+	}
+	return 0, false
+}
+
 func TVPackEligibility(title string) (bool, string) {
 	if isTVEpisodeTitle(title) {
 		return false, "individual episode release — not eligible for TV companion"
 	}
-	if tvSeasonRe.MatchString(title) || tvCollectionRe.MatchString(title) {
+	if _, ok := tvSeasonNumber(title); ok || tvCollectionRe.MatchString(title) {
 		return true, "season or series pack"
 	}
 	return false, "not identified as a season or series pack"

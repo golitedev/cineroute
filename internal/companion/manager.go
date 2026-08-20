@@ -245,6 +245,7 @@ func (m *Manager) View(openID string) View {
 				if m.kind == companionTV {
 					view.Candidates = filterTVEpisodeCandidates(view.Candidates)
 					MarkTVPackCandidates(view.Candidates)
+					sortTVPackCandidates(view.Candidates)
 				}
 				view.SearchedAt = result.SearchedAt
 			}
@@ -559,6 +560,7 @@ func (m *Manager) searchMovie(ctx context.Context, movie *Movie) ([]Candidate, e
 	candidates := FilterAndRank(results, movie.Title, movie.Year, movie.TmdbID, policy)
 	if m.kind == companionTV {
 		MarkTVPackCandidates(candidates)
+		sortTVPackCandidates(candidates)
 	}
 	return candidates, nil
 }
