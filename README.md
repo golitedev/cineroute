@@ -215,6 +215,9 @@ allows season or series packs to be approved. Individual releases such as
 Every TV folder is placed in the searchable review queue regardless of its
 current quality, size, or existing remote copy, so language companions can be
 reviewed deliberately; skip shows that do not need one.
+Movie scans use the same review-queue rule: every non-added movie is searchable
+regardless of its current quality, size, or remote copy, and a later movie scan
+requeues previously skipped movies. Existing Added movies remain unchanged.
 
 Each companion page can run a limited next batch (default 20 items), cancel a
 running batch, and set the delay between actual Prowlarr searches.

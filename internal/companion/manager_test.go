@@ -190,8 +190,8 @@ func TestScanRecognizes1080pCompanionInRemoteRoot(t *testing.T) {
 		t.Fatal(err)
 	}
 	movie := m.state.Movies[0]
-	if movie.Status != StatusAlready1080p {
-		t.Fatalf("remote WEB-DL status = %s, want %s", movie.Status, StatusAlready1080p)
+	if movie.Status != StatusPending {
+		t.Fatalf("remote WEB-DL status = %s, want %s", movie.Status, StatusPending)
 	}
 	if movie.RemotePath != remoteFolder {
 		t.Fatalf("remote path = %q, want %q", movie.RemotePath, remoteFolder)
@@ -201,6 +201,55 @@ func TestScanRecognizes1080pCompanionInRemoteRoot(t *testing.T) {
 	}
 	if len(movie.RemoteFiles) != 1 || movie.RemoteFiles[0] != remoteFile {
 		t.Fatalf("remote files = %v, want %q", movie.RemoteFiles, remoteFile)
+	}
+}
+
+func TestScanRequeuesSkippedMoviesButPreservesAddedMovies(t *testing.T) {
+	root := t.TempDir()
+	for _, name := range []string{"Skipped (2020)", "Added (2021)"} {
+		folder := filepath.Join(root, name)
+		if err := os.MkdirAll(folder, 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(folder, name+".1080p.WEB-DL.mkv"), nil, 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	cfg := config.Default()
+	cfg.Companion.StatePath = filepath.Join(t.TempDir(), "companions.db")
+	addedAt := time.Unix(123, 0)
+	m := newTransitionManager(t, StatusSkipped)
+	m.cfg = cfg
+	m.lib = library.NewScan([]library.Drive{{ID: "hdd1", MovieRoot: root}})
+	m.state.Movies[0].ID = movieID("hdd1", "Skipped (2020)")
+	m.state.Movies[0].Path = filepath.Join(root, "Skipped (2020)")
+	m.state.Movies[0].FolderName = "Skipped (2020)"
+	m.state.Movies = append(m.state.Movies, &Movie{
+		ID:         movieID("hdd1", "Added (2021)"),
+		DriveID:    "hdd1",
+		Path:       filepath.Join(root, "Added (2021)"),
+		FolderName: "Added (2021)",
+		Title:      "Added",
+		Year:       2021,
+		Status:     StatusComplete,
+		QBHash:     "existing-hash",
+		AddedAt:    &addedAt,
+	})
+
+	if err := m.Scan(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	byFolder := make(map[string]*Movie, len(m.state.Movies))
+	for _, movie := range m.state.Movies {
+		byFolder[movie.FolderName] = movie
+	}
+	if got := byFolder["Skipped (2020)"].Status; got != StatusPending {
+		t.Fatalf("skipped movie status = %s, want %s", got, StatusPending)
+	}
+	added := byFolder["Added (2021)"]
+	if added.Status != StatusComplete || added.QBHash != "existing-hash" || added.AddedAt == nil || !added.AddedAt.Equal(addedAt) {
+		t.Fatalf("added movie changed during scan: %+v", added)
 	}
 }
 

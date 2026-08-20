@@ -393,7 +393,7 @@ func (m *Manager) Scan(ctx context.Context) error {
 		}
 		movie.Title = title
 		movie.Year = year
-		if movie.Status == StatusComplete || movie.Status == StatusSkipped {
+		if movie.Status == StatusComplete || (m.kind == companionTV && movie.Status == StatusSkipped) {
 			current = append(current, movie)
 			continue
 		}
@@ -407,38 +407,11 @@ func (m *Manager) Scan(ctx context.Context) error {
 			movie.Error = ""
 		}
 		inspectionErr := movieInspectionError(mainInspection, remoteInspection)
-		if m.kind == companionTV {
-			// TV companions are an explicit language/backfill review queue. Every
-			// parsed show stays searchable, even when it already has a 1080p copy,
-			// has a remote copy, or has an inspection warning.
-			if inspectionErr != "" {
-				movie.Error = inspectionErr
-			} else {
-				movie.Error = ""
-			}
-			movie.Status = StatusPending
-			movie.UpdatedAt = time.Now()
-			current = append(current, movie)
-			continue
-		}
-		if inspectionErr != "" {
-			movie.Status = StatusNeedsReview
-			movie.Error = inspectionErr
-			movie.UpdatedAt = time.Now()
-			current = append(current, movie)
-			continue
-		}
-		if hasSuitableMovieCopy(mainInspection, remoteInspection) {
-			movie.Status = StatusAlready1080p
-			movie.Error = ""
-			movie.UpdatedAt = time.Now()
-			current = append(current, movie)
-			continue
-		}
-		if movie.Status == "" || movie.Status == StatusNeedsReview || movie.Status == StatusAlready1080p {
-			movie.Status = StatusPending
-			movie.Error = ""
-		}
+		// Both companion workflows are explicit language/backfill review queues:
+		// every parsed item stays searchable, even when it already has a 1080p
+		// copy, has a remote copy, or has an inspection warning.
+		movie.Status = StatusPending
+		movie.Error = inspectionErr
 		movie.UpdatedAt = time.Now()
 		current = append(current, movie)
 	}
