@@ -406,7 +406,22 @@ func (m *Manager) Scan(ctx context.Context) error {
 			movie.Status = StatusPending
 			movie.Error = ""
 		}
-		if inspectionErr := movieInspectionError(mainInspection, remoteInspection); inspectionErr != "" {
+		inspectionErr := movieInspectionError(mainInspection, remoteInspection)
+		if m.kind == companionTV {
+			// TV companions are an explicit language/backfill review queue. Every
+			// parsed show stays searchable, even when it already has a 1080p copy,
+			// has a remote copy, or has an inspection warning.
+			if inspectionErr != "" {
+				movie.Error = inspectionErr
+			} else {
+				movie.Error = ""
+			}
+			movie.Status = StatusPending
+			movie.UpdatedAt = time.Now()
+			current = append(current, movie)
+			continue
+		}
+		if inspectionErr != "" {
 			movie.Status = StatusNeedsReview
 			movie.Error = inspectionErr
 			movie.UpdatedAt = time.Now()
@@ -868,9 +883,13 @@ func (m *Manager) upsertItem(driveID, path, folderName, title string, year, tmdb
 	remotePath, _ = m.remotePath(driveID, folderName)
 	mainInspection, remoteInspection := m.inspectFolder(movie, path, remotePath, folderName)
 	if movie.Status != StatusComplete && movie.Status != StatusSkipped && !isLiveWorkflowStatus(movie.Status) {
-		if hasSuitableMovieCopy(mainInspection, remoteInspection) {
+		inspectionErr := movieInspectionError(mainInspection, remoteInspection)
+		if m.kind == companionTV {
+			movie.Status = StatusPending
+			movie.Error = inspectionErr
+		} else if hasSuitableMovieCopy(mainInspection, remoteInspection) {
 			movie.Status = StatusAlready1080p
-		} else if inspectionErr := movieInspectionError(mainInspection, remoteInspection); inspectionErr != "" {
+		} else if inspectionErr != "" {
 			movie.Status = StatusNeedsReview
 			movie.Error = inspectionErr
 		} else {

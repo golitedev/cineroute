@@ -5,6 +5,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -342,6 +343,9 @@ func TestTVCompanionScansPrimaryRootsAndInspectsRemoteCopy(t *testing.T) {
 	if err := os.MkdirAll(filepath.Join(remote, "Remote Only (2024)"), 0o755); err != nil {
 		t.Fatal(err)
 	}
+	if err := os.MkdirAll(filepath.Join(primary, "Empty Show (2020)"), 0o755); err != nil {
+		t.Fatal(err)
+	}
 
 	cfg := config.Default()
 	cfg.Companion.StatePath = filepath.Join(t.TempDir(), "companions.db")
@@ -350,15 +354,26 @@ func TestTVCompanionScansPrimaryRootsAndInspectsRemoteCopy(t *testing.T) {
 		t.Fatal(err)
 	}
 	view := m.View("")
-	if view.MediaType != "tv" || len(view.Movies) != 1 {
-		t.Fatalf("TV companion view = %+v, want one primary-root show", view)
+	if view.MediaType != "tv" || len(view.Movies) != 2 {
+		t.Fatalf("TV companion view = %+v, want two primary-root shows", view)
 	}
-	show := view.Movies[0]
-	if show.Title != "Breaking Bad" || show.Year != 2008 || show.Status != StatusAlready1080p {
+	shows := make(map[string]*Movie, len(view.Movies))
+	for _, show := range view.Movies {
+		shows[show.FolderName] = show
+		if show.Status != StatusPending {
+			t.Fatalf("TV show %q status = %s, want pending", show.FolderName, show.Status)
+		}
+	}
+	show := shows[folderName]
+	if show == nil || show.Title != "Breaking Bad" || show.Year != 2008 {
 		t.Fatalf("TV show state = %+v", show)
 	}
 	if show.RemotePath != remoteFolder || show.RemoteCopy != "1080p" {
 		t.Fatalf("TV remote inspection = %+v", show)
+	}
+	empty := shows["Empty Show (2020)"]
+	if empty == nil || !strings.Contains(empty.Error, "no video file") {
+		t.Fatalf("empty TV show should remain searchable with an inspection note: %+v", empty)
 	}
 }
 

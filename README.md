@@ -212,6 +212,9 @@ title and year; TV searches use the show title only. TV search results are all
 shown and ranked with the same evidence as movie results, but CineRoute only
 allows season or series packs to be approved. Individual releases such as
 `S03E04` remain visible for tracker inspection but cannot be added.
+Every TV folder is placed in the searchable review queue regardless of its
+current quality, size, or existing remote copy, so language companions can be
+reviewed deliberately; skip shows that do not need one.
 
 Each companion page can run a limited next batch (default 20 items), cancel a
 running batch, and set the delay between actual Prowlarr searches.
