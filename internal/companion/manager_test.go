@@ -301,9 +301,9 @@ func TestSearchIntervalBlocksTheNextRequest(t *testing.T) {
 	}
 }
 
-func TestCompanionSearchQueriesPreferYearQualifiedSearch(t *testing.T) {
+func TestCompanionSearchUsesOnlyYearQualifiedSearch(t *testing.T) {
 	got := companionSearchQueries(&Movie{Title: "12 Angry Men", Year: 1957})
-	want := []string{"12 Angry Men 1957", "12 Angry Men"}
+	want := []string{"12 Angry Men 1957"}
 	if len(got) != len(want) {
 		t.Fatalf("queries = %v, want %v", got, want)
 	}

@@ -491,15 +491,10 @@ func (m *Manager) searchMovie(ctx context.Context, movie *Movie) ([]Candidate, e
 
 func companionSearchQueries(movie *Movie) []string {
 	title := strings.TrimSpace(movie.Title)
-	query := title
 	if movie.Year > 0 {
-		query = strings.TrimSpace(fmt.Sprintf("%s %d", title, movie.Year))
+		return []string{strings.TrimSpace(fmt.Sprintf("%s %d", title, movie.Year))}
 	}
-	queries := []string{query}
-	if query != title {
-		queries = append(queries, title)
-	}
-	return queries
+	return []string{title}
 }
 
 func companionSearchHistoryQuery(movie *Movie) string {
