@@ -197,6 +197,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("POST /api/companions/scan", s.scanCompanions)
 	mux.HandleFunc("POST /api/companions/search-missing", s.searchMissingCompanions)
 	mux.HandleFunc("POST /api/companions/search-missing/cancel", s.cancelCompanionSearch)
+	mux.HandleFunc("POST /api/companions/clear-reviews", s.clearCompanionReviews)
 	mux.HandleFunc("POST /api/companions/{id}/search", s.searchCompanion)
 	mux.HandleFunc("POST /api/companions/{id}/skip", s.skipCompanion)
 	mux.HandleFunc("POST /api/companions/{id}/approve", s.approveCompanion)

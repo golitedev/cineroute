@@ -46,6 +46,34 @@ func TestSearchOneRejectsActiveOrCompleteStates(t *testing.T) {
 	}
 }
 
+func TestClearReviewsResetsMoviesAndRemovesCurrentCandidates(t *testing.T) {
+	m := newTransitionManager(t, StatusReview)
+	m.searches["movie"] = searchState{Candidates: []Candidate{{Guid: "candidate", Title: "Movie release"}}}
+	pending := &Movie{ID: "pending", FolderName: "Pending (2024)", Status: StatusPending, UpdatedAt: time.Unix(10, 0)}
+	m.state.Movies = append(m.state.Movies, pending)
+	m.searches[pending.ID] = searchState{Candidates: []Candidate{{Guid: "pending-candidate"}}}
+
+	cleared, err := m.ClearReviews()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cleared != 1 {
+		t.Fatalf("cleared = %d, want 1", cleared)
+	}
+	if got := m.state.Movies[0].Status; got != StatusPending {
+		t.Fatalf("review movie status = %s, want %s", got, StatusPending)
+	}
+	if _, ok := m.searches["movie"]; ok {
+		t.Fatal("review movie candidates were not removed")
+	}
+	if got := m.state.Movies[1].Status; got != StatusPending {
+		t.Fatalf("pending movie status = %s, want %s", got, StatusPending)
+	}
+	if _, ok := m.searches[pending.ID]; !ok {
+		t.Fatal("pending movie candidates were unexpectedly removed")
+	}
+}
+
 func TestPrepareSelectedRequiresReviewState(t *testing.T) {
 	for _, status := range []string{StatusPending, StatusSearching, StatusSubmitting, StatusComplete, StatusNoMatch} {
 		t.Run(status, func(t *testing.T) {

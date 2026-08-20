@@ -36,7 +36,8 @@ button.primary{background:var(--accent);border-color:var(--accent);color:#fff}
 button.primary.approving{background:#111318;border-color:#343945;color:var(--dim)}
 button.primary.searching{background:#111318;border-color:#343945;color:var(--dim)}
 .approval-spinner{display:inline-block;width:12px;height:12px;margin-right:7px;border:2px solid #4b5260;border-top-color:var(--text);border-radius:50%;vertical-align:-2px;animation:companion-spin .8s linear infinite}
-button.danger{color:#ff9b92;border-color:#7a2f2d}
+button.danger{background:#3a171a;color:#ffb3ad;border-color:#7a2f2d}
+button.danger:hover{background:#4b1c20;border-color:var(--err)}
 button:disabled{opacity:.5;cursor:not-allowed}
 a.tracker-link,a.tracker-link:visited{color:#ffb86c}
 a.tracker-link:hover{color:#ffd28a}
@@ -173,6 +174,7 @@ input[type=number]{width:90px}
       <div class="actions" style="margin-top:0">
         <button onclick="scanCompanions()">Scan library</button>
         <button id="companionSearchButton" class="primary" onclick="searchMissingCompanions()">Search next batch</button>
+        <button id="companionClearReviewsButton" class="danger" onclick="clearCompanionReviews()">Clear reviews</button>
         <button id="companionCancelButton" class="danger hidden" onclick="cancelCompanionSearch()">Cancel search</button>
       </div>
     </div>
@@ -446,13 +448,15 @@ function renderCompanions(){
   $("companionIntervalNote").textContent="Delay between Prowlarr tracker searches. "+interval+"s ≈ "+rateText+" searches/minute.";
   $("companionBatchNote").textContent="The next batch searches up to "+batchSize+" movies. Each movie may use two tracker searches.";
   const count=status=>movies.filter(m=>m.status===status&&!m.missing).length;
+  const reviewCount=count("review");
   const missing=movies.filter(m=>m.missing).length;
   $("companionStats").innerHTML=[
-    [movies.length-missing,"Movies"],[count("pending"),"Needs search"],[count("review"),"Review"],[count("no_match"),"No releases"],[count("complete"),"Added"],[count("skipped"),"Skipped"]
+    [movies.length-missing,"Movies"],[count("pending"),"Needs search"],[reviewCount,"Review"],[count("no_match"),"No releases"],[count("complete"),"Added"],[count("skipped"),"Skipped"]
   ].map(x=>'<div class="companion-stat"><strong>'+x[0]+"</strong><span>"+x[1]+"</span></div>").join("");
   const b=companionData.batch||{};
   $("companionProgress").textContent=b.running?"Searching "+b.done+" / "+b.total+(b.error?" — "+b.error:""):b.canceled?"Search canceled after "+b.done+" / "+b.total:b.error||(companionData.prowlarr_configured?"Indexer: "+(companionData.indexer_name||"LAT-Team"):"Prowlarr not configured — set the API key before searching");
   $("companionSearchButton").disabled=!!b.running;
+  $("companionClearReviewsButton").disabled=!!b.running||reviewCount===0;
   $("companionCancelButton").classList.toggle("hidden",!b.running);
   $("companionMessage").innerHTML=companionData.state_error?'<div class="errbox">'+esc(companionData.state_error)+"</div>":"";
   document.querySelectorAll("#companionFilters button").forEach(btn=>btn.classList.toggle("active",btn.dataset.filter===companionFilter));
@@ -490,6 +494,18 @@ async function scanCompanions(){
 }
 async function searchMissingCompanions(){
   try{await postJSON("/api/companions/search-missing",{});await loadCompanions()}catch(e){alert(e.message)}
+}
+async function clearCompanionReviews(){
+  if(!confirm("Clear all review movies? Their current Prowlarr results will be removed and they will return to Needs search."))return;
+  const button=$("companionClearReviewsButton");
+  button.disabled=true;
+  try{
+    await postJSON("/api/companions/clear-reviews",{});
+    companionFilter="pending";
+    companionPage=0;
+    openCompanion="";
+    await loadCompanions();
+  }catch(e){alert(e.message)}finally{if(button.isConnected)button.disabled=false}
 }
 async function cancelCompanionSearch(){
   try{await postJSON("/api/companions/search-missing/cancel",{});await loadCompanions()}catch(e){alert(e.message)}

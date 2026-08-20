@@ -623,6 +623,65 @@ func (m *Manager) CancelSearchMissing() error {
 	return nil
 }
 
+// ClearReviews discards the current candidates for every movie waiting in
+// review and returns those movies to the pending search queue. Search history
+// remains available for audit; only the current review results are removed.
+func (m *Manager) ClearReviews() (int, error) {
+	if !m.Enabled() {
+		return 0, errors.New("1080p companions are disabled")
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if m.stateErr != nil {
+		return 0, m.stateErr
+	}
+	type previousMovieState struct {
+		movie     *Movie
+		status    string
+		error     string
+		updatedAt time.Time
+		search    searchState
+		hadSearch bool
+	}
+	previous := make([]previousMovieState, 0)
+	now := time.Now()
+	for _, movie := range m.state.Movies {
+		if movie.Status != StatusReview {
+			continue
+		}
+		oldSearch, hadSearch := m.searches[movie.ID]
+		previous = append(previous, previousMovieState{
+			movie:     movie,
+			status:    movie.Status,
+			error:     movie.Error,
+			updatedAt: movie.UpdatedAt,
+			search:    oldSearch,
+			hadSearch: hadSearch,
+		})
+		movie.Status = StatusPending
+		movie.Error = ""
+		movie.UpdatedAt = now
+		delete(m.searches, movie.ID)
+	}
+	if len(previous) == 0 {
+		return 0, nil
+	}
+	if err := m.persistLocked(); err != nil {
+		for _, old := range previous {
+			old.movie.Status = old.status
+			old.movie.Error = old.error
+			old.movie.UpdatedAt = old.updatedAt
+			if old.hadSearch {
+				m.searches[old.movie.ID] = old.search
+			} else {
+				delete(m.searches, old.movie.ID)
+			}
+		}
+		return 0, err
+	}
+	return len(previous), nil
+}
+
 func (m *Manager) runBatch(ctx context.Context, ids []string) {
 	defer func() {
 		m.mu.Lock()

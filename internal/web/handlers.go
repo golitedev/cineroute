@@ -242,6 +242,19 @@ func (s *Server) cancelCompanionSearch(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusAccepted, map[string]any{"status": "canceling", "batch": s.companions.View("").Batch})
 }
 
+func (s *Server) clearCompanionReviews(w http.ResponseWriter, r *http.Request) {
+	if s.companions == nil {
+		writeErr(w, http.StatusServiceUnavailable, "companion subsystem is unavailable")
+		return
+	}
+	cleared, err := s.companions.ClearReviews()
+	if err != nil {
+		writeErr(w, http.StatusConflict, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"status": "cleared", "cleared": cleared})
+}
+
 func (s *Server) searchCompanion(w http.ResponseWriter, r *http.Request) {
 	if s.companions == nil {
 		writeErr(w, http.StatusServiceUnavailable, "companion subsystem is unavailable")
