@@ -558,6 +558,17 @@ function setCompanionPageForMovie(id){
   if(index>=0)companionPage=Math.floor(index/20);
 }
 async function navigateCompanionReview(id){if(!id)return;setCompanionPageForMovie(id);await loadCompanions(id);$("companionDetail").scrollIntoView({behavior:"smooth",block:"start"})}
+function tvPackPreviewFiles(files){
+  const seen=new Set();
+  return files.filter(path=>{
+    const normalized=String(path).replace(/\\/g,"/");
+    const separator=normalized.lastIndexOf("/");
+    const pack=separator<0?normalized:normalized.slice(0,separator);
+    if(seen.has(pack))return false;
+    seen.add(pack);
+    return true;
+  });
+}
 function renderCompanionDetail(){
   const box=$("companionDetail"),m=companionData&&companionData.open;
   if(!m){box.classList.add("hidden");box.innerHTML="";return}
@@ -569,7 +580,7 @@ function renderCompanionDetail(){
   const remoteFiles=m.remote_files||[];
   const remoteFileSizes=m.remote_file_sizes||{};
   const fileHTML=(label,files,sizes)=>files.length?'<div class="companion-existing-files"><div class="small">'+label+(files.length===1?"":"s")+'</div>'+files.map(path=>'<div class="small mono">'+esc(m.drive_id+" · "+path+(Object.prototype.hasOwnProperty.call(sizes,path)?" · "+fmtBytes(sizes[path]):""))+"</div>").join("")+"</div>":"";
-  const existingHTML=fileHTML("Main video file",existingFiles,existingFileSizes)+fileHTML("Remote video file",remoteFiles,remoteFileSizes);
+  const existingHTML=fileHTML("Main video file",isTV?tvPackPreviewFiles(existingFiles):existingFiles,existingFileSizes)+fileHTML("Remote video file",isTV?tvPackPreviewFiles(remoteFiles):remoteFiles,remoteFileSizes);
   const destinationPath=m.remote_path||m.path;
   const refreshIcon='<span class="refresh-icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12a9 9 0 1 1-2.64-6.36L21 8"></path><path d="M21 3v5h-5"></path></svg></span>';
   const navigation=companionReviewNavigation(m);
