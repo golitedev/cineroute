@@ -167,7 +167,7 @@ auto-submit mode.
 ## Companion copies
 
 CineRoute can optionally search one Prowlarr indexer (normally `LAT-Team`) for
-smaller 1080p companion releases for movies already in the library. Use the
+potential companion releases for movies already in the library. Use the
 **Companions** view to scan the four movie roots, then search the queue
 or open one movie at a time. The list is paginated and candidate details are
 loaded only for the movie being reviewed, which keeps a large backfill queue
@@ -178,11 +178,14 @@ their `Title (Year)` names and do not require a TMDB lookup. TMDB IDs remain
 available for movies entered through the normal intake flow and strengthen
 candidate matching when present.
 
-Search results are filtered and ranked for 1080p, with WEB-DL preferred,
-sub-8-GiB releases treated as the sweet spot, and compatible BluRay x264 as
-the next tier. Language is shown as evidence but is not a major ranking
-signal; open the tracker details and manually approve a candidate. At most
-five candidates are retained for each movie.
+Search results are never filtered by CineRoute. Up to 50 Prowlarr releases are
+retained for each movie and ranked for manual review, with WEB-DL preferred,
+1080p treated as the target resolution, sub-8-GiB releases treated as the
+sweet spot, and compatible BluRay x264 as the next tier. 4K, REMUX, CAM,
+alternate-title, oversized, and low-seeder releases remain visible with lower
+or review-oriented ranking evidence. Language is shown as evidence but is not
+a major ranking signal; open the tracker details and manually approve a
+candidate.
 CineRoute never downloads a companion automatically. Approved torrents use
 the same stopped-add, verification and explicit-start transaction as normal
 intake. When a drive has `movie_remote_root` configured—or the conventional

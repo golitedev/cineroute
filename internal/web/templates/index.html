@@ -218,7 +218,7 @@ input[type=number]{width:90px}
     <div class="companion-filters" id="companionFilters">
       <button data-filter="pending" onclick="setCompanionFilter('pending')">Needs search</button>
       <button data-filter="review" onclick="setCompanionFilter('review')">Review</button>
-      <button data-filter="no_match" onclick="setCompanionFilter('no_match')">No match</button>
+      <button data-filter="no_match" onclick="setCompanionFilter('no_match')">No releases</button>
       <button data-filter="needs_review" onclick="setCompanionFilter('needs_review')">Needs review</button>
       <button data-filter="error" onclick="setCompanionFilter('error')">Errors</button>
       <button data-filter="complete" onclick="setCompanionFilter('complete')">Added</button>
@@ -409,7 +409,7 @@ async function removeGroup(key){
 
 // ---- companions ----
 function companionStatus(m){
-  const labels={pending:"needs search",searching:"searching…",review:"review",no_match:"no match",already_has_1080p:"already has 1080p",needs_review:"needs review",skipped:"skipped",submitting:"submitting…",complete:"added",error:"error"};
+  const labels={pending:"needs search",searching:"searching…",review:"review",no_match:"no releases",already_has_1080p:"already has 1080p",needs_review:"needs review",skipped:"skipped",submitting:"submitting…",complete:"added",error:"error"};
   return labels[m.status]||m.status||"pending";
 }
 function companionStatusClass(m){
@@ -452,7 +452,7 @@ function renderCompanions(){
   const count=status=>movies.filter(m=>m.status===status&&!m.missing).length;
   const missing=movies.filter(m=>m.missing).length;
   $("companionStats").innerHTML=[
-    [movies.length-missing,"Movies"],[count("pending"),"Needs search"],[count("review"),"Review"],[count("no_match"),"No match"],[count("complete"),"Added"],[count("skipped"),"Skipped"]
+    [movies.length-missing,"Movies"],[count("pending"),"Needs search"],[count("review"),"Review"],[count("no_match"),"No releases"],[count("complete"),"Added"],[count("skipped"),"Skipped"]
   ].map(x=>'<div class="companion-stat"><strong>'+x[0]+"</strong><span>"+x[1]+"</span></div>").join("");
   const b=companionData.batch||{};
   $("companionProgress").textContent=b.running?"Searching "+b.done+" / "+b.total+(b.error?" — "+b.error:""):b.canceled?"Search canceled after "+b.done+" / "+b.total:b.error||(companionData.prowlarr_configured?"Indexer: "+(companionData.indexer_name||"LAT-Team"):"Prowlarr not configured — set the API key before searching");
@@ -460,7 +460,7 @@ function renderCompanions(){
   $("companionCancelButton").classList.toggle("hidden",!b.running);
   $("companionMessage").innerHTML=companionData.state_error?'<div class="errbox">'+esc(companionData.state_error)+"</div>":"";
   document.querySelectorAll("#companionFilters button").forEach(btn=>btn.classList.toggle("active",btn.dataset.filter===companionFilter));
-  const filterLabels={pending:"Needs search",review:"Review",no_match:"No match",needs_review:"Needs review",error:"Errors",complete:"Added",skipped:"Skipped",all:"All"};
+  const filterLabels={pending:"Needs search",review:"Review",no_match:"No releases",needs_review:"Needs review",error:"Errors",complete:"Added",skipped:"Skipped",all:"All"};
   const searchInput=$("companionSearchInput");
   if(document.activeElement!==searchInput)searchInput.value=companionSearchTerm;
   $("companionSearchFilterLabel").textContent=filterLabels[companionFilter]||"selected category";
@@ -547,7 +547,7 @@ function renderCompanionDetail(){
     if(m.status!=="complete"&&m.status!=="already_has_1080p"){const searchLabel=m.status==="no_match"?"Search again":"Search";html+='<div class="actions"><button class="primary" data-id="'+esc(m.id)+'" onclick="searchOneCompanion(this.dataset.id,this)">'+searchLabel+'</button><button data-id="'+esc(m.id)+'" onclick="skipCompanion(this.dataset.id)">Skip</button></div>'}
     box.innerHTML=html+navigation;return;
   }
-  html+='<h2 style="margin-top:18px">Candidates <span class="small">'+candidates.length+' filtered release'+(candidates.length===1?"":"s")+" · inspect the tracker details before approving</span></h2>";
+  html+='<h2 style="margin-top:18px">Candidates <span class="small">'+candidates.length+' Prowlarr release'+(candidates.length===1?"":"s")+" · ranked for review; inspect the tracker details before approving</span></h2>";
   html+=candidates.map(candidate=>candidateCard(candidate,m)).join("");
   if(m.status!=="complete"&&m.status!=="submitting")html+='<div class="actions"><button data-id="'+esc(m.id)+'" onclick="skipCompanion(this.dataset.id)">Skip this movie</button></div>';
   box.innerHTML=html+navigation;

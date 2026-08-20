@@ -3,13 +3,14 @@ package companion
 import (
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 
 	"cineroute/internal/prowlarr"
 )
 
-func TestFilterAndRankCompanionReleases(t *testing.T) {
+func TestRankCompanionReleasesKeepsAllQualityVariants(t *testing.T) {
 	seeders := 43
 	policy := Policy{MaxBytes: 15 << 30, MinSeeders: 1, TargetIndexerID: 7}
 	releases := []prowlarr.Release{
@@ -19,8 +20,17 @@ func TestFilterAndRankCompanionReleases(t *testing.T) {
 		{Guid: "other", Title: "Movie.2024.1080p.WEB-DL-GROUP", Size: 8 << 30, IndexerID: 7, TmdbID: 999, Seeders: &seeders},
 	}
 	got := FilterAndRank(releases, "Movie", 2024, 123, policy)
-	if len(got) != 1 || got[0].Guid != "best" {
-		t.Fatalf("filtered candidates: %+v", got)
+	if len(got) != len(releases) || got[0].Guid != "best" {
+		t.Fatalf("ranked candidates: %+v", got)
+	}
+	seen := make(map[string]bool, len(got))
+	for _, candidate := range got {
+		seen[candidate.Guid] = true
+	}
+	for _, release := range releases {
+		if !seen[release.Guid] {
+			t.Fatalf("Prowlarr release %q was filtered: %+v", release.Guid, got)
+		}
 	}
 	if got[0].Source != "WEB-DL" || got[0].Codec != "HEVC" {
 		t.Fatalf("candidate evidence: %+v", got[0])
@@ -52,7 +62,7 @@ func TestPossessiveTitleSpellingsRemainEligible(t *testing.T) {
 	}
 }
 
-func TestUnrelatedTitleAndYearAreNotCompanionCandidates(t *testing.T) {
+func TestUnrelatedTitleAndYearRemainVisibleButRankLower(t *testing.T) {
 	seeders := 10
 	got := FilterAndRank([]prowlarr.Release{
 		{Guid: "alive", Title: "Alive.1993.1080p.WEB-DL.H.264-GROUP", Size: 5 << 30, IndexerID: 7, Seeders: &seeders},
@@ -60,8 +70,8 @@ func TestUnrelatedTitleAndYearAreNotCompanionCandidates(t *testing.T) {
 		{Guid: "alice-1951", Title: "Alice.In.Wonderland.1951.1080p.WEB-DL.H.264-GROUP", Size: 4 << 30, IndexerID: 7, Seeders: &seeders},
 		{Guid: "alice-2010", Title: "Alice.In.Wonderland.2010.1080p.WEB-DL.H.264-GROUP", Size: 4 << 30, IndexerID: 7, Seeders: &seeders},
 	}, "Alive", 1993, 0, Policy{MaxBytes: 15 << 30, MinSeeders: 1, TargetIndexerID: 7})
-	if len(got) != 1 || got[0].Guid != "alive" {
-		t.Fatalf("unrelated releases were not filtered: %+v", got)
+	if len(got) != 4 || got[0].Guid != "alive" {
+		t.Fatalf("unrelated releases were not retained and ranked: %+v", got)
 	}
 }
 
@@ -82,18 +92,19 @@ func TestMatchingTitlesWithinOneYearRemainReviewable(t *testing.T) {
 func TestCompanionRankingPrefersWebDLAndCompatibleBluRay(t *testing.T) {
 	seeders := 10
 	policy := Policy{MaxBytes: 15 << 30, MinSeeders: 1, TargetIndexerID: 7}
-	got := FilterAndRank([]prowlarr.Release{
+	releases := []prowlarr.Release{
 		{Guid: "web-small", Title: "Movie.2024.1080p.WEB-DL.H.264-GROUP", Size: 7 << 30, IndexerID: 7, Seeders: &seeders},
 		{Guid: "web-large", Title: "Movie.2024.1080p.WEB-DL.H.264-LATTEAM", Size: 12 << 30, IndexerID: 7, Seeders: &seeders},
 		{Guid: "bluray-x264", Title: "Movie.2024.1080p.BluRay.H.264-GROUP", Size: 14 << 30, IndexerID: 7, Seeders: &seeders},
 		{Guid: "bluray-x265", Title: "Movie.2024.1080p.BluRay.H.265-GROUP", Size: 1 << 30, IndexerID: 7, Seeders: &seeders},
 		{Guid: "extra-1", Title: "Movie.2024.1080p.WEBRip.H.264-GROUP", Size: 9 << 30, IndexerID: 7, Seeders: &seeders},
 		{Guid: "extra-2", Title: "Movie.2024.1080p.WEBRip.H.264-OTHER", Size: 10 << 30, IndexerID: 7, Seeders: &seeders},
-	}, "Movie", 2024, 0, policy)
-	if len(got) != MaxCandidateResults {
-		t.Fatalf("candidate count = %d, want %d", len(got), MaxCandidateResults)
 	}
-	wantOrder := []string{"web-small", "web-large", "bluray-x264", "bluray-x265"}
+	got := FilterAndRank(releases, "Movie", 2024, 0, policy)
+	if len(got) != len(releases) {
+		t.Fatalf("candidate count = %d, want %d", len(got), len(releases))
+	}
+	wantOrder := []string{"web-small", "web-large", "bluray-x264", "bluray-x265", "extra-1", "extra-2"}
 	for i, want := range wantOrder {
 		if got[i].Guid != want {
 			t.Fatalf("candidate %d = %s, want %s (all: %+v)", i, got[i].Guid, want, got)
@@ -104,7 +115,7 @@ func TestCompanionRankingPrefersWebDLAndCompatibleBluRay(t *testing.T) {
 	}
 }
 
-func TestProwlarrTitlesWithMatchingMetadataAreEligible(t *testing.T) {
+func TestProwlarrTitlesRemainVisibleAndRankWithMetadata(t *testing.T) {
 	seeders := []int{5, 8, 1, 8}
 	policy := Policy{MaxBytes: 15 << 30, MinSeeders: 1, TargetIndexerID: 5}
 	releases := []prowlarr.Release{
@@ -114,8 +125,8 @@ func TestProwlarrTitlesWithMatchingMetadataAreEligible(t *testing.T) {
 		{Guid: "spanish-title", Title: "12 hombres en pugna 1957 1080p DD 2.0 MKV x264 BDRip LatTeam.mkv SPANiSH", Size: 3328724014, IndexerID: 5, Seeders: &seeders[3]},
 	}
 	got := FilterAndRank(releases, "12 Angry Men", 1957, 0, policy)
-	if len(got) != 3 || got[0].Title != releases[0].Title || got[0].Guid == "" {
-		t.Fatalf("exact Prowlarr titles: %+v", got)
+	if len(got) != len(releases) || got[0].Title != releases[0].Title || got[0].Guid == "" {
+		t.Fatalf("Prowlarr titles: %+v", got)
 	}
 	if !strings.Contains(strings.Join(got[0].Reasons, " "), "1008p") {
 		t.Fatalf("1008p tracker typo was not explained: %+v", got[0].Reasons)
@@ -123,6 +134,72 @@ func TestProwlarrTitlesWithMatchingMetadataAreEligible(t *testing.T) {
 	again := FilterAndRank(releases, "12 Angry Men", 1957, 0, policy)
 	if got[0].Guid != again[0].Guid {
 		t.Fatalf("guidless release ID changed between searches: %q != %q", got[0].Guid, again[0].Guid)
+	}
+}
+
+func TestFormerCompanionFiltersOnlyAffectRanking(t *testing.T) {
+	zero := 0
+	got := FilterAndRank([]prowlarr.Release{
+		{Guid: "4k-remux", Title: "Different.Movie.1999.2160p.UHD.BluRay.REMUX", Size: 100 << 30, IndexerID: 99, TmdbID: 999, Seeders: &zero},
+		{Guid: "cam", Title: "Unrelated.Movie.2020.480p.CAM", Size: 0, IndexerID: 99},
+		{Guid: "alternate", Title: "Ciudad.de.Dios.2002.720p.WEBRip", Size: 2 << 30, IndexerID: 99, Seeders: &zero},
+	}, "City of God", 2002, 598, Policy{MaxBytes: 20 << 30, MinSeeders: 1, TargetIndexerID: 7})
+	if len(got) != 3 {
+		t.Fatalf("formerly filtered releases were dropped: %+v", got)
+	}
+	byID := make(map[string]Candidate, len(got))
+	for _, candidate := range got {
+		byID[candidate.Guid] = candidate
+	}
+	for _, id := range []string{"4k-remux", "cam", "alternate"} {
+		if _, ok := byID[id]; !ok {
+			t.Fatalf("release %q was filtered: %+v", id, got)
+		}
+	}
+	if byID["4k-remux"].Source != "BluRay REMUX" || byID["cam"].Source != "CAM/TS" {
+		t.Fatalf("source ranking evidence missing: %+v", byID)
+	}
+}
+
+func TestCityOfGodAlternateWEBDLRanksFirstWithoutFilteringOtherRows(t *testing.T) {
+	seeders := []int{15, 5, 8, 1, 39}
+	releases := []prowlarr.Release{
+		{Guid: "webdl", Title: "La.Cite.De.Dieu.2002.1080p.MAX.WEB-DL.DDP2.0.H.264-LatTeam.mkv SPANiSH", Size: 7500000000, IndexerID: 7, Seeders: &seeders[0]},
+		{Guid: "bluray-small", Title: "City.Of.God.(2002).1080p.BluRay.LITE.AC3.6ch.h264.mkv SPANiSH", Size: 2530000000, IndexerID: 7, Seeders: &seeders[1]},
+		{Guid: "bluray-large", Title: "City.Of.God.2002.1080p.BluRay.DD.+5.1.x264-ARV.mkv SPANiSH", Size: 18880000000, IndexerID: 7, Seeders: &seeders[2]},
+		{Guid: "remux", Title: "Ciudad.De.Dios.2002.1080p.REMUX.DTS-HD.H264.mkv SPANiSH", Size: 28300000000, IndexerID: 7, Seeders: &seeders[3]},
+		{Guid: "no-resolution", Title: "Ciudad de Dios (2002).mkv SPANiSH", Size: 2500000000, IndexerID: 7, Seeders: &seeders[4]},
+	}
+	got := FilterAndRank(releases, "City of God", 2002, 0, Policy{MaxBytes: 20 << 30, MinSeeders: 1, TargetIndexerID: 7})
+	if len(got) != len(releases) || got[0].Guid != "webdl" {
+		t.Fatalf("City of God releases were not ranked as expected: %+v", got)
+	}
+	seen := make(map[string]bool, len(got))
+	for _, candidate := range got {
+		seen[candidate.Guid] = true
+	}
+	for _, release := range releases {
+		if !seen[release.Guid] {
+			t.Fatalf("City of God release %q was filtered: %+v", release.Guid, got)
+		}
+	}
+}
+
+func TestRankCapsVisibleProwlarrReleasesAtFifty(t *testing.T) {
+	seeders := 10
+	releases := make([]prowlarr.Release, MaxCandidateResults+5)
+	for i := range releases {
+		releases[i] = prowlarr.Release{
+			Guid:      "release-" + strconv.Itoa(i),
+			Title:     "Movie.2024.1080p.WEB-DL.H.264-GROUP",
+			Size:      int64(i+1) << 20,
+			Seeders:   &seeders,
+			IndexerID: 7,
+		}
+	}
+	got := FilterAndRank(releases, "Movie", 2024, 0, Policy{})
+	if len(got) != MaxCandidateResults {
+		t.Fatalf("candidate count = %d, want %d", len(got), MaxCandidateResults)
 	}
 }
 

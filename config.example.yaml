@@ -39,6 +39,7 @@ prowlarr:
 companion:
   enabled: true
   state_path: "/data/companions.db"
+  # These are soft ranking preferences; no Prowlarr release is filtered out.
   max_size_gib: 20
   min_seeders: 1
   search_limit: 50

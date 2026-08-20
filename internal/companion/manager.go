@@ -418,7 +418,7 @@ func (m *Manager) SearchOne(ctx context.Context, id string) ([]Candidate, error)
 	m.searches[id] = searchState{Candidates: cloneCandidates(candidates), SearchedAt: time.Now()}
 	if len(candidates) == 0 {
 		current.Status = StatusNoMatch
-		current.Error = "no suitable 1080p releases found"
+		current.Error = "Prowlarr returned no releases"
 	} else {
 		current.Status = StatusReview
 		current.Error = ""

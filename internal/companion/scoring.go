@@ -14,6 +14,8 @@ import (
 )
 
 type Policy struct {
+	// These values are ranking preferences only. They must never make a
+	// Prowlarr release disappear from manual review.
 	MaxBytes        int64
 	MinSeeders      int
 	TargetIndexerID int
@@ -39,7 +41,7 @@ type Candidate struct {
 	sourceGuid       string
 }
 
-const MaxCandidateResults = 5
+const MaxCandidateResults = 50
 
 const (
 	sweetSpotBytes      = 8 << 30
@@ -47,18 +49,16 @@ const (
 	maxReleaseYearDelta = 1
 )
 
-var resolutionRe = regexp.MustCompile(`(?i)\b(?:480|576|720|1008|1080|2160)p\b`)
+var resolutionRe = regexp.MustCompile(`(?i)\b(?:480|576|720|1008|1080|2160|4320)p\b`)
 var webDLRe = regexp.MustCompile(`(?i)\bweb[. _-]*dl\b`)
 var webRipRe = regexp.MustCompile(`(?i)\bweb[. _-]*rip\b`)
 var hevcRe = regexp.MustCompile(`(?i)\b(?:hevc|h[. _-]*265|x265)\b`)
 var avcRe = regexp.MustCompile(`(?i)\b(?:avc|h[. _-]*264|x264)\b`)
 
-// FilterAndRank applies the intentionally small companion quality policy and
-// returns candidates ordered for manual review. Search results still need to
-// identify this movie: Prowlarr's query is not a substitute for title/year
-// validation because title-only searches can return unrelated releases. A
-// one-year release-date difference remains reviewable because trackers often
-// use a different regional or festival release year.
+// FilterAndRank keeps every release returned by Prowlarr, orders it for manual
+// review, and retains at most MaxCandidateResults rows. The name is kept for
+// compatibility with the companion workflow; this function no longer filters
+// releases by title, year, metadata, size, seeders, resolution, or source.
 func FilterAndRank(releases []prowlarr.Release, title string, year, tmdbID int, policy Policy) []Candidate {
 	guidCounts := make(map[string]int, len(releases))
 	for _, release := range releases {
@@ -66,66 +66,38 @@ func FilterAndRank(releases []prowlarr.Release, title string, year, tmdbID int, 
 			guidCounts[guid]++
 		}
 	}
-	accepted := make([]Candidate, 0, len(releases))
+	ranked := make([]Candidate, 0, len(releases))
 	for _, release := range releases {
 		guid := strings.TrimSpace(release.Guid)
-		candidate, ok := scoreRelease(release, title, year, tmdbID, policy, guid == "" || guidCounts[guid] > 1)
-		if ok {
-			accepted = append(accepted, candidate)
-		}
+		ranked = append(ranked, scoreRelease(release, title, year, tmdbID, policy, guid == "" || guidCounts[guid] > 1))
 	}
-	sort.SliceStable(accepted, func(i, j int) bool {
-		if accepted[i].Score != accepted[j].Score {
-			return accepted[i].Score > accepted[j].Score
+	sort.SliceStable(ranked, func(i, j int) bool {
+		if ranked[i].Score != ranked[j].Score {
+			return ranked[i].Score > ranked[j].Score
 		}
-		if accepted[i].Size != accepted[j].Size {
-			return accepted[i].Size < accepted[j].Size
+		if ranked[i].Size != ranked[j].Size {
+			return ranked[i].Size < ranked[j].Size
 		}
-		leftSeeders := seedCount(accepted[i].Seeders)
-		rightSeeders := seedCount(accepted[j].Seeders)
+		leftSeeders := seedCount(ranked[i].Seeders)
+		rightSeeders := seedCount(ranked[j].Seeders)
 		if leftSeeders != rightSeeders {
 			return leftSeeders > rightSeeders
 		}
-		return accepted[i].PublishDate.After(accepted[j].PublishDate)
+		return ranked[i].PublishDate.After(ranked[j].PublishDate)
 	})
-	if len(accepted) > MaxCandidateResults {
-		return accepted[:MaxCandidateResults]
+	if len(ranked) > MaxCandidateResults {
+		return ranked[:MaxCandidateResults]
 	}
-	return accepted
+	return ranked
 }
 
-func scoreRelease(release prowlarr.Release, title string, year, tmdbID int, policy Policy, useFingerprint bool) (Candidate, bool) {
-	if strings.TrimSpace(release.Title) == "" {
-		return Candidate{}, false
-	}
-	if policy.TargetIndexerID > 0 && release.IndexerID > 0 && release.IndexerID != policy.TargetIndexerID {
-		return Candidate{}, false
-	}
+func scoreRelease(release prowlarr.Release, title string, year, tmdbID int, policy Policy, useFingerprint bool) Candidate {
 	exactTMDB := tmdbID > 0 && release.TmdbID > 0 && release.TmdbID == tmdbID
-	if tmdbID > 0 && release.TmdbID > 0 && release.TmdbID != tmdbID {
-		return Candidate{}, false
-	}
-	if release.Size <= 0 || (policy.MaxBytes > 0 && release.Size > policy.MaxBytes) {
-		return Candidate{}, false
-	}
-	if policy.MinSeeders > 0 && release.Seeders != nil && *release.Seeders < policy.MinSeeders {
-		return Candidate{}, false
-	}
-	tracker1008pTypo := hasResolution(release.Title, "1008p")
-	if (!hasResolution(release.Title, "1080p") && !tracker1008pTypo) || hasAny(release.Title, "2160p", "4k", "uhd", "720p", "480p") {
-		return Candidate{}, false
-	}
-	if hasAny(release.Title, "remux", "cam", "camrip", "telesync", "telecine", "ts", "tc") {
-		return Candidate{}, false
-	}
 
 	releaseTitle, releaseYear := releaseTitleAndYear(release.Title)
 	wantTitle := normalizedWords(title)
 	titleMatch := wordSequenceMatch(releaseTitle, wantTitle)
 	yearMatch := year == 0 || releaseYear == 0 || yearDistance(year, releaseYear) <= maxReleaseYearDelta
-	if !exactTMDB && (!titleMatch || !yearMatch) {
-		return Candidate{}, false
-	}
 
 	c := Candidate{
 		Guid:        releaseCandidateID(release, useFingerprint),
@@ -141,12 +113,23 @@ func scoreRelease(release prowlarr.Release, title string, year, tmdbID int, poli
 		downloadURL: release.DownloadURL,
 		sourceGuid:  strings.TrimSpace(release.Guid),
 	}
-	if tracker1008pTypo {
-		c.Reasons = append(c.Reasons, "tracker labels 1008p — treated as 1080p")
+
+	if strings.TrimSpace(release.Title) == "" {
+		c.Score -= 40
+		c.Reasons = append(c.Reasons, "release title missing")
+	}
+	if policy.TargetIndexerID > 0 && release.IndexerID > 0 && release.IndexerID != policy.TargetIndexerID {
+		c.Score -= 30
+		c.Reasons = append(c.Reasons, "Prowlarr indexer metadata differs — inspect tracker")
 	}
 	if exactTMDB {
 		c.Score += 100
 		c.Reasons = append(c.Reasons, "TMDB match")
+	} else if tmdbID > 0 && release.TmdbID > 0 && release.TmdbID != tmdbID {
+		c.Score -= 30
+		c.Reasons = append(c.Reasons, "TMDB metadata differs — inspect tracker")
+	} else if tmdbID > 0 && release.TmdbID == 0 {
+		c.Reasons = append(c.Reasons, "TMDB metadata unavailable")
 	}
 	if titleMatch && yearMatch && year > 0 && releaseYear == year {
 		c.Score += 40
@@ -163,24 +146,11 @@ func scoreRelease(release prowlarr.Release, title string, year, tmdbID int, poli
 	}
 	if !yearMatch {
 		c.Score -= 15
+		c.Reasons = append(c.Reasons, "year differs — inspect tracker")
 	}
 
-	switch {
-	case webDLRe.MatchString(release.Title):
-		c.Source = "WEB-DL"
-		c.Score += 120
-		c.Reasons = append(c.Reasons, "WEB-DL")
-	case webRipRe.MatchString(release.Title):
-		c.Source = "WEBRip"
-		c.Score += 40
-		c.Reasons = append(c.Reasons, "WEBRip")
-	case hasAny(release.Title, "bluray", "brrip", "bdrip"):
-		c.Source = "BluRay encode"
-		c.Score += 45
-		c.Reasons = append(c.Reasons, "BluRay encode")
-	default:
-		c.Source = "Unknown source"
-	}
+	addSourceEvidence(&c, release.Title)
+	addResolutionEvidence(&c, release.Title)
 
 	if hevcRe.MatchString(release.Title) || hasAny(release.Title, "h265", "x265", "hevc") {
 		c.Codec = "HEVC"
@@ -205,6 +175,9 @@ func scoreRelease(release prowlarr.Release, title string, year, tmdbID int, poli
 	}
 
 	switch {
+	case release.Size <= 0:
+		c.Score -= 5
+		c.Reasons = append(c.Reasons, "size unknown")
 	case release.Size < sweetSpotBytes:
 		c.Score += 20
 		c.Reasons = append(c.Reasons, "under 8 GiB sweet spot")
@@ -213,6 +186,10 @@ func scoreRelease(release prowlarr.Release, title string, year, tmdbID int, poli
 		c.Reasons = append(c.Reasons, "under 10 GiB")
 	default:
 		c.Score += 2
+	}
+	if policy.MaxBytes > 0 && release.Size > policy.MaxBytes {
+		c.Score -= 8
+		c.Reasons = append(c.Reasons, "over configured size preference — inspect tracker")
 	}
 
 	tokens := releaseTokens(release.Title)
@@ -240,11 +217,78 @@ func scoreRelease(release prowlarr.Release, title string, year, tmdbID int, poli
 		case *release.Seeders >= 1:
 			c.Score += 2
 			c.Reasons = append(c.Reasons, formatSeeders(*release.Seeders)+" seeders")
+		default:
+			c.Reasons = append(c.Reasons, formatSeeders(*release.Seeders)+" seeders")
 		}
 	} else {
 		c.Reasons = append(c.Reasons, "seeders unknown")
 	}
-	return c, true
+	if policy.MinSeeders > 0 && release.Seeders != nil && *release.Seeders < policy.MinSeeders {
+		c.Score -= 4
+		c.Reasons = append(c.Reasons, "below configured seeder preference — inspect tracker")
+	}
+	return c
+}
+
+func addSourceEvidence(c *Candidate, title string) {
+	switch {
+	case hasAny(title, "cam", "camrip", "telesync", "telecine", "ts", "tc"):
+		c.Source = "CAM/TS"
+		c.Score -= 80
+		c.Reasons = append(c.Reasons, "CAM/TS source")
+	case webDLRe.MatchString(title):
+		c.Source = "WEB-DL"
+		c.Score += 130
+		c.Reasons = append(c.Reasons, "WEB-DL")
+	case hasAny(title, "remux"):
+		c.Source = "BluRay REMUX"
+		c.Score += 55
+		c.Reasons = append(c.Reasons, "BluRay REMUX")
+	case hasAny(title, "bluray", "brrip", "bdrip"):
+		c.Source = "BluRay encode"
+		c.Score += 45
+		c.Reasons = append(c.Reasons, "BluRay encode")
+	case webRipRe.MatchString(title):
+		c.Source = "WEBRip"
+		c.Score += 40
+		c.Reasons = append(c.Reasons, "WEBRip")
+	default:
+		c.Source = "Unknown source"
+		c.Reasons = append(c.Reasons, "source unknown")
+	}
+}
+
+func addResolutionEvidence(c *Candidate, title string) {
+	resolution := 0
+	for _, match := range resolutionRe.FindAllString(strings.ToLower(title), -1) {
+		value, err := strconv.Atoi(strings.TrimSuffix(strings.ToLower(match), "p"))
+		if err == nil && value > resolution {
+			resolution = value
+		}
+	}
+	if hasAny(title, "4k", "uhd") && resolution < 2160 {
+		resolution = 2160
+	}
+
+	switch {
+	case resolution == 1008:
+		c.Score += 35
+		c.Reasons = append(c.Reasons, "tracker labels 1008p — treated as 1080p")
+	case resolution >= 1080 && resolution < 2160:
+		c.Score += 35
+		c.Reasons = append(c.Reasons, "1080p")
+	case resolution >= 2160:
+		c.Score += 20
+		c.Reasons = append(c.Reasons, "4K/2160p")
+	case resolution >= 720:
+		c.Score += 10
+		c.Reasons = append(c.Reasons, "720p")
+	case resolution > 0:
+		c.Score += 4
+		c.Reasons = append(c.Reasons, strconv.Itoa(resolution)+"p")
+	default:
+		c.Reasons = append(c.Reasons, "resolution unknown")
+	}
 }
 
 // releaseCandidateID keeps valid Prowlarr results reviewable when an indexer
@@ -264,15 +308,6 @@ func releaseFingerprint(release prowlarr.Release) string {
 		strings.TrimSpace(release.Indexer)
 	sum := sha256.Sum256([]byte(value))
 	return hex.EncodeToString(sum[:16])
-}
-
-func hasResolution(title, wanted string) bool {
-	for _, match := range resolutionRe.FindAllString(strings.ToLower(title), -1) {
-		if strings.EqualFold(match, wanted) {
-			return true
-		}
-	}
-	return false
 }
 
 func hasAny(title string, values ...string) bool {
