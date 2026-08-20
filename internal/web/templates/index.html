@@ -74,7 +74,6 @@ th{color:var(--dim);font-weight:500;width:170px}
 .companion-filters button.active{border-color:var(--accent);color:#fff;background:#121a2e}
 .companion-search-card label{display:block;color:var(--dim);font-size:12px;margin-bottom:5px}
 .companion-search-input{flex:1;min-width:220px}
-.companion-search-card .small{margin-top:6px}
 .companion-row{display:grid;grid-template-columns:minmax(0,1fr) auto auto;gap:12px;align-items:center;border-top:1px solid var(--border);padding:11px 0}
 .companion-row:first-child{border-top:0}
 .companion-row .title{font-weight:600}
@@ -212,7 +211,6 @@ input[type=number]{width:90px}
       <input class="companion-search-input" id="companionSearchInput" type="text" placeholder="Search title, folder, drive, or file" autocomplete="off" oninput="setCompanionSearch(this.value)">
       <button id="companionSearchClear" type="button" onclick="clearCompanionSearch()">Clear</button>
     </div>
-    <div id="companionSearchNote" class="small">Searches the selected status category.</div>
   </div>
   <div class="card">
     <div class="companion-filters" id="companionFilters">
@@ -468,7 +466,6 @@ function renderCompanions(){
   $("companionSearchClear").disabled=!searchTerm;
   const categoryFiltered=movies.filter(m=>companionFilter==="all"||m.status===companionFilter);
   const filtered=categoryFiltered.filter(m=>!searchTerm||companionSearchText(m).includes(searchTerm));
-  $("companionSearchNote").textContent=searchTerm?filtered.length+" matching movie"+(filtered.length===1?"":"s")+" in "+(filterLabels[companionFilter]||"the selected category")+".":"Searches the selected status category.";
   if(companionFilter==="complete")filtered.sort((a,b)=>companionAddedTime(b)-companionAddedTime(a));
   const pageSize=20,totalPages=Math.max(1,Math.ceil(filtered.length/pageSize));
   companionPage=Math.min(companionPage,totalPages-1);
