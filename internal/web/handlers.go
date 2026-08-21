@@ -283,6 +283,24 @@ func (s *Server) searchCompanion(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, manager.View(id))
 }
 
+func (s *Server) hardlinkCompanion(w http.ResponseWriter, r *http.Request) {
+	manager := s.companionManager(r)
+	if manager == nil {
+		writeErr(w, http.StatusServiceUnavailable, "companion subsystem is unavailable")
+		return
+	}
+	id := r.PathValue("id")
+	result, err := manager.Hardlink(id)
+	if err != nil {
+		writeErr(w, http.StatusConflict, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{
+		"result": result,
+		"view":   manager.View(id),
+	})
+}
+
 func (s *Server) skipCompanion(w http.ResponseWriter, r *http.Request) {
 	manager := s.companionManager(r)
 	if manager == nil {

@@ -81,11 +81,11 @@ qbittorrent:
 
 drives:
   - id: "hdd1"
-    movie_root: "/m1"      # movie root
-    movie_remote_root: "/mr1" # 1080p companion root on the same drive
-    tv_root: "/t1"         # TV root on the same physical drive
-    tv_remote_root: "/tr1" # optional alternate TV root
-  # hdd2..hdd4: /m2-/mr2-/t2-/tr2, /m3-/mr3-/t3-/tr3, /m4-/mr4-/t4-/tr4
+    movie_root: "/hdd1/movies"
+    movie_remote_root: "/hdd1/movies-remote"
+    tv_root: "/hdd1/tv"
+    tv_remote_root: "/hdd1/tv-remote"
+  # Repeat the same layout below /hdd2, /hdd3 and /hdd4.
 ```
 
 Run:
@@ -100,15 +100,14 @@ Open `http://127.0.0.1:8787`.
 ## Docker Compose
 
 See `compose.example.yaml`. The container should run as UID 1001 / GID 10 and
-mount the same media paths both CineRoute and qBittorrent use, e.g.:
+mount each HDD once at the same path in CineRoute and qBittorrent, e.g.:
 
 ```yaml
 volumes:
-  - /volume1/hdd1/movies:/m1
-  - /volume1/hdd1/movies-remote:/mr1
-  - /volume1/hdd1/tv:/t1
-  - /volume1/hdd1/tv-remote:/tr1
-  # ... hdd2..hdd4 with matching /m2,/mr2,/t2,/tr2 through /m4,/mr4,/t4,/tr4
+  - /volume1/hdd1:/hdd1
+  - /volume3/hdd2:/hdd2
+  - /volume4/hdd3:/hdd3
+  - /volume5/hdd4:/hdd4
 ```
 
 Set `CINEROUTE_LISTEN=0.0.0.0:8787` (already in the example) — the default
@@ -218,6 +217,14 @@ reviewed deliberately; skip shows that do not need one.
 Movie scans use the same review-queue rule: every non-added movie is searchable
 regardless of its current quality, size, or remote copy, and a later movie scan
 requeues previously skipped movies. Existing Added movies remain unchanged.
+
+The **Hardlink** button on a movie or TV companion recreates the main folder's
+relative directory tree below the matching remote root and hardlinks every
+regular file. Existing links to the same inode are accepted, while symlinks,
+special files and conflicting destination files are rejected. Main and remote
+roots must be below the same `/hddN` mount and the CineRoute UID/GID must be
+allowed to create files in the remote root. Hardlinks cannot cross filesystems,
+container mounts or Btrfs subvolumes.
 
 Each companion page can run a limited next batch (default 20 items), cancel a
 running batch, and set the delay between actual Prowlarr searches.

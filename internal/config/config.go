@@ -94,10 +94,10 @@ func Default() *Config {
 		},
 		Library: Library{FolderFormat: "{title} ({year})"},
 		Drives: []Drive{
-			{ID: "hdd1", MovieRoot: "/m1", TVRoot: "/t1"},
-			{ID: "hdd2", MovieRoot: "/m2", TVRoot: "/t2"},
-			{ID: "hdd3", MovieRoot: "/m3", TVRoot: "/t3"},
-			{ID: "hdd4", MovieRoot: "/m4", TVRoot: "/t4"},
+			{ID: "hdd1", MovieRoot: "/hdd1/movies", MovieRemoteRoot: "/hdd1/movies-remote", TVRoot: "/hdd1/tv", TVRemoteRoot: "/hdd1/tv-remote"},
+			{ID: "hdd2", MovieRoot: "/hdd2/movies", MovieRemoteRoot: "/hdd2/movies-remote", TVRoot: "/hdd2/tv", TVRemoteRoot: "/hdd2/tv-remote"},
+			{ID: "hdd3", MovieRoot: "/hdd3/movies", MovieRemoteRoot: "/hdd3/movies-remote", TVRoot: "/hdd3/tv", TVRemoteRoot: "/hdd3/tv-remote"},
+			{ID: "hdd4", MovieRoot: "/hdd4/movies", MovieRemoteRoot: "/hdd4/movies-remote", TVRoot: "/hdd4/tv", TVRemoteRoot: "/hdd4/tv-remote"},
 		},
 	}
 }

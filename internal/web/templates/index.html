@@ -597,7 +597,8 @@ function renderCompanionDetail(){
   const refreshIcon='<span class="refresh-icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12a9 9 0 1 1-2.64-6.36L21 8"></path><path d="M21 3v5h-5"></path></svg></span>';
   const navigation=companionReviewNavigation(m);
   const itemWord=isTV?"TV show":"movie";
-  let html='<div class="companion-toolbar"><div><h2 style="margin-bottom:4px">'+esc(m.folder_name)+"</h2><div class=\"small\">"+esc(m.drive_id)+" · "+esc(destinationPath)+"</div>"+existingHTML+'</div><div class="actions" style="margin-top:0"><button onclick="closeCompanionMovie()">Close</button>'+(m.status==="review"?'<button class="icon-button" data-id="'+esc(m.id)+'" onclick="searchOneCompanion(this.dataset.id,this)" title="Search this '+itemWord+' again" aria-label="Search this '+itemWord+' again">'+refreshIcon+'</button>':"")+navigation.next+"</div></div>";
+  const hardlinkDisabled=m.missing||!m.remote_path||m.status==="searching"||m.status==="submitting";
+  let html='<div class="companion-toolbar"><div><h2 style="margin-bottom:4px">'+esc(m.folder_name)+"</h2><div class=\"small\">"+esc(m.drive_id)+" · "+esc(destinationPath)+"</div>"+existingHTML+'</div><div class="actions" style="margin-top:0"><button data-id="'+esc(m.id)+'" onclick="hardlinkCompanion(this.dataset.id,this)"'+(hardlinkDisabled?' disabled':'')+'>Hardlink</button><button onclick="closeCompanionMovie()">Close</button>'+(m.status==="review"?'<button class="icon-button" data-id="'+esc(m.id)+'" onclick="searchOneCompanion(this.dataset.id,this)" title="Search this '+itemWord+' again" aria-label="Search this '+itemWord+' again">'+refreshIcon+'</button>':"")+navigation.next+"</div></div>";
   if(m.error)html+='<div class="errbox">'+esc(m.error)+"</div>";
   if(!candidates.length){
     if(m.status!=="complete"&&m.status!=="already_has_1080p"){const searchLabel=m.status==="no_match"?"Search again":"Search";html+='<div class="actions"><button class="primary" data-id="'+esc(m.id)+'" onclick="searchOneCompanion(this.dataset.id,this)">'+searchLabel+'</button><button data-id="'+esc(m.id)+'" onclick="skipCompanion(this.dataset.id)">Skip</button></div>'}
@@ -641,6 +642,12 @@ function candidateCard(c,m){
 }
 function approveFromButton(button){approveCompanion(button.dataset.id,button.dataset.guid,button)}
 function closeCompanionMovie(){openCompanion="";loadCompanions()}
+async function hardlinkCompanion(id,button){
+  const original=button.textContent;
+  button.disabled=true;
+  button.innerHTML='<span class="approval-spinner" aria-hidden="true"></span>Linking…';
+  try{await postJSON(companionURL("/"+id+"/hardlink"),{});await loadCompanions(id)}catch(e){alert(e.message)}finally{if(button.isConnected){button.disabled=false;button.textContent=original}}
+}
 async function searchOneCompanion(id,button){
   const originalHTML=button&&button.innerHTML;
   if(button){button.disabled=true;button.classList.add("searching");if(!button.classList.contains("icon-button"))button.innerHTML='<span class="approval-spinner" aria-hidden="true"></span>Searching…'}
