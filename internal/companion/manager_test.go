@@ -426,6 +426,74 @@ func TestTVCompanionScansPrimaryRootsAndInspectsRemoteCopy(t *testing.T) {
 	}
 }
 
+func TestTVCandidateApprovalStatusIsPerSeason(t *testing.T) {
+	m := newTransitionManager(t, StatusReview)
+	m.kind = companionTV
+	m.state.Movies[0].Path = ""
+	m.state.Movies[0].TVApprovedPacks = []string{"season:1"}
+	m.searches["movie"] = searchState{Candidates: []Candidate{
+		{Guid: "s1", Title: "Friends.1994.S01.1080p.WEB-DL"},
+		{Guid: "s1-alt", Title: "Friends.1994.S01.1080p.HMAX.WEB-DL"},
+		{Guid: "s2", Title: "Friends.1994.S02.1080p.WEB-DL"},
+	}}
+	m.tvApprovals = map[string]map[string]bool{"movie": {"season:2": true}}
+
+	view := m.View("movie")
+	if len(view.Candidates) != 3 {
+		t.Fatalf("candidate count = %d, want 3", len(view.Candidates))
+	}
+	statuses := make(map[string]string, len(view.Candidates))
+	for _, candidate := range view.Candidates {
+		statuses[candidate.Guid] = candidate.TVPackStatus
+	}
+	if statuses["s1"] != "added" || statuses["s1-alt"] != "added" {
+		t.Fatalf("season 1 statuses = %q, %q, want added", statuses["s1"], statuses["s1-alt"])
+	}
+	if statuses["s2"] != "submitting" {
+		t.Fatalf("season 2 status = %q, want submitting", statuses["s2"])
+	}
+}
+
+func TestMarkTVCompleteKeepsOtherSeasonsInReview(t *testing.T) {
+	m := newTransitionManager(t, StatusReview)
+	m.kind = companionTV
+	m.state.Movies[0].Path = ""
+	m.searches["movie"] = searchState{Candidates: []Candidate{
+		{Guid: "s1", Title: "Friends.1994.S01.1080p.WEB-DL"},
+		{Guid: "s2", Title: "Friends.1994.S02.1080p.WEB-DL"},
+	}}
+	m.tvApprovals = map[string]map[string]bool{"movie": {"season:1": true}}
+
+	candidate := Candidate{Guid: "s1", Title: "Friends.1994.S01.1080p.WEB-DL", TVPackEligible: true}
+	if err := m.MarkTVComplete("movie", candidate, "hash-s1"); err != nil {
+		t.Fatal(err)
+	}
+	if got := m.state.Movies[0].Status; got != StatusReview {
+		t.Fatalf("TV show status = %s, want %s", got, StatusReview)
+	}
+	if len(m.state.Movies[0].TVApprovedPacks) != 1 || m.state.Movies[0].TVApprovedPacks[0] != "season:1" {
+		t.Fatalf("approved TV packs = %v, want [season:1]", m.state.Movies[0].TVApprovedPacks)
+	}
+	if m.hasTVApprovalsLocked("movie") {
+		t.Fatal("completed season approval is still marked pending")
+	}
+	if _, ok := m.searches["movie"]; !ok {
+		t.Fatal("other TV season candidates were removed")
+	}
+
+	view := m.View("movie")
+	statuses := make(map[string]string, len(view.Candidates))
+	for _, item := range view.Candidates {
+		statuses[item.Guid] = item.TVPackStatus
+	}
+	if statuses["s1"] != "added" {
+		t.Fatalf("season 1 status = %q, want added", statuses["s1"])
+	}
+	if statuses["s2"] != "" {
+		t.Fatalf("season 2 status = %q, want review/available", statuses["s2"])
+	}
+}
+
 func TestCanceledSearchReturnsToPending(t *testing.T) {
 	m := newTransitionManager(t, StatusSearching)
 	m.finishSearchFailure("movie", *m.state.Movies[0], context.Canceled)

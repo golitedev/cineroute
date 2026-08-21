@@ -59,6 +59,7 @@ type Manager struct {
 	state                 stateFile
 	stateErr              error
 	searches              map[string]searchState
+	tvApprovals           map[string]map[string]bool
 	indexerID             int
 	indexerName           string
 	batch                 BatchStatus
@@ -88,12 +89,13 @@ func NewTVManager(cfg *config.Config, lib *library.Scan, prowlarrClient *prowlar
 
 func newManager(cfg *config.Config, lib *library.Scan, prowlarrClient *prowlarr.Client, kind companionKind, statePath string) *Manager {
 	m := &Manager{
-		cfg:      cfg,
-		lib:      lib,
-		prowlarr: prowlarrClient,
-		kind:     kind,
-		searches: map[string]searchState{},
-		state:    stateFile{Version: stateVersion},
+		cfg:         cfg,
+		lib:         lib,
+		prowlarr:    prowlarrClient,
+		kind:        kind,
+		searches:    map[string]searchState{},
+		tvApprovals: map[string]map[string]bool{},
+		state:       stateFile{Version: stateVersion},
 	}
 	if cfg == nil {
 		m.stateErr = errors.New("companion configuration is missing")
@@ -246,6 +248,7 @@ func (m *Manager) View(openID string) View {
 					view.Candidates = filterTVEpisodeCandidates(view.Candidates)
 					MarkTVPackCandidates(view.Candidates)
 					sortTVPackCandidates(view.Candidates)
+					m.markTVCandidateStatusesLocked(view.Open, view.Candidates)
 				}
 				view.SearchedAt = result.SearchedAt
 			}
@@ -253,6 +256,78 @@ func (m *Manager) View(openID string) View {
 		}
 	}
 	return view
+}
+
+func (m *Manager) markTVCandidateStatusesLocked(movie *Movie, candidates []Candidate) {
+	if movie == nil || m.kind != companionTV {
+		return
+	}
+	for i := range candidates {
+		candidates[i].TVPackStatus = ""
+		if !candidates[i].TVPackEligible {
+			continue
+		}
+		key := candidateTVPackKey(candidates[i])
+		if key == "" {
+			continue
+		}
+		if tvPackApproved(movie, key) {
+			candidates[i].TVPackStatus = "added"
+		} else if m.tvApprovalPendingLocked(movie.ID, key) {
+			candidates[i].TVPackStatus = "submitting"
+		}
+	}
+}
+
+func candidateTVPackKey(candidate Candidate) string {
+	if candidate.TVPackKey != "" {
+		return candidate.TVPackKey
+	}
+	return TVPackKey(candidate.Title)
+}
+
+func tvPackApproved(movie *Movie, key string) bool {
+	if movie == nil || key == "" {
+		return false
+	}
+	for _, approved := range movie.TVApprovedPacks {
+		if approved == "series" || approved == key {
+			return true
+		}
+	}
+	return false
+}
+
+func (m *Manager) tvApprovalPendingLocked(movieID, key string) bool {
+	if m.tvApprovals == nil || key == "" {
+		return false
+	}
+	return m.tvApprovals[movieID][key]
+}
+
+func (m *Manager) setTVApprovalPendingLocked(movieID, key string) {
+	if m.tvApprovals == nil {
+		m.tvApprovals = map[string]map[string]bool{}
+	}
+	if m.tvApprovals[movieID] == nil {
+		m.tvApprovals[movieID] = map[string]bool{}
+	}
+	m.tvApprovals[movieID][key] = true
+}
+
+func (m *Manager) clearTVApprovalPendingLocked(movieID, key string) {
+	if m.tvApprovals == nil {
+		return
+	}
+	pending := m.tvApprovals[movieID]
+	delete(pending, key)
+	if len(pending) == 0 {
+		delete(m.tvApprovals, movieID)
+	}
+}
+
+func (m *Manager) hasTVApprovalsLocked(movieID string) bool {
+	return len(m.tvApprovals[movieID]) > 0
 }
 
 func (m *Manager) SetSearchIntervalSeconds(seconds int) error {
@@ -819,6 +894,9 @@ func (m *Manager) Skip(id string) error {
 	if movie.Status == StatusComplete || movie.Status == StatusSearching || movie.Status == StatusSubmitting {
 		return errors.New("this companion cannot be skipped in its current state")
 	}
+	if m.kind == companionTV && m.hasTVApprovalsLocked(id) {
+		return errors.New("this TV show has a season approval in progress")
+	}
 	movie.Status = StatusSkipped
 	movie.Error = ""
 	movie.UpdatedAt = time.Now()
@@ -924,11 +1002,55 @@ func (m *Manager) PrepareSelected(ctx context.Context, id, guid string) (Movie, 
 		m.mu.Unlock()
 		return Movie{}, Candidate{}, nil, errors.New("a companion must be in review before approving a candidate")
 	}
+	tvPackKey := ""
+	if m.kind == companionTV {
+		search, ok := m.searches[id]
+		if !ok {
+			m.mu.Unlock()
+			return Movie{}, Candidate{}, nil, errors.New("the TV release list is no longer available; search the show again")
+		}
+		var cached Candidate
+		found := false
+		for _, candidate := range search.Candidates {
+			if candidate.Guid == guid || (candidate.sourceGuid != "" && candidate.sourceGuid == guid) {
+				cached = candidate
+				found = true
+				break
+			}
+		}
+		if !found {
+			m.mu.Unlock()
+			return Movie{}, Candidate{}, nil, errors.New("the selected TV release is no longer in review; search the show again")
+		}
+		if !cached.TVPackEligible {
+			cached.TVPackEligible, cached.TVPackReason = TVPackEligibility(cached.Title)
+		}
+		tvPackKey = candidateTVPackKey(cached)
+		if !cached.TVPackEligible || tvPackKey == "" {
+			m.mu.Unlock()
+			return Movie{}, Candidate{}, nil, errors.New("individual episode releases or unrecognized TV releases cannot be approved; select a season or series pack")
+		}
+		if tvPackApproved(current, tvPackKey) {
+			m.mu.Unlock()
+			return Movie{}, Candidate{}, nil, errors.New("this TV season or series pack has already been added")
+		}
+		if m.tvApprovalPendingLocked(id, tvPackKey) {
+			m.mu.Unlock()
+			return Movie{}, Candidate{}, nil, errors.New("another approval for this TV season or series pack is already in progress")
+		}
+	}
 	movie := *current
-	current.Status = StatusSubmitting
+	if m.kind == companionTV {
+		m.setTVApprovalPendingLocked(id, tvPackKey)
+	} else {
+		current.Status = StatusSubmitting
+	}
 	current.Error = ""
 	current.UpdatedAt = time.Now()
 	if err := m.persistLocked(); err != nil {
+		if m.kind == companionTV {
+			m.clearTVApprovalPendingLocked(id, tvPackKey)
+		}
 		m.mu.Unlock()
 		return Movie{}, Candidate{}, nil, err
 	}
@@ -936,7 +1058,11 @@ func (m *Manager) PrepareSelected(ctx context.Context, id, guid string) (Movie, 
 
 	candidates, err := m.searchMovie(ctx, &movie)
 	if err != nil {
-		m.MarkError(id, err)
+		if m.kind == companionTV {
+			m.markTVApprovalError(id, tvPackKey, err)
+		} else {
+			m.MarkError(id, err)
+		}
 		return Movie{}, Candidate{}, nil, err
 	}
 	var selected Candidate
@@ -948,40 +1074,45 @@ func (m *Manager) PrepareSelected(ctx context.Context, id, guid string) (Movie, 
 	}
 	if selected.Guid == "" {
 		err := fmt.Errorf("selected release is no longer available or no longer passes the companion filters")
-		m.MarkError(id, err)
-		return Movie{}, Candidate{}, nil, err
-	}
-	if m.kind == companionTV && !selected.TVPackEligible {
-		err := errors.New("individual episode releases or unrecognized TV releases cannot be approved; select a season or series pack")
-		if resetErr := m.restoreReview(id); resetErr != nil {
-			return Movie{}, Candidate{}, nil, resetErr
+		if m.kind == companionTV {
+			m.markTVApprovalError(id, tvPackKey, err)
+		} else {
+			m.MarkError(id, err)
 		}
 		return Movie{}, Candidate{}, nil, err
 	}
+	if m.kind == companionTV {
+		selectedKey := candidateTVPackKey(selected)
+		if !selected.TVPackEligible || selectedKey == "" {
+			err := errors.New("individual episode releases or unrecognized TV releases cannot be approved; select a season or series pack")
+			m.markTVApprovalError(id, tvPackKey, err)
+			return Movie{}, Candidate{}, nil, err
+		}
+		if selectedKey != tvPackKey {
+			err := errors.New("the selected TV release changed seasons; search the show again")
+			m.markTVApprovalError(id, tvPackKey, err)
+			return Movie{}, Candidate{}, nil, err
+		}
+	}
 	if selected.downloadURL == "" {
 		err := errors.New("selected Prowlarr release has no download URL")
-		m.MarkError(id, err)
+		if m.kind == companionTV {
+			m.markTVApprovalError(id, tvPackKey, err)
+		} else {
+			m.MarkError(id, err)
+		}
 		return Movie{}, Candidate{}, nil, err
 	}
 	data, err := m.prowlarr.DownloadTorrent(ctx, selected.downloadURL)
 	if err != nil {
-		m.MarkError(id, err)
+		if m.kind == companionTV {
+			m.markTVApprovalError(id, tvPackKey, err)
+		} else {
+			m.MarkError(id, err)
+		}
 		return Movie{}, Candidate{}, nil, err
 	}
 	return movie, selected, data, nil
-}
-
-func (m *Manager) restoreReview(id string) error {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	current := m.movieLocked(id)
-	if current == nil || current.Status != StatusSubmitting {
-		return nil
-	}
-	current.Status = StatusReview
-	current.Error = ""
-	current.UpdatedAt = time.Now()
-	return m.persistLocked()
 }
 
 func (m *Manager) MarkComplete(id, hash string) error {
@@ -999,6 +1130,74 @@ func (m *Manager) MarkComplete(id, hash string) error {
 	movie.AddedAt = &now
 	delete(m.searches, id)
 	return m.persistLocked()
+}
+
+// MarkTVComplete records one approved TV season or series pack while leaving
+// the show in review so other seasons in the same search can be approved.
+func (m *Manager) MarkTVComplete(id string, candidate Candidate, hash string) error {
+	if m.kind != companionTV {
+		return errors.New("TV pack approval is only available for TV companions")
+	}
+	key := candidateTVPackKey(candidate)
+	if !candidate.TVPackEligible || key == "" {
+		return errors.New("individual episode releases or unrecognized TV releases cannot be approved; select a season or series pack")
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	movie := m.movieLocked(id)
+	if movie == nil {
+		return fmt.Errorf("companion %s not found", m.itemLabel())
+	}
+	if !tvPackApproved(movie, key) {
+		movie.TVApprovedPacks = append(movie.TVApprovedPacks, key)
+	}
+	m.clearTVApprovalPendingLocked(id, key)
+	now := time.Now()
+	movie.Error = ""
+	movie.QBHash = hash
+	movie.UpdatedAt = now
+	movie.AddedAt = &now
+	if key == "series" {
+		movie.Status = StatusComplete
+		delete(m.searches, id)
+	} else {
+		movie.Status = StatusReview
+	}
+	return m.persistLocked()
+}
+
+// MarkTVError releases one in-flight TV pack approval without hiding the
+// other seasons that are still available for review.
+func (m *Manager) MarkTVError(id string, candidate Candidate, err error) error {
+	if err == nil {
+		return nil
+	}
+	if m.kind != companionTV {
+		return errors.New("TV pack errors are only available for TV companions")
+	}
+	key := candidateTVPackKey(candidate)
+	if key == "" {
+		return errors.New("TV pack key is missing")
+	}
+	m.markTVApprovalError(id, key, err)
+	return nil
+}
+
+func (m *Manager) markTVApprovalError(id, key string, approvalErr error) {
+	if approvalErr == nil {
+		return
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	movie := m.movieLocked(id)
+	if movie == nil {
+		return
+	}
+	m.clearTVApprovalPendingLocked(id, key)
+	movie.Status = StatusReview
+	movie.Error = approvalErr.Error()
+	movie.UpdatedAt = time.Now()
+	_ = m.persistLocked()
 }
 
 func (m *Manager) MarkError(id string, err error) {
@@ -1035,6 +1234,9 @@ func (m *Manager) beginSearch(id string) (Movie, error) {
 		return Movie{}, errors.New("this companion is already being submitted")
 	case StatusComplete:
 		return Movie{}, errors.New("this companion is already complete")
+	}
+	if m.kind == companionTV && m.hasTVApprovalsLocked(id) {
+		return Movie{}, errors.New("this TV show has a season approval in progress")
 	}
 	movie.Status = StatusSearching
 	movie.Error = ""

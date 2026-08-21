@@ -13,13 +13,14 @@ func TestSQLiteStatePersistsReviewCandidatesAndSettings(t *testing.T) {
 	cfg.Companion.StatePath = filepath.Join(t.TempDir(), "companions.db")
 	m := NewManager(cfg, nil, nil)
 	movie := &Movie{
-		ID:         "movie",
-		DriveID:    "hdd1",
-		Path:       "/m1/Movie (2024)",
-		FolderName: "Movie (2024)",
-		Title:      "Movie",
-		Year:       2024,
-		Status:     StatusReview,
+		ID:              "movie",
+		DriveID:         "hdd1",
+		Path:            "/m1/Movie (2024)",
+		FolderName:      "Movie (2024)",
+		Title:           "Movie",
+		Year:            2024,
+		Status:          StatusReview,
+		TVApprovedPacks: []string{"season:1"},
 	}
 	m.mu.Lock()
 	m.state.Movies = []*Movie{movie}
@@ -40,6 +41,9 @@ func TestSQLiteStatePersistsReviewCandidatesAndSettings(t *testing.T) {
 	}
 	if len(view.Candidates) != 1 || view.Candidates[0].Guid != "guid" {
 		t.Fatalf("review candidates were not restored: %+v", view.Candidates)
+	}
+	if len(view.Open.TVApprovedPacks) != 1 || view.Open.TVApprovedPacks[0] != "season:1" {
+		t.Fatalf("approved TV packs were not restored: %v", view.Open.TVApprovedPacks)
 	}
 	if view.SearchIntervalSeconds != 30 || view.SearchBatchSize != 12 {
 		t.Fatalf("settings were not restored: interval=%d batch=%d", view.SearchIntervalSeconds, view.SearchBatchSize)

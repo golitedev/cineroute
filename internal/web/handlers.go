@@ -333,16 +333,24 @@ func (s *Server) approveCompanion(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusConflict, err.Error())
 		return
 	}
+	mediaType := manager.MediaType()
+	markApprovalError := func(approvalErr error) {
+		if mediaType == "tv" {
+			_ = manager.MarkTVError(movie.ID, candidate, approvalErr)
+		} else {
+			manager.MarkError(movie.ID, approvalErr)
+		}
+	}
 	meta, err := torrentmeta.Parse(data)
 	if err != nil {
 		err = fmt.Errorf("selected Prowlarr torrent is invalid: %w", err)
-		manager.MarkError(movie.ID, err)
+		markApprovalError(err)
 		writeErr(w, http.StatusBadRequest, err.Error())
 		return
 	}
 	if s.qb == nil {
 		err = errors.New("qBittorrent is not configured")
-		manager.MarkError(movie.ID, err)
+		markApprovalError(err)
 		writeErr(w, http.StatusServiceUnavailable, err.Error())
 		return
 	}
@@ -351,7 +359,6 @@ func (s *Server) approveCompanion(w http.ResponseWriter, r *http.Request) {
 		Title:       movie.Title,
 		ReleaseDate: fmt.Sprintf("%04d-01-01", movie.Year),
 	}
-	mediaType := manager.MediaType()
 	// This companion already has a canonical library folder, so approval does not
 	// select or reserve a drive. Let separate approvals progress concurrently.
 	outcome, err := s.submitTorrent(r.Context(), submissionRequest{
@@ -365,18 +372,24 @@ func (s *Server) approveCompanion(w http.ResponseWriter, r *http.Request) {
 		UseTVRemoteRoot:    mediaType == "tv",
 	})
 	if err != nil {
-		manager.MarkError(movie.ID, err)
+		markApprovalError(err)
 		writeErr(w, http.StatusConflict, err.Error())
 		return
 	}
 	if outcome == nil || outcome.Result == nil {
 		err = errors.New("qBittorrent submission returned no result")
-		manager.MarkError(movie.ID, err)
+		markApprovalError(err)
 		writeErr(w, http.StatusInternalServerError, err.Error())
 		return
 	}
-	if err := manager.MarkComplete(movie.ID, outcome.Result.Hash); err != nil {
-		writeErr(w, http.StatusInternalServerError, "torrent was submitted, but companion state could not be saved: "+err.Error())
+	var markErr error
+	if mediaType == "tv" {
+		markErr = manager.MarkTVComplete(movie.ID, candidate, outcome.Result.Hash)
+	} else {
+		markErr = manager.MarkComplete(movie.ID, outcome.Result.Hash)
+	}
+	if markErr != nil {
+		writeErr(w, http.StatusInternalServerError, "torrent was submitted, but companion state could not be saved: "+markErr.Error())
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{

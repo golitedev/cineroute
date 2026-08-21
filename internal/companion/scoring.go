@@ -39,6 +39,8 @@ type Candidate struct {
 	Reasons          []string  `json:"reasons"`
 	TVPackEligible   bool      `json:"tv_pack_eligible"`
 	TVPackReason     string    `json:"tv_pack_reason,omitempty"`
+	TVPackKey        string    `json:"tv_pack_key,omitempty"`
+	TVPackStatus     string    `json:"tv_pack_status,omitempty"`
 	downloadURL      string
 	sourceGuid       string
 }
@@ -133,7 +135,22 @@ func isTVEpisodeTitle(title string) bool {
 func MarkTVPackCandidates(candidates []Candidate) {
 	for i := range candidates {
 		candidates[i].TVPackEligible, candidates[i].TVPackReason = TVPackEligibility(candidates[i].Title)
+		candidates[i].TVPackKey = TVPackKey(candidates[i].Title)
 	}
+}
+
+// TVPackKey returns the durable approval bucket for a season or a complete
+// series release. Alternate releases for the same season share a key so
+// approving one release does not leave another release for that same season
+// looking available.
+func TVPackKey(title string) string {
+	if season, ok := tvSeasonNumber(title); ok {
+		return "season:" + strconv.Itoa(season)
+	}
+	if tvCollectionRe.MatchString(title) {
+		return "series"
+	}
+	return ""
 }
 
 // sortTVPackCandidates groups numbered seasons in ascending order while

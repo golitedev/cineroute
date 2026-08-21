@@ -35,6 +35,7 @@ button.icon-button.searching .refresh-icon{animation:companion-spin .8s linear i
 button.primary{background:var(--accent);border-color:var(--accent);color:#fff}
 button.primary.approving{background:#111318;border-color:#343945;color:var(--dim)}
 button.primary.searching{background:#111318;border-color:#343945;color:var(--dim)}
+button.primary.added{background:#12261a;border-color:#2c6a3a;color:var(--ok)}
 .approval-spinner{display:inline-block;width:12px;height:12px;margin-right:7px;border:2px solid #4b5260;border-top-color:var(--text);border-radius:50%;vertical-align:-2px;animation:companion-spin .8s linear infinite}
 button.danger{background:#3a171a;color:#ffb3ad;border-color:#7a2f2d}
 button.danger:hover{background:#4b1c20;border-color:var(--err)}
@@ -632,13 +633,17 @@ function candidateCard(c,m){
   const age=fmtAge(candidateAgeHours(c));
   const ageBadge=age?'<span class="badge">Age '+esc(age)+'</span>':"";
   const link=c.info_url&&/^https?:\/\//i.test(c.info_url)?'<a class="tracker-link" href="'+esc(c.info_url)+'" target="_blank" rel="noopener noreferrer">Open tracker</a>':"";
-  const adding=companionApprovals.get(m.id)===c.guid;
+  const packKey=c.tv_pack_key||c.guid;
+  const approvalKey=m.id+"|"+packKey;
+  const added=c.tv_pack_status==="added";
+  const adding=companionApprovals.has(approvalKey)||c.tv_pack_status==="submitting";
   const tvPackBlocked=companionType==="tv"&&c.tv_pack_eligible!==true;
-  const disabled=adding||m.status!=="review"||tvPackBlocked?" disabled":"";
-  const label=adding?'<span class="approval-spinner" aria-hidden="true"></span>Adding…':tvPackBlocked?"Not eligible":"Approve";
-  const buttonClass=adding?"primary approving":"primary";
+  const disabled=adding||added||m.status!=="review"||tvPackBlocked?" disabled":"";
+  const label=adding?'<span class="approval-spinner" aria-hidden="true"></span>Adding…':added?"Added":tvPackBlocked?"Not eligible":"Approve";
+  const buttonClass=adding?"primary approving":added?"primary added":"primary";
+  const packStatus=added?'<span class="badge ok">Added</span>':adding?'<span class="badge warn">Adding…</span>':"";
   const packReason=companionType==="tv"?'<div class="reason">TV companion: '+esc(c.tv_pack_reason||"not identified as a season or series pack")+'</div>':"";
-  return '<div class="candidate"><h3>'+esc(c.title)+"</h3><div class=\"facts\"><span class=\"badge\">"+fmtBytes(c.size)+"</span><span class=\"badge\">"+esc(seed)+" seeders</span>"+ageBadge+"<span class=\"badge\">"+esc(c.source)+"</span><span class=\"badge\">"+esc(c.codec)+"</span><span class=\"badge warn\">"+esc(c.language_evidence)+"</span><span class=\"badge\">Score "+esc(c.score)+"</span></div><div class=\"reason\">✓ "+esc((c.reasons||[]).join(" · "))+"</div>"+packReason+"<div class=\"actions\">"+'<button data-id="'+esc(m.id)+'" data-guid="'+esc(c.guid)+'" onclick="approveFromButton(this)" class="'+buttonClass+'"'+disabled+'>'+label+'</button>'+link+'</div></div>';
+  return '<div class="candidate"><h3>'+esc(c.title)+"</h3><div class=\"facts\"><span class=\"badge\">"+fmtBytes(c.size)+"</span><span class=\"badge\">"+esc(seed)+" seeders</span>"+ageBadge+"<span class=\"badge\">"+esc(c.source)+"</span><span class=\"badge\">"+esc(c.codec)+"</span><span class=\"badge warn\">"+esc(c.language_evidence)+"</span><span class=\"badge\">Score "+esc(c.score)+"</span>"+packStatus+"</div><div class=\"reason\">✓ "+esc((c.reasons||[]).join(" · "))+"</div>"+packReason+"<div class=\"actions\">"+'<button data-id="'+esc(m.id)+'" data-guid="'+esc(c.guid)+'" data-pack-key="'+esc(packKey)+'" onclick="approveFromButton(this)" class="'+buttonClass+'"'+disabled+'>'+label+'</button>'+link+'</div></div>';
 }
 function approveFromButton(button){approveCompanion(button.dataset.id,button.dataset.guid,button)}
 function closeCompanionMovie(){openCompanion="";loadCompanions()}
@@ -655,9 +660,11 @@ async function searchOneCompanion(id,button){
 }
 async function skipCompanion(id){try{await postJSON(companionURL("/"+id+"/skip"),{});await loadCompanions(id)}catch(e){alert(e.message)}}
 async function approveCompanion(id,guid,button){
-  if(companionApprovals.has(id))return;
-  companionApprovals.set(id,guid);
-  const buttons=openCompanion===id?[...document.querySelectorAll("#companionDetail .candidate button.primary")]:[];
+  const packKey=button&&button.dataset.packKey||guid;
+  const approvalKey=id+"|"+packKey;
+  if(companionApprovals.has(approvalKey))return;
+  companionApprovals.set(approvalKey,guid);
+  const buttons=openCompanion===id?[...document.querySelectorAll("#companionDetail .candidate button.primary")].filter(candidateButton=>companionType!=="tv"||candidateButton.dataset.packKey===packKey):[];
   buttons.forEach(candidateButton=>candidateButton.disabled=true);
   if(button){button.classList.add("approving");button.innerHTML='<span class="approval-spinner" aria-hidden="true"></span>Adding…'}
   try{
@@ -671,7 +678,7 @@ async function approveCompanion(id,guid,button){
       if(!open||!open.error)$("companionDetail").insertAdjacentHTML("afterbegin",'<div class="errbox">'+esc(e.message)+"</div>");
     }
   }finally{
-    companionApprovals.delete(id);
+    companionApprovals.delete(approvalKey);
     if(button&&button.isConnected){button.classList.remove("approving");button.textContent="Approve"}
     buttons.forEach(candidateButton=>{if(candidateButton.isConnected)candidateButton.disabled=false});
   }

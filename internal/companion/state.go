@@ -57,6 +57,7 @@ type Movie struct {
 	RemoteCopy        string           `json:"remote_copy,omitempty"`
 	RemoteFiles       []string         `json:"remote_files,omitempty"`
 	RemoteFileSizes   map[string]int64 `json:"remote_file_sizes,omitempty"`
+	TVApprovedPacks   []string         `json:"tv_approved_packs,omitempty"`
 	JellyfinWarning   string           `json:"jellyfin_warning,omitempty"`
 	Missing           bool             `json:"missing,omitempty"`
 	CreatedAt         time.Time        `json:"created_at"`
@@ -209,6 +210,7 @@ func cloneMovie(movie *Movie) *Movie {
 	copy := *movie
 	copy.ExistingFiles = append([]string(nil), movie.ExistingFiles...)
 	copy.RemoteFiles = append([]string(nil), movie.RemoteFiles...)
+	copy.TVApprovedPacks = append([]string(nil), movie.TVApprovedPacks...)
 	if movie.ExistingFileSizes != nil {
 		copy.ExistingFileSizes = make(map[string]int64, len(movie.ExistingFileSizes))
 		for path, size := range movie.ExistingFileSizes {
