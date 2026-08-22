@@ -33,8 +33,8 @@ func newTransitionManager(t *testing.T, status string) *Manager {
 	}
 }
 
-func TestSearchOneRejectsActiveOrCompleteStates(t *testing.T) {
-	for _, status := range []string{StatusSearching, StatusSubmitting, StatusComplete} {
+func TestSearchOneRejectsActiveStates(t *testing.T) {
+	for _, status := range []string{StatusSearching, StatusSubmitting} {
 		t.Run(status, func(t *testing.T) {
 			m := newTransitionManager(t, status)
 			if _, err := m.SearchOne(context.Background(), "movie"); err == nil {
@@ -42,6 +42,24 @@ func TestSearchOneRejectsActiveOrCompleteStates(t *testing.T) {
 			}
 			if got := m.state.Movies[0].Status; got != status {
 				t.Fatalf("SearchOne changed %s to %s", status, got)
+			}
+		})
+	}
+}
+
+func TestBeginSearchReopensCompleteAndSkippedCompanions(t *testing.T) {
+	for _, status := range []string{StatusComplete, StatusSkipped} {
+		t.Run(status, func(t *testing.T) {
+			m := newTransitionManager(t, status)
+			m.searches["movie"] = searchState{Candidates: []Candidate{{Guid: "stale"}}}
+			if _, err := m.beginSearch("movie"); err != nil {
+				t.Fatalf("beginSearch(%s) failed: %v", status, err)
+			}
+			if got := m.state.Movies[0].Status; got != StatusSearching {
+				t.Fatalf("beginSearch(%s) status = %s, want %s", status, got, StatusSearching)
+			}
+			if _, ok := m.searches["movie"]; ok {
+				t.Fatalf("beginSearch(%s) retained stale candidates", status)
 			}
 		})
 	}

@@ -599,10 +599,12 @@ function renderCompanionDetail(){
   const navigation=companionReviewNavigation(m);
   const itemWord=isTV?"TV show":"movie";
   const hardlinkDisabled=m.missing||!m.remote_path||m.status==="searching"||m.status==="submitting";
-  let html='<div class="companion-toolbar"><div><h2 style="margin-bottom:4px">'+esc(m.folder_name)+"</h2><div class=\"small\">"+esc(m.drive_id)+" · "+esc(destinationPath)+"</div>"+existingHTML+'</div><div class="actions" style="margin-top:0"><button data-id="'+esc(m.id)+'" onclick="hardlinkCompanion(this.dataset.id,this)"'+(hardlinkDisabled?' disabled':'')+'>Hardlink</button><button onclick="closeCompanionMovie()">Close</button>'+(m.status==="review"?'<button class="icon-button" data-id="'+esc(m.id)+'" onclick="searchOneCompanion(this.dataset.id,this)" title="Search this '+itemWord+' again" aria-label="Search this '+itemWord+' again">'+refreshIcon+'</button>':"")+navigation.next+"</div></div>";
+  const canResearch=!m.missing&&(m.status==="complete"||m.status==="skipped"||m.status==="already_has_1080p");
+  let html='<div class="companion-toolbar"><div><h2 style="margin-bottom:4px">'+esc(m.folder_name)+"</h2><div class=\"small\">"+esc(m.drive_id)+" · "+esc(destinationPath)+"</div>"+existingHTML+'</div><div class="actions" style="margin-top:0"><button data-id="'+esc(m.id)+'" onclick="hardlinkCompanion(this.dataset.id,this)"'+(hardlinkDisabled?' disabled':'')+'>Hardlink</button><button onclick="closeCompanionMovie()">Close</button>'+(m.status==="review"||canResearch?'<button class="icon-button" data-id="'+esc(m.id)+'" onclick="searchOneCompanion(this.dataset.id,this)" title="Search this '+itemWord+' again" aria-label="Search this '+itemWord+' again">'+refreshIcon+'</button>':"")+navigation.next+"</div></div>";
   if(m.error)html+='<div class="errbox">'+esc(m.error)+"</div>";
   if(!candidates.length){
-    if(m.status!=="complete"&&m.status!=="already_has_1080p"){const searchLabel=m.status==="no_match"?"Search again":"Search";html+='<div class="actions"><button class="primary" data-id="'+esc(m.id)+'" onclick="searchOneCompanion(this.dataset.id,this)">'+searchLabel+'</button><button data-id="'+esc(m.id)+'" onclick="skipCompanion(this.dataset.id)">Skip</button></div>'}
+    const canSearch=!m.missing&&m.status!=="searching"&&m.status!=="submitting";
+    if(canSearch){const searchLabel=m.status==="pending"?"Search":"Search again";html+='<div class="actions"><button class="primary" data-id="'+esc(m.id)+'" onclick="searchOneCompanion(this.dataset.id,this)">'+searchLabel+'</button><button data-id="'+esc(m.id)+'" onclick="skipCompanion(this.dataset.id)">Skip</button></div>'}
     box.innerHTML=html+navigation.footer;return;
   }
   html+='<h2 style="margin-top:18px">Candidates <span class="small">'+candidates.length+' Prowlarr release'+(candidates.length===1?"":"s")+" · ranked for review; inspect the tracker details before approving</span></h2>";

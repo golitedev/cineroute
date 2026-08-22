@@ -1232,8 +1232,6 @@ func (m *Manager) beginSearch(id string) (Movie, error) {
 		return Movie{}, errors.New("this companion search is already running")
 	case StatusSubmitting:
 		return Movie{}, errors.New("this companion is already being submitted")
-	case StatusComplete:
-		return Movie{}, errors.New("this companion is already complete")
 	}
 	if m.kind == companionTV && m.hasTVApprovalsLocked(id) {
 		return Movie{}, errors.New("this TV show has a season approval in progress")
