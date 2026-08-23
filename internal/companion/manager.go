@@ -413,9 +413,9 @@ func (m *Manager) ProwlarrStatus(ctx context.Context) (string, string) {
 
 // Scan reconciles the immediate children of the configured primary library
 // roots into durable state. TV scans use only TV roots, never TV remote roots.
-// Live searching, review and submitting states are preserved; startup recovery
-// is handled separately when the state file is loaded. It never renames or
-// moves media files.
+// Live searching, review and submitting states are preserved unless both main
+// and remote videos are already present. Startup recovery is handled separately
+// when the state file is loaded. It never renames or moves media files.
 func (m *Manager) Scan(ctx context.Context) error {
 	if !m.Enabled() {
 		return nil
@@ -459,18 +459,32 @@ func (m *Manager) Scan(ctx context.Context) error {
 		title, year, parseErr := m.parseFolder(folder)
 		remotePath, _ := m.remotePath(folder.DriveID, folder.Name)
 		mainInspection, remoteInspection := m.inspectFolder(movie, folder.Path, remotePath, folder.Name)
+		if parseErr == nil {
+			movie.Title = title
+			movie.Year = year
+		}
+		if len(mainInspection.Files) > 0 && len(remoteInspection.Files) > 0 {
+			now := time.Now()
+			movie.Status = StatusComplete
+			movie.Error = ""
+			movie.UpdatedAt = now
+			if movie.AddedAt == nil {
+				movie.AddedAt = &now
+			}
+			delete(m.searches, movie.ID)
+			current = append(current, movie)
+			continue
+		}
+		if movie.Status == StatusComplete || movie.Status == StatusSkipped {
+			current = append(current, movie)
+			continue
+		}
 		if parseErr != nil {
 			if !live {
 				movie.Status = StatusNeedsReview
 				movie.Error = parseErr.Error()
 			}
 			movie.UpdatedAt = time.Now()
-			current = append(current, movie)
-			continue
-		}
-		movie.Title = title
-		movie.Year = year
-		if movie.Status == StatusComplete || (m.kind == companionTV && movie.Status == StatusSkipped) {
 			current = append(current, movie)
 			continue
 		}
@@ -485,8 +499,8 @@ func (m *Manager) Scan(ctx context.Context) error {
 		}
 		inspectionErr := movieInspectionError(mainInspection, remoteInspection)
 		// Both companion workflows are explicit language/backfill review queues:
-		// every parsed item stays searchable, even when it already has a 1080p
-		// copy, has a remote copy, or has an inspection warning.
+		// every parsed item without videos in both locations stays searchable,
+		// even when one copy is already 1080p or has an inspection warning.
 		movie.Status = StatusPending
 		movie.Error = inspectionErr
 		movie.UpdatedAt = time.Now()

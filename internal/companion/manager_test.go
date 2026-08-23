@@ -176,7 +176,7 @@ func TestScanQueues1080pBluRayForWebDLCompanion(t *testing.T) {
 	}
 }
 
-func TestScanRecognizes1080pCompanionInRemoteRoot(t *testing.T) {
+func TestScanMarksMovieWithMainAndRemoteVideosComplete(t *testing.T) {
 	mainRoot := t.TempDir()
 	remoteRoot := t.TempDir()
 	folderName := "Apollo 13 (1995)"
@@ -208,8 +208,11 @@ func TestScanRecognizes1080pCompanionInRemoteRoot(t *testing.T) {
 		t.Fatal(err)
 	}
 	movie := m.state.Movies[0]
-	if movie.Status != StatusPending {
-		t.Fatalf("remote WEB-DL status = %s, want %s", movie.Status, StatusPending)
+	if movie.Status != StatusComplete {
+		t.Fatalf("movie status = %s, want %s", movie.Status, StatusComplete)
+	}
+	if movie.AddedAt == nil {
+		t.Fatal("completed movie has no added timestamp")
 	}
 	if movie.RemotePath != remoteFolder {
 		t.Fatalf("remote path = %q, want %q", movie.RemotePath, remoteFolder)
@@ -222,7 +225,7 @@ func TestScanRecognizes1080pCompanionInRemoteRoot(t *testing.T) {
 	}
 }
 
-func TestScanRequeuesSkippedMoviesButPreservesAddedMovies(t *testing.T) {
+func TestScanPreservesSkippedAndAddedMovies(t *testing.T) {
 	root := t.TempDir()
 	for _, name := range []string{"Skipped (2020)", "Added (2021)"} {
 		folder := filepath.Join(root, name)
@@ -262,8 +265,8 @@ func TestScanRequeuesSkippedMoviesButPreservesAddedMovies(t *testing.T) {
 	for _, movie := range m.state.Movies {
 		byFolder[movie.FolderName] = movie
 	}
-	if got := byFolder["Skipped (2020)"].Status; got != StatusPending {
-		t.Fatalf("skipped movie status = %s, want %s", got, StatusPending)
+	if got := byFolder["Skipped (2020)"].Status; got != StatusSkipped {
+		t.Fatalf("skipped movie status = %s, want %s", got, StatusSkipped)
 	}
 	added := byFolder["Added (2021)"]
 	if added.Status != StatusComplete || added.QBHash != "existing-hash" || added.AddedAt == nil || !added.AddedAt.Equal(addedAt) {
@@ -427,19 +430,19 @@ func TestTVCompanionScansPrimaryRootsAndInspectsRemoteCopy(t *testing.T) {
 	shows := make(map[string]*Movie, len(view.Movies))
 	for _, show := range view.Movies {
 		shows[show.FolderName] = show
-		if show.Status != StatusPending {
-			t.Fatalf("TV show %q status = %s, want pending", show.FolderName, show.Status)
-		}
 	}
 	show := shows[folderName]
 	if show == nil || show.Title != "Breaking Bad" || show.Year != 2008 {
 		t.Fatalf("TV show state = %+v", show)
 	}
+	if show.Status != StatusComplete || show.AddedAt == nil {
+		t.Fatalf("TV show with main and remote videos should be complete: %+v", show)
+	}
 	if show.RemotePath != remoteFolder || show.RemoteCopy != "1080p" {
 		t.Fatalf("TV remote inspection = %+v", show)
 	}
 	empty := shows["Empty Show (2020)"]
-	if empty == nil || !strings.Contains(empty.Error, "no video file") {
+	if empty == nil || empty.Status != StatusPending || !strings.Contains(empty.Error, "no video file") {
 		t.Fatalf("empty TV show should remain searchable with an inspection note: %+v", empty)
 	}
 }

@@ -211,12 +211,12 @@ title and year; TV searches use the show title only. TV search results are
 ranked with the same evidence as movie results, but CineRoute hides individual
 episode releases such as `S03E04` and only allows season or series packs to be
 approved.
-Every TV folder is placed in the searchable review queue regardless of its
-current quality, size, or existing remote copy, so language companions can be
-reviewed deliberately; skip shows that do not need one.
-Movie scans use the same review-queue rule: every non-added movie is searchable
-regardless of its current quality, size, or remote copy, and a later movie scan
-requeues previously skipped movies. Existing Added movies remain unchanged.
+When both the main and matching remote folder contain video files, a library
+scan automatically classifies the movie or TV show as Added. Otherwise, each
+folder is placed in the searchable review queue regardless of its current
+quality or size, so language companions can be reviewed deliberately. Skipped
+items are never returned to that queue; when both copies are found, they are
+classified as Added. Added items remain unchanged by later library scans.
 
 The **Hardlink** button on a movie or TV companion recreates the main folder's
 relative directory tree below the matching remote root and hardlinks every
