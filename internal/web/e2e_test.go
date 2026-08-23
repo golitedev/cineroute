@@ -17,6 +17,7 @@ import (
 	"time"
 
 	"cineroute/internal/config"
+	"cineroute/internal/library"
 	"cineroute/internal/qbittorrent"
 	"cineroute/internal/tmdb"
 	"cineroute/internal/torrentmeta"
@@ -913,6 +914,65 @@ func TestEndToEndSingleFileMovie(t *testing.T) {
 	if !strings.HasPrefix(j.Intake.Dest.SavePath, roots["/m1"]) && !strings.HasPrefix(j.Intake.Dest.SavePath, roots["/m2"]) &&
 		!strings.HasPrefix(j.Intake.Dest.SavePath, roots["/m3"]) && !strings.HasPrefix(j.Intake.Dest.SavePath, roots["/m4"]) {
 		t.Fatalf("save path not under a movie root: %s", j.Intake.Dest.SavePath)
+	}
+}
+
+func TestNormalIntakeCanUseRemoteDestination(t *testing.T) {
+	srv, fake, httpSrv, roots := newTestServer(t)
+	remoteRoot := filepath.Join(t.TempDir(), "movies-remote1")
+	if err := os.MkdirAll(remoteRoot, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	srv.cfg.Drives = []config.Drive{{
+		ID: "hdd1", MovieRoot: roots["/m1"], MovieRemoteRoot: remoteRoot, TVRoot: roots["/t1"],
+	}}
+	srv.lib = library.NewScan([]library.Drive{{
+		ID: "hdd1", MovieRoot: roots["/m1"], MovieRemoteRoot: remoteRoot, TVRoot: roots["/t1"],
+	}})
+
+	in := uploadTorrent(t, httpSrv, "toy.torrent", singleFileTorrent("Toy.Story.1995.1080p.WEB-DL.mkv", 500))
+	if in.Dest == nil || in.Dest.Remote {
+		t.Fatalf("new intake should default to the normal destination: %+v", in.Dest)
+	}
+	if in.Dest.SavePath != filepath.Join(roots["/m1"], "Toy Story (1995)") {
+		t.Fatalf("normal preview path: %s", in.Dest.SavePath)
+	}
+
+	resp, err := http.Post(httpSrv.URL+"/api/intakes/"+in.ID+"/destination",
+		"application/json", strings.NewReader(`{"remote":true}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var j apiResponse
+	json.NewDecoder(resp.Body).Decode(&j)
+	resp.Body.Close()
+	if j.Error != "" || j.Intake == nil || j.Intake.Dest == nil {
+		t.Fatalf("remote destination selection failed: %+v", j)
+	}
+	want := filepath.Join(remoteRoot, "Toy Story (1995)")
+	if !j.Intake.Dest.Remote || j.Intake.Dest.SavePath != want {
+		t.Fatalf("remote preview = %+v, want %s", j.Intake.Dest, want)
+	}
+
+	resp, _ = http.Post(httpSrv.URL+"/api/intakes/"+in.ID+"/submit",
+		"application/json", strings.NewReader(`{}`))
+	j = apiResponse{}
+	json.NewDecoder(resp.Body).Decode(&j)
+	resp.Body.Close()
+	if j.Intake.Error != "" || j.Intake.Result == nil {
+		t.Fatalf("remote submit failed: %+v", j.Intake)
+	}
+	if j.Intake.Dest.SavePath != want || !j.Intake.Dest.Remote {
+		t.Fatalf("submitted remote destination = %+v, want %s", j.Intake.Dest, want)
+	}
+
+	fake.mu.Lock()
+	defer fake.mu.Unlock()
+	if len(fake.added) != 1 || fake.added[0].savepath != want {
+		t.Fatalf("qBittorrent remote save path = %+v, want %s", fake.added, want)
+	}
+	if _, err := os.Stat(want); err != nil {
+		t.Fatalf("remote parent folder was not created: %v", err)
 	}
 }
 

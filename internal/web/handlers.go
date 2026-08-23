@@ -16,6 +16,7 @@ import (
 	"cineroute/internal/allocator"
 	"cineroute/internal/classifier"
 	"cineroute/internal/companion"
+	"cineroute/internal/config"
 	"cineroute/internal/library"
 	"cineroute/internal/tmdb"
 	"cineroute/internal/torrentmeta"
@@ -49,6 +50,7 @@ type intakeJSON struct {
 	TMDB        []tmdb.Result `json:"tmdb"`
 	TMDBError   string        `json:"tmdb_error"`
 	Match       *tmdb.Result  `json:"match"`
+	Remote      bool          `json:"remote"`
 	Dest        *Destination  `json:"dest"`
 	Status      string        `json:"status"`
 	Error       string        `json:"error"`
@@ -77,6 +79,7 @@ func toJSON(in *Intake) *intakeJSON {
 		TMDB:        in.TMDBResults,
 		TMDBError:   in.TMDBError,
 		Match:       in.Match,
+		Remote:      in.Remote,
 		Dest:        in.Dest,
 		Status:      in.Status,
 		Error:       in.Error,
@@ -787,6 +790,75 @@ func (s *Server) match(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, apiResponse{Intake: toJSON(in)})
 }
 
+// setDestinationMode changes the normal-intake destination for the whole
+// intake group. TV seasons are stacked together, so they must all use the
+// same normal or remote root and the same drive allocation preview.
+func (s *Server) setDestinationMode(w http.ResponseWriter, r *http.Request) {
+	in, ok := s.getIntake(r.PathValue("id"))
+	if !ok {
+		writeErr(w, http.StatusNotFound, "intake not found")
+		return
+	}
+	var body struct {
+		Remote bool `json:"remote"`
+	}
+	r.Body = http.MaxBytesReader(w, r.Body, 1<<20)
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		writeErr(w, http.StatusBadRequest, "invalid body")
+		return
+	}
+
+	// Serialize the preview update against a submit so the user's choice is
+	// also the choice captured by the authoritative submission transaction.
+	s.allocMu.Lock()
+	defer s.allocMu.Unlock()
+
+	s.mu.RLock()
+	if in.Status == "submitted" || in.Status == "submitting" {
+		s.mu.RUnlock()
+		writeErr(w, http.StatusConflict, "cannot change the destination of a submitted intake")
+		return
+	}
+	key := groupKey(in)
+	s.mu.RUnlock()
+
+	members := s.groupMembers(key)
+	matched := make(map[*Intake]bool, len(members))
+	for _, member := range members {
+		s.mu.Lock()
+		if member.Status == "submitted" || member.Status == "submitting" {
+			s.mu.Unlock()
+			continue
+		}
+		member.Remote = body.Remote
+		member.Dest = nil
+		member.Error = ""
+		matched[member] = member.Match != nil
+		s.mu.Unlock()
+	}
+	for _, member := range members {
+		if !matched[member] {
+			continue
+		}
+
+		dest, warn := s.planDestination(member)
+		s.mu.Lock()
+		if member.Status != "submitted" && member.Status != "submitting" {
+			member.Dest = dest
+			member.Error = warn
+		}
+		s.mu.Unlock()
+	}
+
+	s.mu.RLock()
+	out := apiResponse{Intake: toJSON(in)}
+	for _, member := range s.groupMembersLocked(key) {
+		out.Intakes = append(out.Intakes, toJSON(member))
+	}
+	s.mu.RUnlock()
+	writeJSON(w, http.StatusOK, out)
+}
+
 func findResult(results []tmdb.Result, id int) *tmdb.Result {
 	for i := range results {
 		if results[i].ID == id {
@@ -812,6 +884,7 @@ func (s *Server) planDestination(in *Intake) (*Destination, string) {
 
 	d := &Destination{
 		FolderName:  folder,
+		Remote:      in.Remote,
 		RootFolder:  in.Meta.RootFolder,
 		NeededBytes: in.Meta.Size,
 	}
@@ -823,7 +896,18 @@ func (s *Server) planDestination(in *Intake) (*Destination, string) {
 		d.Existing = true
 		d.ExistingPaths = []string{m.Path}
 		d.SavePath = m.Path
+		if in.Remote {
+			remotePath, ok := s.remotePath(isTV, m.DriveID, folder)
+			if !ok {
+				d.EnoughSpace = false
+				return d, s.remoteRootError(isTV, m.DriveID)
+			}
+			d.SavePath = remotePath
+		}
 		d.ContentPath = in.Meta.ContentPath(m.Path)
+		if in.Remote {
+			d.ContentPath = in.Meta.ContentPath(d.SavePath)
+		}
 		d.EnoughSpace = true
 		// The title stays on its drive regardless of free space; a tight
 		// drive only produces a warning.
@@ -849,26 +933,68 @@ func (s *Server) planDestination(in *Intake) (*Destination, string) {
 		return d, "this title exists on multiple drives; resolve the duplicates before submitting"
 	}
 
-	// New title: choose the drive with the most free space.
+	// New title: choose the drive with the most free space. Remote mode only
+	// considers drives that have a usable remote root, so a missing remote
+	// mount cannot turn into a late submit-time surprise.
 	pending := s.pendingReservations()
-	sel, err := s.alloc.Select(s.cfg.Drives, pending, in.Meta.Size)
+	drives := s.cfg.Drives
+	if in.Remote {
+		drives = s.remoteDrives(isTV, folder)
+		if len(drives) == 0 {
+			d.EnoughSpace = false
+			return d, s.remoteRootError(isTV, "")
+		}
+	}
+	sel, err := s.alloc.Select(drives, pending, in.Meta.Size)
 	if err != nil {
 		d.EnoughSpace = false
 		d.Shortfall = in.Meta.Size
 		return d, err.Error()
 	}
-	root := sel.Drive.TVRoot
-	if !isTV {
-		root = sel.Drive.MovieRoot
-	}
 	d.DriveID = sel.Drive.ID
 	d.DriveName = sel.Drive.ID
-	d.SavePath = root + "/" + folder
+	if in.Remote {
+		d.SavePath, _ = s.remotePath(isTV, sel.Drive.ID, folder)
+	} else {
+		root := sel.Drive.TVRoot
+		if !isTV {
+			root = sel.Drive.MovieRoot
+		}
+		d.SavePath = root + "/" + folder
+	}
 	d.ContentPath = in.Meta.ContentPath(d.SavePath)
 	d.UsableSpace = sel.Status.Available
 	d.EnoughSpace = d.UsableSpace >= in.Meta.Size
 	d.Shortfall = in.Meta.Size - d.UsableSpace
 	return d, ""
+}
+
+func (s *Server) remotePath(isTV bool, driveID, folder string) (string, bool) {
+	if isTV {
+		return s.lib.TVRemotePath(driveID, folder)
+	}
+	return s.lib.MovieRemotePath(driveID, folder)
+}
+
+func (s *Server) remoteDrives(isTV bool, folder string) []config.Drive {
+	drives := make([]config.Drive, 0, len(s.cfg.Drives))
+	for _, drive := range s.cfg.Drives {
+		if _, ok := s.remotePath(isTV, drive.ID, folder); ok {
+			drives = append(drives, drive)
+		}
+	}
+	return drives
+}
+
+func (s *Server) remoteRootError(isTV bool, driveID string) string {
+	kind := "movie"
+	if isTV {
+		kind = "TV"
+	}
+	if driveID == "" {
+		return fmt.Sprintf("no %s remote roots are configured or mounted", kind)
+	}
+	return fmt.Sprintf("%s remote root is not configured or mounted for drive %s", kind, driveID)
 }
 
 // driveStatus reports the plain free space of one drive.

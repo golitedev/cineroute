@@ -22,6 +22,7 @@ type submissionRequest struct {
 	Meta               *torrentmeta.MetaInfo
 	MediaType          string
 	Match              tmdb.Result
+	Remote             bool
 	RequireExisting    bool
 	UseMovieRemoteRoot bool
 	UseTVRemoteRoot    bool
@@ -136,6 +137,7 @@ func (s *Server) submitLocked(ctx context.Context, in *Intake) error {
 	class := in.Class
 	bytes := in.Bytes
 	filename := in.Filename
+	remote := in.Remote
 	s.mu.RUnlock()
 	outcome, err := s.submitTorrent(ctx, submissionRequest{
 		Bytes:     bytes,
@@ -143,6 +145,7 @@ func (s *Server) submitLocked(ctx context.Context, in *Intake) error {
 		Meta:      meta,
 		MediaType: class.MediaType,
 		Match:     match,
+		Remote:    remote,
 	})
 	if outcome != nil {
 		s.mu.Lock()
@@ -222,7 +225,13 @@ func (s *Server) submitTorrent(ctx context.Context, req submissionRequest) (*sub
 		// space; a tight drive only produces a warning.
 		savePath = matches[0].Path
 		driveID = matches[0].DriveID
-		if req.UseMovieRemoteRoot {
+		if req.Remote {
+			remotePath, ok := s.remotePath(isTV, driveID, folder)
+			if !ok {
+				return nil, errors.New(s.remoteRootError(isTV, driveID))
+			}
+			savePath = remotePath
+		} else if req.UseMovieRemoteRoot {
 			// An omitted remote root preserves the legacy companion
 			// destination for older configurations.
 			if remotePath, ok := s.lib.MovieRemotePath(driveID, folder); ok {
@@ -240,16 +249,31 @@ func (s *Server) submitTorrent(ctx context.Context, req submissionRequest) (*sub
 			return nil, fmt.Errorf("%s folder no longer exists; rescan the library before approving the companion", itemLabel)
 		}
 		pending := s.pendingReservations()
-		sel, err := s.alloc.Select(s.cfg.Drives, pending, req.Meta.Size)
+		drives := s.cfg.Drives
+		if req.Remote {
+			drives = s.remoteDrives(isTV, folder)
+			if len(drives) == 0 {
+				return nil, errors.New(s.remoteRootError(isTV, ""))
+			}
+		}
+		sel, err := s.alloc.Select(drives, pending, req.Meta.Size)
 		if err != nil {
 			return nil, err
 		}
 		driveID = sel.Drive.ID
-		root := sel.Drive.TVRoot
-		if !isTV {
-			root = sel.Drive.MovieRoot
+		if req.Remote {
+			var ok bool
+			savePath, ok = s.remotePath(isTV, driveID, folder)
+			if !ok {
+				return nil, errors.New(s.remoteRootError(isTV, driveID))
+			}
+		} else {
+			root := sel.Drive.TVRoot
+			if !isTV {
+				root = sel.Drive.MovieRoot
+			}
+			savePath = root + "/" + folder
 		}
-		savePath = root + "/" + folder
 	}
 
 	dest := &Destination{
@@ -257,6 +281,7 @@ func (s *Server) submitTorrent(ctx context.Context, req submissionRequest) (*sub
 		DriveName:   driveID,
 		SavePath:    savePath,
 		FolderName:  folder,
+		Remote:      req.Remote,
 		Existing:    len(matches) > 0,
 		ContentPath: req.Meta.ContentPath(savePath),
 		RootFolder:  req.Meta.RootFolder,

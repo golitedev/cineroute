@@ -70,6 +70,7 @@ type Intake struct {
 	TMDBResults []tmdb.Result
 	TMDBError   string
 	Match       *tmdb.Result
+	Remote      bool
 	Dest        *Destination
 	Status      string
 	Error       string
@@ -92,6 +93,7 @@ type Destination struct {
 	DriveName     string   `json:"drive_name"`
 	SavePath      string   `json:"save_path"`
 	FolderName    string   `json:"folder_name"`
+	Remote        bool     `json:"remote"`
 	Existing      bool     `json:"existing"`
 	ExistingPaths []string `json:"existing_paths,omitempty"`
 	ContentPath   string   `json:"content_path"`
@@ -193,6 +195,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("DELETE /api/intakes/{id}", s.deleteIntake)
 	mux.HandleFunc("POST /api/intakes/{id}/search", s.search)
 	mux.HandleFunc("POST /api/intakes/{id}/match", s.match)
+	mux.HandleFunc("POST /api/intakes/{id}/destination", s.setDestinationMode)
 	mux.HandleFunc("POST /api/intakes/{id}/submit", s.submit)
 	mux.HandleFunc("GET /api/companions", s.listCompanions)
 	mux.HandleFunc("PATCH /api/companions/settings", s.updateCompanionSettings)

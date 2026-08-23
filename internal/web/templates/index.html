@@ -99,6 +99,14 @@ input[type=number]{width:90px}
 .row{display:flex;gap:10px;align-items:center;flex-wrap:wrap}
 .small{color:var(--dim);font-size:12px}
 #files{max-height:160px;overflow:auto}
+.destination-mode{display:flex;align-items:center;justify-content:space-between;gap:12px;margin:14px 0 12px;padding:10px 12px;background:#12151b;border:1px solid var(--border);border-radius:8px}
+.destination-mode-title{font-size:12px;color:var(--dim);text-transform:uppercase;letter-spacing:.05em}
+.destination-mode-buttons{display:inline-flex;gap:0}
+.destination-mode-buttons button{border-radius:0;padding:6px 12px;font-size:12px}
+.destination-mode-buttons button:first-child{border-radius:6px 0 0 6px}
+.destination-mode-buttons button:last-child{border-radius:0 6px 6px 0;margin-left:-1px}
+.destination-mode-buttons button.active{background:var(--accent);border-color:var(--accent);color:#fff;position:relative;z-index:1}
+@media(max-width:480px){.destination-mode{align-items:flex-start;flex-direction:column}.destination-mode-buttons{width:100%}.destination-mode-buttons button{flex:1}}
 /* sign-in page */
 #loginCard{max-width:380px;margin:8vh auto 0;padding:36px 30px;text-align:center}
 #loginCard .login-title{font-size:20px;color:var(--text);text-transform:none;letter-spacing:normal;margin:0 0 6px}
@@ -240,6 +248,7 @@ input[type=number]{width:90px}
 const $=id=>document.getElementById(id);
 let intakes=[];
 const busy=new Set();
+const destinationBusy=new Set();
 let companionData=null;
 let companionType="movie";
 let companionFilter="pending";
@@ -406,6 +415,20 @@ async function search(id){
 }
 async function pick(id,rid){
   try{await postJSON("/api/intakes/"+id+"/match",{tmdb_id:rid});await refresh()}catch(e){alert(e.message)}
+}
+function destinationModeHTML(x,disabled=false){
+  const remote=!!(x.dest?x.dest.remote:x.remote);
+  const locked=disabled||destinationBusy.has(x.group||x.id);
+  return '<div class="destination-mode"><div><div class="destination-mode-title">Destination root</div><div class="small">'+(remote?'Remote library root':'Primary library root')+'</div></div><div class="destination-mode-buttons" role="group" aria-label="Destination root"><button type="button" class="'+(!remote?'active':'')+'" aria-pressed="'+(!remote)+'" onclick="setDestinationMode(\''+esc(x.id)+'\',false)"'+(locked?' disabled':'')+'>Normal</button><button type="button" class="'+(remote?'active':'')+'" aria-pressed="'+remote+'" onclick="setDestinationMode(\''+esc(x.id)+'\',true)"'+(locked?' disabled':'')+'>Remote</button></div></div>';
+}
+async function setDestinationMode(id,remote){
+  const intake=intakes.find(x=>x.id===id);if(!intake)return;
+  const key=intake.group||id;
+  if(destinationBusy.has(key)||busy.has(key))return;
+  destinationBusy.add(key);render();
+  try{await postJSON("/api/intakes/"+id+"/destination",{remote})}catch(e){alert(e.message)}
+  destinationBusy.delete(key);
+  await refresh();
 }
 async function submit(id){
   const g=intakes.find(x=>x.id===id);if(!g)return;
@@ -794,7 +817,8 @@ function destHTML(x){
     ];
   }
   let html='<div style="margin-top:14px"><h2>Destination</h2>'+
-    '<table class="kv"><tbody>'+rows.map(r=>"<tr><td>"+r[0]+"</td><td>"+r[1]+"</td></tr>").join("")+'</tbody></table>';
+    destinationModeHTML(x,x.status==="submitted"||x.status==="submitting"||busy.has(x.group));
+  html+='<table class="kv"><tbody>'+rows.map(r=>"<tr><td>"+r[0]+"</td><td>"+r[1]+"</td></tr>").join("")+'</tbody></table>';
   if(dest&&dest.warnings&&dest.warnings.length){
     html+='<div class="errbox" style="background:#2b2412;border-color:#6b5214;color:#e3b341">'+esc(dest.warnings.join("\n"))+"</div>";
   }
@@ -843,6 +867,7 @@ function cardTV(g){
   if(rep.match){
     const dest=rep.dest;
     html+='<div style="margin-top:14px"><h2>Destination</h2>'+
+      destinationModeHTML(rep,allSubmitted||busy.has(busyKey)||g.some(x=>x.status==="submitting"))+
       '<table class="kv"><tbody>'+
       "<tr><td>TMDB title</td><td>"+esc(rep.match.title||rep.match.name)+"</td></tr>"+
       "<tr><td>Canonical folder</td><td class='mono'>"+esc(dest.folder_name)+"</td></tr>"+
