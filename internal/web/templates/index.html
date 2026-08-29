@@ -127,10 +127,8 @@ input[type=number]{width:90px}
 #loginCard .login-btn{width:100%;padding:11px;font-size:14px;border-radius:8px}
 #loginCard .login-btn:disabled{opacity:.6;cursor:not-allowed}
 #loginCard .errbox{margin-top:16px;text-align:left}
-.hardlink-hero{background:linear-gradient(135deg,#191f2b 0%,#171a21 58%,#18231f 100%);overflow:hidden}
+.hardlink-hero{background:var(--panel);overflow:hidden}
 .hardlink-hero-top{display:flex;justify-content:space-between;gap:18px;align-items:flex-start}
-.hardlink-eyebrow{color:#70a7ff;font-size:11px;font-weight:650;letter-spacing:.12em;text-transform:uppercase;margin-bottom:5px}
-.hardlink-hero h2{font-size:22px;color:var(--text);text-transform:none;letter-spacing:normal;margin:0 0 5px}
 .hardlink-hero p{color:var(--dim);margin:0;max-width:560px}
 .hardlink-scan-button{white-space:nowrap}
 .hardlink-scan-note{min-height:18px;margin-top:14px}
@@ -193,7 +191,7 @@ input[type=number]{width:90px}
   <button id="routeTab" class="primary" onclick="showView('route')">Route torrents</button>
   <button id="movieCompanionTab" onclick="showView('companions',true,'movie')">Movie Companions</button>
   <button id="tvCompanionTab" onclick="showView('companions',true,'tv')">TV Companions</button>
-  <button id="hardlinksTab" onclick="showView('hardlinks')">Manage hardlinks</button>
+  <button id="hardlinksTab" onclick="showView('hardlinks')">Hardlinks</button>
 </div>
 
 <div class="card hidden" id="loginCard">
@@ -301,8 +299,7 @@ input[type=number]{width:90px}
   <div class="card hardlink-hero">
     <div class="hardlink-hero-top">
       <div>
-        <div class="hardlink-eyebrow">Filesystem links</div>
-        <h2>Manage hardlinks</h2>
+        <h2>Manage Hardlinks</h2>
         <p>See every remote folder CineRoute can verify, keep folder names in sync, and remove links without touching the primary library.</p>
       </div>
       <button id="hardlinkScanButton" class="primary hardlink-scan-button" onclick="scanHardlinks()">Scan hardlinks</button>
