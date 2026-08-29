@@ -12,10 +12,12 @@ import (
 
 // HardlinkResult describes one completed main-to-remote folder link.
 type HardlinkResult struct {
-	SourcePath      string `json:"source_path"`
-	DestinationPath string `json:"destination_path"`
-	LinkedFiles     int    `json:"linked_files"`
-	ExistingFiles   int    `json:"existing_files"`
+	SourcePath            string `json:"source_path"`
+	DestinationPath       string `json:"destination_path"`
+	LinkedFiles           int    `json:"linked_files"`
+	ExistingFiles         int    `json:"existing_files"`
+	MovedFiles            int    `json:"moved_files,omitempty"`
+	RemovedDuplicateFiles int    `json:"removed_duplicate_files,omitempty"`
 }
 
 type hardlinkEntry struct {
@@ -74,25 +76,12 @@ func hardlinkTree(sourceRoot, destinationRoot string) (HardlinkResult, error) {
 	sourceRoot = filepath.Clean(sourceRoot)
 	destinationRoot = filepath.Clean(destinationRoot)
 	result := HardlinkResult{SourcePath: sourceRoot, DestinationPath: destinationRoot}
-	if sourceRoot == "." || destinationRoot == "." || sourceRoot == destinationRoot {
-		return result, errors.New("hardlink source and destination must be different absolute folders")
-	}
-	if !filepath.IsAbs(sourceRoot) || !filepath.IsAbs(destinationRoot) {
-		return result, errors.New("hardlink source and destination must be absolute folders")
-	}
-	if pathsOverlap(sourceRoot, destinationRoot) {
-		return result, errors.New("hardlink source and destination folders must not contain one another")
-	}
-	sourceInfo, err := os.Lstat(sourceRoot)
-	if err != nil {
-		return result, fmt.Errorf("inspect hardlink source: %w", err)
-	}
-	if !sourceInfo.IsDir() || sourceInfo.Mode()&os.ModeSymlink != 0 {
-		return result, errors.New("hardlink source must be a real directory, not a symlink")
+	if err := validateHardlinkRoots(sourceRoot, destinationRoot); err != nil {
+		return result, err
 	}
 
 	entries := []hardlinkEntry{{source: sourceRoot, target: destinationRoot, dir: true}}
-	err = filepath.WalkDir(sourceRoot, func(path string, entry fs.DirEntry, walkErr error) error {
+	err := filepath.WalkDir(sourceRoot, func(path string, entry fs.DirEntry, walkErr error) error {
 		if walkErr != nil {
 			return walkErr
 		}

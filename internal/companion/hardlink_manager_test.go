@@ -42,6 +42,18 @@ func TestHardlinkManagerRelinksRenamedMovieAndPreservesExtraFiles(t *testing.T) 
 	if err := os.Rename(oldSource, newSource); err != nil {
 		t.Fatal(err)
 	}
+	if err := os.Rename(filepath.Join(newSource, "extras"), filepath.Join(newSource, "artwork")); err != nil {
+		t.Fatal(err)
+	}
+	// Simulate an earlier additive relink: the current path exists, but the
+	// old hardlinked path is still present beside it.
+	duplicateTarget := filepath.Join(oldRemote, "artwork", "poster.jpg")
+	if err := os.MkdirAll(filepath.Dir(duplicateTarget), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Link(filepath.Join(newSource, "artwork", "poster.jpg"), duplicateTarget); err != nil {
+		t.Fatal(err)
+	}
 
 	showSource := filepath.Join(tvPrimary, "Example Show (2021)")
 	showRemote := filepath.Join(tvRemote, "Example Show (2021)")
@@ -68,8 +80,8 @@ func TestHardlinkManagerRelinksRenamedMovieAndPreservesExtraFiles(t *testing.T) 
 	if err != nil {
 		t.Fatal(err)
 	}
-	if view.Stats.Total != 2 || view.Stats.Movies != 1 || view.Stats.TVShows != 1 || view.Stats.LinkedFiles != 3 {
-		t.Fatalf("stats = %+v, want two folders, one movie, one TV, three files", view.Stats)
+	if view.Stats.Total != 2 || view.Stats.Movies != 1 || view.Stats.TVShows != 1 || view.Stats.LinkedFiles != 4 {
+		t.Fatalf("stats = %+v, want two folders, one movie, one TV, four remote links including the duplicate", view.Stats)
 	}
 
 	var renamed *HardlinkItem
@@ -79,7 +91,7 @@ func TestHardlinkManagerRelinksRenamedMovieAndPreservesExtraFiles(t *testing.T) 
 			break
 		}
 	}
-	if renamed == nil || renamed.Status != "needs_relink" || renamed.SourceFolder != "New Title (2020)" || renamed.RemoteFolder != "Old Title (2020)" {
+	if renamed == nil || renamed.Status != "needs_relink" || renamed.SourceFolder != "New Title (2020)" || renamed.RemoteFolder != "Old Title (2020)" || renamed.PathsMatch {
 		t.Fatalf("renamed item = %+v, want needs_relink with the current source name", renamed)
 	}
 
@@ -91,8 +103,17 @@ func TestHardlinkManagerRelinksRenamedMovieAndPreservesExtraFiles(t *testing.T) 
 	if result.DestinationPath != newRemote {
 		t.Fatalf("relink destination = %q, want %q", result.DestinationPath, newRemote)
 	}
+	if result.RemovedDuplicateFiles != 1 {
+		t.Fatalf("relink removed duplicates = %d, want 1", result.RemovedDuplicateFiles)
+	}
 	if _, err := os.Stat(oldRemote); !os.IsNotExist(err) {
 		t.Fatalf("old remote folder still exists: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(newRemote, "extras")); !os.IsNotExist(err) {
+		t.Fatalf("old nested remote folder still exists: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(newRemote, "artwork", "poster.jpg")); err != nil {
+		t.Fatalf("renamed nested remote link is missing: %v", err)
 	}
 	if len(refreshed.Items) != 2 {
 		t.Fatalf("refreshed items = %d, want 2", len(refreshed.Items))

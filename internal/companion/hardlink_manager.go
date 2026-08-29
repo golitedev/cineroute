@@ -61,6 +61,7 @@ type HardlinkItem struct {
 	SourceExists    bool           `json:"source_exists"`
 	RemoteExists    bool           `json:"remote_exists"`
 	NameMatches     bool           `json:"name_matches"`
+	PathsMatch      bool           `json:"paths_match"`
 	CanRelink       bool           `json:"can_relink"`
 	CanRemove       bool           `json:"can_remove"`
 	LinkedFiles     int            `json:"linked_files"`
@@ -227,8 +228,15 @@ func (m *HardlinkManager) Relink(ctx context.Context, id string) (HardlinkResult
 			return HardlinkResult{}, view, fmt.Errorf("rename remote hardlink folder: %w", err)
 		}
 	}
-	result, err := hardlinkTree(item.SourcePath, destination)
+	result, err := reconcileHardlinkTree(item.SourcePath, destination)
 	if err != nil {
+		// A top-level rename is part of relink. If reconciliation fails, put that
+		// folder name back when possible so a retry sees the same inventory item.
+		if filepath.Clean(item.RemotePath) != filepath.Clean(destination) {
+			if _, oldErr := os.Lstat(item.RemotePath); errors.Is(oldErr, os.ErrNotExist) {
+				_ = os.Rename(destination, item.RemotePath)
+			}
+		}
 		return HardlinkResult{}, view, err
 	}
 	refreshed, scanErr := m.scanLocked(ctx)
@@ -236,6 +244,194 @@ func (m *HardlinkManager) Relink(ctx context.Context, id string) (HardlinkResult
 		return result, HardlinkView{}, scanErr
 	}
 	return result, refreshed, nil
+}
+
+type hardlinkReconcilePlan struct {
+	source *hardlinkSourceFile
+	remote *hardlinkRemoteFile
+	target string
+}
+
+// reconcileHardlinkTree updates an existing remote tree to the source tree's
+// current relative paths. It moves matching hardlinked files where possible,
+// creates only missing links, and removes duplicate old link entries. This is
+// intentionally different from hardlinkTree, which is additive by design.
+func reconcileHardlinkTree(sourceRoot, destinationRoot string) (HardlinkResult, error) {
+	sourceRoot = filepath.Clean(sourceRoot)
+	destinationRoot = filepath.Clean(destinationRoot)
+	result := HardlinkResult{SourcePath: sourceRoot, DestinationPath: destinationRoot}
+	if err := validateHardlinkRoots(sourceRoot, destinationRoot); err != nil {
+		return result, err
+	}
+
+	sourceFiles, err := collectHardlinkSourceFilesStrict(sourceRoot)
+	if err != nil {
+		return result, fmt.Errorf("inspect hardlink source tree: %w", err)
+	}
+	if len(sourceFiles) == 0 {
+		return result, errors.New("hardlink source contains no regular files")
+	}
+	if info, statErr := os.Lstat(destinationRoot); errors.Is(statErr, os.ErrNotExist) {
+		if err := os.MkdirAll(destinationRoot, 0o755); err != nil {
+			return result, fmt.Errorf("create hardlink destination folder %q: %w", destinationRoot, err)
+		}
+	} else if statErr != nil {
+		return result, fmt.Errorf("inspect hardlink destination %q: %w", destinationRoot, statErr)
+	} else if !info.IsDir() || info.Mode()&os.ModeSymlink != 0 {
+		return result, errors.New("hardlink destination must be a real directory, not a symlink")
+	}
+
+	remoteFiles, err := collectHardlinkRemoteFiles(destinationRoot)
+	if err != nil {
+		return result, fmt.Errorf("inspect hardlink destination tree: %w", err)
+	}
+	sourceByInode := make(map[hardlinkInode][]*hardlinkSourceFile, len(sourceFiles))
+	for i := range sourceFiles {
+		key, ok := hardlinkFileInode(sourceFiles[i].info)
+		if !ok {
+			return result, errors.New("inspect hardlink source: file identity is unavailable")
+		}
+		sourceByInode[key] = append(sourceByInode[key], &sourceFiles[i])
+	}
+	remoteByInode := make(map[hardlinkInode][]*hardlinkRemoteFile, len(remoteFiles))
+	for i := range remoteFiles {
+		key, ok := hardlinkFileInode(remoteFiles[i].info)
+		if ok {
+			remoteByInode[key] = append(remoteByInode[key], &remoteFiles[i])
+		}
+	}
+
+	sourceTargets := make(map[string]bool, len(sourceFiles))
+	for _, source := range sourceFiles {
+		sourceTargets[source.relative] = true
+	}
+	usedRemote := map[string]bool{}
+	expectedTargets := map[string]bool{}
+	plans := make([]hardlinkReconcilePlan, 0, len(sourceFiles))
+	for i := range sourceFiles {
+		source := &sourceFiles[i]
+		target := filepath.Join(destinationRoot, source.relative)
+		expectedTargets[target] = true
+		targetInfo, statErr := os.Lstat(target)
+		if statErr == nil {
+			if targetInfo.Mode()&os.ModeSymlink != 0 || !targetInfo.Mode().IsRegular() {
+				return result, fmt.Errorf("hardlink destination conflicts with a non-regular file: %s", target)
+			}
+			if !os.SameFile(source.info, targetInfo) {
+				return result, fmt.Errorf("hardlink destination already contains a different file: %s", target)
+			}
+			usedRemote[target] = true
+			plans = append(plans, hardlinkReconcilePlan{source: source, target: target})
+			continue
+		}
+		if !errors.Is(statErr, os.ErrNotExist) {
+			return result, fmt.Errorf("inspect hardlink destination %q: %w", target, statErr)
+		}
+		key, ok := hardlinkFileInode(source.info)
+		if !ok {
+			return result, errors.New("inspect hardlink source: file identity is unavailable")
+		}
+		remote := chooseReconcileRemoteFile(remoteByInode[key], source.relative, sourceTargets, usedRemote)
+		if remote != nil {
+			usedRemote[remote.path] = true
+		}
+		plans = append(plans, hardlinkReconcilePlan{source: source, remote: remote, target: target})
+	}
+
+	for _, plan := range plans {
+		if err := os.MkdirAll(filepath.Dir(plan.target), 0o755); err != nil {
+			return result, fmt.Errorf("create hardlink destination folder %q: %w", filepath.Dir(plan.target), err)
+		}
+		if plan.remote != nil {
+			if err := os.Rename(plan.remote.path, plan.target); err != nil {
+				return result, fmt.Errorf("move existing hardlink %q: %w", plan.remote.path, err)
+			}
+			result.ExistingFiles++
+			result.MovedFiles++
+			continue
+		}
+		if _, statErr := os.Lstat(plan.target); statErr == nil {
+			result.ExistingFiles++
+			continue
+		} else if !errors.Is(statErr, os.ErrNotExist) {
+			return result, fmt.Errorf("inspect hardlink destination %q: %w", plan.target, statErr)
+		}
+		if err := createHardlinkFile(plan.source.path, plan.target); err != nil {
+			return result, err
+		}
+		result.LinkedFiles++
+	}
+
+	// Any source-linked file left at a non-current path is an old duplicate
+	// from a rename. It is safe to unlink because its inode is still present in
+	// the primary tree and every current target has already been established.
+	currentRemoteFiles, err := collectHardlinkRemoteFiles(destinationRoot)
+	if err != nil {
+		return result, fmt.Errorf("reinspect hardlink destination tree: %w", err)
+	}
+	for _, remote := range currentRemoteFiles {
+		if expectedTargets[remote.path] {
+			continue
+		}
+		key, ok := hardlinkFileInode(remote.info)
+		if !ok || len(sourceByInode[key]) == 0 {
+			continue
+		}
+		if err := os.Remove(remote.path); err != nil {
+			return result, fmt.Errorf("remove duplicate hardlink %q: %w", remote.path, err)
+		}
+		result.RemovedDuplicateFiles++
+	}
+	if err := pruneEmptyHardlinkDirs(destinationRoot); err != nil {
+		return result, err
+	}
+	return result, nil
+}
+
+func chooseReconcileRemoteFile(matches []*hardlinkRemoteFile, relative string, sourceTargets, used map[string]bool) *hardlinkRemoteFile {
+	for _, match := range matches {
+		if used[match.path] || match.relative == relative || sourceTargets[match.relative] {
+			continue
+		}
+		return match
+	}
+	return nil
+}
+
+func collectHardlinkSourceFilesStrict(root string) ([]hardlinkSourceFile, error) {
+	files := make([]hardlinkSourceFile, 0)
+	err := filepath.WalkDir(root, func(path string, entry fs.DirEntry, walkErr error) error {
+		if walkErr != nil {
+			return walkErr
+		}
+		if path == root {
+			return nil
+		}
+		relative, relErr := filepath.Rel(root, path)
+		if relErr != nil || relative == "." || relative == ".." || strings.HasPrefix(relative, ".."+string(filepath.Separator)) {
+			return fmt.Errorf("derive safe relative path for %q", path)
+		}
+		if entry.Type()&os.ModeSymlink != 0 {
+			return fmt.Errorf("hardlink source contains a symlink: %s", relative)
+		}
+		if entry.IsDir() {
+			return nil
+		}
+		info, err := entry.Info()
+		if err != nil {
+			return err
+		}
+		if !info.Mode().IsRegular() {
+			return fmt.Errorf("hardlink source contains a non-regular file: %s", relative)
+		}
+		files = append(files, hardlinkSourceFile{path: path, relative: relative, info: info})
+		return nil
+	})
+	if err != nil {
+		return nil, err
+	}
+	sort.Slice(files, func(i, j int) bool { return files[i].relative < files[j].relative })
+	return files, nil
 }
 
 // Remove unlinks only files verified against the source inode. If the source
@@ -574,11 +770,19 @@ func makeHardlinkItem(root hardlinkRoot, remotePath string, remoteFiles []hardli
 	item.LinkedBytes = best.linkedBytes
 	item.ExtraFileCount = item.RemoteFileCount - item.LinkedFiles
 	item.NameMatches = item.SourceFolder == item.RemoteFolder
+	item.PathsMatch = best.relativeMatches == best.linkedFiles
 	item.CanRelink = true
 	item.CanRemove = item.LinkedFiles > 0
-	if !item.NameMatches {
+	if !item.NameMatches || !item.PathsMatch {
 		item.Status = "needs_relink"
-		item.StatusReason = fmt.Sprintf("Primary folder is %q while the remote folder is %q.", item.SourceFolder, item.RemoteFolder)
+		switch {
+		case !item.NameMatches && !item.PathsMatch:
+			item.StatusReason = fmt.Sprintf("Primary folder is %q while the remote folder is %q, and linked files are at older relative paths.", item.SourceFolder, item.RemoteFolder)
+		case !item.NameMatches:
+			item.StatusReason = fmt.Sprintf("Primary folder is %q while the remote folder is %q.", item.SourceFolder, item.RemoteFolder)
+		default:
+			item.StatusReason = "Some linked files are at older relative paths; relink will align the remote tree with the primary library."
+		}
 	} else if item.LinkedFiles < item.SourceFileCount {
 		item.Status = "partial"
 		item.StatusReason = fmt.Sprintf("%d of %d primary files are linked.", item.LinkedFiles, item.SourceFileCount)
@@ -684,6 +888,40 @@ func hardlinkCount(info os.FileInfo) uint64 {
 		return 0
 	}
 	return uint64(stat.Nlink)
+}
+
+func validateHardlinkRoots(sourceRoot, destinationRoot string) error {
+	if sourceRoot == "." || destinationRoot == "." || sourceRoot == destinationRoot {
+		return errors.New("hardlink source and destination must be different absolute folders")
+	}
+	if !filepath.IsAbs(sourceRoot) || !filepath.IsAbs(destinationRoot) {
+		return errors.New("hardlink source and destination must be absolute folders")
+	}
+	if pathsOverlap(sourceRoot, destinationRoot) {
+		return errors.New("hardlink source and destination folders must not contain one another")
+	}
+	sourceInfo, err := os.Lstat(sourceRoot)
+	if err != nil {
+		return fmt.Errorf("inspect hardlink source: %w", err)
+	}
+	if !sourceInfo.IsDir() || sourceInfo.Mode()&os.ModeSymlink != 0 {
+		return errors.New("hardlink source must be a real directory, not a symlink")
+	}
+	return nil
+}
+
+func createHardlinkFile(source, target string) error {
+	if err := os.Link(source, target); err != nil {
+		switch {
+		case errors.Is(err, syscall.EXDEV):
+			return fmt.Errorf("hardlink %q: source and destination are on different mounts or Btrfs subvolumes", target)
+		case errors.Is(err, syscall.EPERM), errors.Is(err, syscall.EACCES):
+			return fmt.Errorf("hardlink %q: permission denied for CineRoute's container user: %w", target, err)
+		default:
+			return fmt.Errorf("hardlink %q: %w", target, err)
+		}
+	}
+	return nil
 }
 
 func hardlinkPathWithin(root, path string) bool {
