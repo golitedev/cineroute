@@ -124,6 +124,7 @@ type Server struct {
 	lib          *library.Scan
 	companions   *companion.Manager
 	tvCompanions *companion.Manager
+	hardlinks    *companion.HardlinkManager
 	allocMu      sync.Mutex
 	page         *template.Template
 
@@ -156,6 +157,7 @@ func New(cfg *config.Config, qb *qbittorrent.Client, tmdbClient *tmdb.Client, pr
 		lib:          scan,
 		companions:   companion.NewManager(cfg, scan, prowlarrClient),
 		tvCompanions: companion.NewTVManager(cfg, scan, prowlarrClient),
+		hardlinks:    companion.NewHardlinkManager(scan),
 		intakes:      map[string]*Intake{},
 	}
 	s.page = template.Must(template.New("index.html").ParseFS(assetsFS, "templates/index.html"))
@@ -208,6 +210,10 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("POST /api/companions/{id}/skip", s.skipCompanion)
 	mux.HandleFunc("POST /api/companions/{id}/approve", s.approveCompanion)
 	mux.HandleFunc("POST /api/intakes/{id}/companion-search", s.searchIntakeCompanion)
+	mux.HandleFunc("GET /api/hardlinks", s.listHardlinks)
+	mux.HandleFunc("POST /api/hardlinks/scan", s.scanHardlinks)
+	mux.HandleFunc("DELETE /api/hardlinks/{id}", s.removeHardlink)
+	mux.HandleFunc("POST /api/hardlinks/{id}/relink", s.relinkHardlink)
 	return s.auth(mux)
 }
 

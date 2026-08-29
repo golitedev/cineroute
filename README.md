@@ -11,9 +11,9 @@ the drive with the most free space, creates only the parent folder
 verifies the save path, content layout, category and settings exactly, then
 starts it.
 
-That's it. No renaming, moving, hardlinking, completion monitoring, or
-post-processing — original torrent filenames and internal folder structure
-are preserved verbatim.
+The routing flow does not rename, move, or post-process downloaded content;
+original torrent filenames and internal folder structure are preserved
+verbatim. Hardlinks are managed separately from the companion workflow.
 
 ## Workflow
 
@@ -191,8 +191,8 @@ intake. When a drive has `movie_remote_root` or `tv_remote_root` configured—or
 the conventional `/mN`/`/mrN` or `/tN`/`/trN` aliases are both mounted—the
 companion goes into the matching folder there; the folder is created if it is
 not already present. The main library folder remains the authoritative drive
-anchor. Scans never read remote roots as a source library and never rename
-files or folders.
+anchor. Companion scans never read remote roots as a source library and never
+rename files or folders.
 
 The feature uses small SQLite databases for the queue, search candidates and
 search history: normally `/data/companions.db` for movies and
@@ -225,6 +225,15 @@ special files and conflicting destination files are rejected. Main and remote
 roots must be below the same `/hddN` mount and the CineRoute UID/GID must be
 allowed to create files in the remote root. Hardlinks cannot cross filesystems,
 container mounts or Btrfs subvolumes.
+
+The **Manage hardlinks** tab scans all configured remote movie and TV roots and
+identifies hardlinks by inode, including links whose primary folder was renamed
+outside CineRoute. It shows source and remote paths, file maps, link counts,
+linked data, health and relink warnings. **Relink** moves a remote folder to
+the current primary folder name and reapplies the normal hardlink tree.
+**Remove** unlinks only verified hardlinked files and keeps the primary files
+and unrelated remote files. The tab can be rescanned at any time and supports
+searching and status/media filters.
 
 Each companion page can run a limited next batch (default 20 items), cancel a
 running batch, and set the delay between actual Prowlarr searches.

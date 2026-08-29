@@ -304,6 +304,58 @@ func (s *Server) hardlinkCompanion(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+func (s *Server) listHardlinks(w http.ResponseWriter, r *http.Request) {
+	if s.hardlinks == nil {
+		writeErr(w, http.StatusServiceUnavailable, "hardlink manager is unavailable")
+		return
+	}
+	view, err := s.hardlinks.View(r.Context())
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, view)
+}
+
+func (s *Server) scanHardlinks(w http.ResponseWriter, r *http.Request) {
+	if s.hardlinks == nil {
+		writeErr(w, http.StatusServiceUnavailable, "hardlink manager is unavailable")
+		return
+	}
+	view, err := s.hardlinks.View(r.Context())
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, view)
+}
+
+func (s *Server) removeHardlink(w http.ResponseWriter, r *http.Request) {
+	if s.hardlinks == nil {
+		writeErr(w, http.StatusServiceUnavailable, "hardlink manager is unavailable")
+		return
+	}
+	result, view, err := s.hardlinks.Remove(r.Context(), r.PathValue("id"))
+	if err != nil {
+		writeErr(w, http.StatusConflict, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"result": result, "view": view})
+}
+
+func (s *Server) relinkHardlink(w http.ResponseWriter, r *http.Request) {
+	if s.hardlinks == nil {
+		writeErr(w, http.StatusServiceUnavailable, "hardlink manager is unavailable")
+		return
+	}
+	result, view, err := s.hardlinks.Relink(r.Context(), r.PathValue("id"))
+	if err != nil {
+		writeErr(w, http.StatusConflict, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"result": result, "view": view})
+}
+
 func (s *Server) skipCompanion(w http.ResponseWriter, r *http.Request) {
 	manager := s.companionManager(r)
 	if manager == nil {

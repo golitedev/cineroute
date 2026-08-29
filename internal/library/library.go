@@ -42,7 +42,16 @@ type Scan struct {
 }
 
 func NewScan(drives []Drive) *Scan {
-	return &Scan{drives: drives}
+	return &Scan{drives: append([]Drive(nil), drives...)}
+}
+
+// Drives returns a copy of the configured roots for filesystem operations
+// that need to inspect both primary and remote library trees.
+func (s *Scan) Drives() []Drive {
+	if s == nil {
+		return nil
+	}
+	return append([]Drive(nil), s.drives...)
 }
 
 func (s *Scan) FindMovie(canonical string) []Folder {
