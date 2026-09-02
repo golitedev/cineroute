@@ -127,6 +127,7 @@ input[type=number]{width:90px}
 #loginCard .login-btn{width:100%;padding:11px;font-size:14px;border-radius:8px}
 #loginCard .login-btn:disabled{opacity:.6;cursor:not-allowed}
 #loginCard .errbox{margin-top:16px;text-align:left}
+#appShell.hidden{display:none}
 .hardlink-hero{background:var(--panel);overflow:hidden}
 .hardlink-hero-top{display:flex;justify-content:space-between;gap:18px;align-items:flex-start}
 .hardlink-hero p{color:var(--dim);margin:0;max-width:560px}
@@ -186,14 +187,6 @@ input[type=number]{width:90px}
   <div id="statusbar" style="margin-left:auto"></div>
 </header>
 <main>
-
-<div class="view-nav" id="viewNav">
-  <button id="routeTab" class="primary" onclick="showView('route')">Route torrents</button>
-  <button id="movieCompanionTab" onclick="showView('companions',true,'movie')">Movie Companions</button>
-  <button id="tvCompanionTab" onclick="showView('companions',true,'tv')">TV Companions</button>
-  <button id="hardlinksTab" onclick="showView('hardlinks')">Hardlinks</button>
-</div>
-
 <div class="card hidden" id="loginCard">
   <h2 class="login-title">Sign in to CineRoute</h2>
   <p class="login-sub">Enter your credentials to continue.</p>
@@ -211,6 +204,14 @@ input[type=number]{width:90px}
   </div>
   <button class="primary login-btn" id="loginBtn" onclick="login()">Sign in</button>
   <div id="loginErr" class="errbox hidden"></div>
+</div>
+
+<div id="appShell" class="hidden">
+<div class="view-nav" id="viewNav">
+  <button id="routeTab" class="primary" onclick="showView('route')">Route torrents</button>
+  <button id="movieCompanionTab" onclick="showView('companions',true,'movie')">Movie Companions</button>
+  <button id="tvCompanionTab" onclick="showView('companions',true,'tv')">TV Companions</button>
+  <button id="hardlinksTab" onclick="showView('hardlinks')">Hardlinks</button>
 </div>
 
 <div id="routeView">
@@ -325,6 +326,7 @@ input[type=number]{width:90px}
   <div id="hardlinkList" class="hardlink-list"></div>
   <div id="hardlinkPagination" class="pagination"></div>
 </div>
+</div>
 
 </main>
 <script>
@@ -378,6 +380,7 @@ async function api(path,opts={}){
   const r=await fetch(path,opts);
   const j=await r.json().catch(()=>({}));
   if(r.status===401&&path!=="/api/login")showLogin();
+  else if(r.ok)showApp();
   if(!r.ok&&!j.intake)throw new Error(j.error||("HTTP "+r.status));
   return j;
 }
@@ -397,11 +400,8 @@ async function login(){
   btn.disabled=true;btn.textContent="Signing in…";
   try{
     await postJSON("/api/login",{username:user,password:pass});
-    $("loginCard").classList.add("hidden");
-    $("viewNav").classList.remove("hidden");
-    $("routeView").classList.remove("hidden");
+    showView("route",false);
     $("uploadCard").classList.remove("hidden");
-    $("statusbar").style.display="";
     loadStatus();loadHistory();refresh();
   }catch(e){
     $("loginErr").textContent=e.message;
@@ -425,16 +425,19 @@ function togglePass(){
   t.setAttribute("aria-label",label);
   i.focus();
 }
+function showApp(){
+  $("loginCard").classList.add("hidden");
+  $("appShell").classList.remove("hidden");
+  $("statusbar").style.display="";
+}
 function showLogin(){
-  if($("loginCard").classList.contains("hidden")){
-    $("routeView").classList.add("hidden");
-    $("companionView").classList.add("hidden");
-    $("hardlinkView").classList.add("hidden");
-    $("viewNav").classList.add("hidden");
-    $("stack").innerHTML="";
-    $("historyCard").classList.add("hidden");
-    $("loginCard").classList.remove("hidden");
-    $("statusbar").style.display="none";
+  const opening=$("loginCard").classList.contains("hidden");
+  $("appShell").classList.add("hidden");
+  $("stack").innerHTML="";
+  $("historyCard").classList.add("hidden");
+  $("loginCard").classList.remove("hidden");
+  $("statusbar").style.display="none";
+  if(opening){
     $("loginUser").value="";
     $("loginPass").value="";
     $("loginUser").focus();
