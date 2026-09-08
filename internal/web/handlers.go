@@ -50,6 +50,7 @@ type intakeJSON struct {
 	TMDB        []tmdb.Result `json:"tmdb"`
 	TMDBError   string        `json:"tmdb_error"`
 	Match       *tmdb.Result  `json:"match"`
+	Library     string        `json:"library"`
 	Remote      bool          `json:"remote"`
 	Dest        *Destination  `json:"dest"`
 	Status      string        `json:"status"`
@@ -79,6 +80,7 @@ func toJSON(in *Intake) *intakeJSON {
 		TMDB:        in.TMDBResults,
 		TMDBError:   in.TMDBError,
 		Match:       in.Match,
+		Library:     in.Library,
 		Remote:      in.Remote,
 		Dest:        in.Dest,
 		Status:      in.Status,
@@ -466,9 +468,9 @@ func (s *Server) searchIntakeCompanion(w http.ResponseWriter, r *http.Request) {
 	}
 	s.mu.RLock()
 	mediaType := in.Class.MediaType
-	if (mediaType != "movie" && mediaType != "tv") || in.Status != "submitted" || in.Match == nil || in.Result == nil || in.Dest == nil {
+	if in.Library == "anime" || (mediaType != "movie" && mediaType != "tv") || in.Status != "submitted" || in.Match == nil || in.Result == nil || in.Dest == nil {
 		s.mu.RUnlock()
-		writeErr(w, http.StatusConflict, "only a successfully submitted movie or TV show can search for a companion")
+		writeErr(w, http.StatusConflict, "only a successfully submitted normal movie or TV show can search for a companion")
 		return
 	}
 	driveID := in.Result.DriveID
@@ -573,7 +575,8 @@ func (s *Server) ingestFile(fh *multipart.FileHeader) (*Intake, error) {
 			MediaType: cls.MediaType, Title: cls.Title, AltTitle: cls.AltTitle,
 			Year: cls.Year, Season: cls.Season, Confidence: cls.Confidence,
 		},
-		Status: "parsed",
+		Library: cls.MediaType,
+		Status:  "parsed",
 	}
 	s.searchTMDB(in)
 	s.autoConfirm(in)
@@ -648,6 +651,9 @@ func (s *Server) setType(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	in.Class.MediaType = body.MediaType
+	if in.Library != "anime" {
+		in.Library = body.MediaType
+	}
 	in.Match = nil
 	in.Dest = nil
 	in.Error = ""
@@ -845,9 +851,9 @@ func (s *Server) match(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, apiResponse{Intake: toJSON(in)})
 }
 
-// setDestinationMode changes the normal-intake destination for the whole
-// intake group. TV seasons are stacked together, so they must all use the
-// same normal or remote root and the same drive allocation preview.
+// setDestinationMode changes the destination library for the whole intake
+// group. TV seasons are stacked together, so they must all use the same
+// normal, remote, or anime root and the same drive allocation preview.
 func (s *Server) setDestinationMode(w http.ResponseWriter, r *http.Request) {
 	in, ok := s.getIntake(r.PathValue("id"))
 	if !ok {
@@ -855,11 +861,26 @@ func (s *Server) setDestinationMode(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var body struct {
-		Remote bool `json:"remote"`
+		Remote  bool   `json:"remote"`
+		Library string `json:"library"`
 	}
 	r.Body = http.MaxBytesReader(w, r.Body, 1<<20)
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 		writeErr(w, http.StatusBadRequest, "invalid body")
+		return
+	}
+	s.mu.RLock()
+	mediaType := in.Class.MediaType
+	s.mu.RUnlock()
+	if body.Library == "" {
+		body.Library = mediaType
+	}
+	if body.Library != mediaType && body.Library != "anime" {
+		writeErr(w, http.StatusBadRequest, "library must match the media type or be anime")
+		return
+	}
+	if body.Library == "anime" && body.Remote {
+		writeErr(w, http.StatusBadRequest, "anime has no remote library")
 		return
 	}
 
@@ -886,6 +907,7 @@ func (s *Server) setDestinationMode(w http.ResponseWriter, r *http.Request) {
 			continue
 		}
 		member.Remote = body.Remote
+		member.Library = body.Library
 		member.Dest = nil
 		member.Error = ""
 		matched[member] = member.Match != nil
@@ -929,9 +951,15 @@ func findResult(results []tmdb.Result, id int) *tmdb.Result {
 func (s *Server) planDestination(in *Intake) (*Destination, string) {
 	folder := library.FolderName(s.cfg.Library.FolderFormat, in.Match.DisplayTitle(), in.Match.Year())
 	isTV := in.Class.MediaType == "tv"
+	libraryName := in.Library
+	if libraryName == "" {
+		libraryName = in.Class.MediaType
+	}
 
 	var matches []library.Folder
-	if isTV {
+	if libraryName == "anime" {
+		matches = s.lib.FindAnime(folder)
+	} else if isTV {
 		matches = s.lib.FindTV(folder)
 	} else {
 		matches = s.lib.FindMovie(folder)
@@ -939,6 +967,7 @@ func (s *Server) planDestination(in *Intake) (*Destination, string) {
 
 	d := &Destination{
 		FolderName:  folder,
+		Library:     libraryName,
 		Remote:      in.Remote,
 		RootFolder:  in.Meta.RootFolder,
 		NeededBytes: in.Meta.Size,
@@ -993,7 +1022,13 @@ func (s *Server) planDestination(in *Intake) (*Destination, string) {
 	// mount cannot turn into a late submit-time surprise.
 	pending := s.pendingReservations()
 	drives := s.cfg.Drives
-	if in.Remote {
+	if libraryName == "anime" {
+		drives = s.animeDrives()
+		if len(drives) == 0 {
+			d.EnoughSpace = false
+			return d, "no anime roots are configured"
+		}
+	} else if in.Remote {
 		drives = s.remoteDrives(isTV, folder)
 		if len(drives) == 0 {
 			d.EnoughSpace = false
@@ -1012,7 +1047,9 @@ func (s *Server) planDestination(in *Intake) (*Destination, string) {
 		d.SavePath, _ = s.remotePath(isTV, sel.Drive.ID, folder)
 	} else {
 		root := sel.Drive.TVRoot
-		if !isTV {
+		if libraryName == "anime" {
+			root = sel.Drive.AnimeRoot
+		} else if !isTV {
 			root = sel.Drive.MovieRoot
 		}
 		d.SavePath = root + "/" + folder
@@ -1035,6 +1072,16 @@ func (s *Server) remoteDrives(isTV bool, folder string) []config.Drive {
 	drives := make([]config.Drive, 0, len(s.cfg.Drives))
 	for _, drive := range s.cfg.Drives {
 		if _, ok := s.remotePath(isTV, drive.ID, folder); ok {
+			drives = append(drives, drive)
+		}
+	}
+	return drives
+}
+
+func (s *Server) animeDrives() []config.Drive {
+	drives := make([]config.Drive, 0, len(s.cfg.Drives))
+	for _, drive := range s.cfg.Drives {
+		if drive.AnimeRoot != "" {
 			drives = append(drives, drive)
 		}
 	}

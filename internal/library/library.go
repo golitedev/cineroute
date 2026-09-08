@@ -13,15 +13,17 @@ import (
 	"unicode"
 )
 
-// Drive describes one physical drive with its primary and optional remote
-// movie/TV roots. Remote roots are sibling directories on the same volume and
-// are used for alternate companion copies such as 1080p releases.
+// Drive describes one physical drive with movie, TV, and optional anime roots.
+// Remote movie/TV roots are sibling directories on the same volume and are
+// used for alternate companion copies such as 1080p releases. Anime is shared
+// from one root and has no remote equivalent.
 type Drive struct {
 	ID              string
 	MovieRoot       string
 	MovieRemoteRoot string
 	TVRoot          string
 	TVRemoteRoot    string
+	AnimeRoot       string
 }
 
 type Folder struct {
@@ -60,6 +62,10 @@ func (s *Scan) FindMovie(canonical string) []Folder {
 
 func (s *Scan) FindTV(canonical string) []Folder {
 	return s.find(canonical, func(d Drive) string { return d.TVRoot })
+}
+
+func (s *Scan) FindAnime(canonical string) []Folder {
+	return s.find(canonical, func(d Drive) string { return d.AnimeRoot })
 }
 
 // conventionalRemoteRoot detects the container aliases used by the example

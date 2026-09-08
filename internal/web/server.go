@@ -70,6 +70,7 @@ type Intake struct {
 	TMDBResults []tmdb.Result
 	TMDBError   string
 	Match       *tmdb.Result
+	Library     string
 	Remote      bool
 	Dest        *Destination
 	Status      string
@@ -93,6 +94,7 @@ type Destination struct {
 	DriveName     string   `json:"drive_name"`
 	SavePath      string   `json:"save_path"`
 	FolderName    string   `json:"folder_name"`
+	Library       string   `json:"library"`
 	Remote        bool     `json:"remote"`
 	Existing      bool     `json:"existing"`
 	ExistingPaths []string `json:"existing_paths,omitempty"`
@@ -142,6 +144,7 @@ func New(cfg *config.Config, qb *qbittorrent.Client, tmdbClient *tmdb.Client, pr
 			MovieRemoteRoot: d.MovieRemoteRoot,
 			TVRoot:          d.TVRoot,
 			TVRemoteRoot:    d.TVRemoteRoot,
+			AnimeRoot:       d.AnimeRoot,
 		})
 	}
 	var prowlarrClient *prowlarr.Client

@@ -22,6 +22,7 @@ type submissionRequest struct {
 	Filename           string
 	Meta               *torrentmeta.MetaInfo
 	MediaType          string
+	Library            string
 	Match              tmdb.Result
 	Remote             bool
 	RequireExisting    bool
@@ -141,12 +142,14 @@ func (s *Server) submitLocked(ctx context.Context, in *Intake) error {
 	bytes := in.Bytes
 	filename := in.Filename
 	remote := in.Remote
+	libraryName := in.Library
 	s.mu.RUnlock()
 	outcome, err := s.submitTorrent(ctx, submissionRequest{
 		Bytes:     bytes,
 		Filename:  filename,
 		Meta:      meta,
 		MediaType: class.MediaType,
+		Library:   libraryName,
 		Match:     match,
 		Remote:    remote,
 	})
@@ -192,6 +195,16 @@ func (s *Server) submitTorrent(ctx context.Context, req submissionRequest) (*sub
 
 	// 3. Authoritative destination: fresh library scan + fresh space.
 	isTV := req.MediaType == "tv"
+	libraryName := req.Library
+	if libraryName == "" {
+		libraryName = req.MediaType
+	}
+	if libraryName != req.MediaType && libraryName != "anime" {
+		return nil, errors.New("submission library must match the media type or be anime")
+	}
+	if libraryName == "anime" && (req.Remote || req.UseMovieRemoteRoot || req.UseTVRemoteRoot) {
+		return nil, errors.New("anime has no remote library")
+	}
 	if req.UseMovieRemoteRoot && isTV {
 		return nil, errors.New("remote companion destinations are only supported for movies")
 	}
@@ -199,12 +212,16 @@ func (s *Server) submitTorrent(ctx context.Context, req submissionRequest) (*sub
 		return nil, errors.New("TV remote companion destinations are only supported for TV shows")
 	}
 	itemLabel := "movie"
-	if isTV {
+	if libraryName == "anime" {
+		itemLabel = "anime title"
+	} else if isTV {
 		itemLabel = "TV show"
 	}
 	folder := library.FolderName(s.cfg.Library.FolderFormat, req.Match.DisplayTitle(), req.Match.Year())
 	var matches []library.Folder
-	if isTV {
+	if libraryName == "anime" {
+		matches = s.lib.FindAnime(folder)
+	} else if isTV {
 		matches = s.lib.FindTV(folder)
 	} else {
 		matches = s.lib.FindMovie(folder)
@@ -235,7 +252,9 @@ func (s *Server) submitTorrent(ctx context.Context, req submissionRequest) (*sub
 				continue
 			}
 			root := drive.MovieRoot
-			if isTV {
+			if libraryName == "anime" {
+				root = drive.AnimeRoot
+			} else if isTV {
 				root = drive.TVRoot
 			}
 			if root != "" {
@@ -289,7 +308,12 @@ func (s *Server) submitTorrent(ctx context.Context, req submissionRequest) (*sub
 		}
 		pending := s.pendingReservations()
 		drives := s.cfg.Drives
-		if req.Remote {
+		if libraryName == "anime" {
+			drives = s.animeDrives()
+			if len(drives) == 0 {
+				return nil, errors.New("no anime roots are configured")
+			}
+		} else if req.Remote {
 			drives = s.remoteDrives(isTV, folder)
 			if len(drives) == 0 {
 				return nil, errors.New(s.remoteRootError(isTV, ""))
@@ -308,7 +332,9 @@ func (s *Server) submitTorrent(ctx context.Context, req submissionRequest) (*sub
 			}
 		} else {
 			root := sel.Drive.TVRoot
-			if !isTV {
+			if libraryName == "anime" {
+				root = sel.Drive.AnimeRoot
+			} else if !isTV {
 				root = sel.Drive.MovieRoot
 			}
 			savePath = root + "/" + folder
@@ -320,6 +346,7 @@ func (s *Server) submitTorrent(ctx context.Context, req submissionRequest) (*sub
 		DriveName:   driveID,
 		SavePath:    savePath,
 		FolderName:  folder,
+		Library:     libraryName,
 		Remote:      req.Remote,
 		Existing:    len(matches) > 0,
 		ContentPath: req.Meta.ContentPath(savePath),

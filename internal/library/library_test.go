@@ -47,6 +47,24 @@ func TestMoviesFailsWhenConfiguredRootCannotBeRead(t *testing.T) {
 	}
 }
 
+func TestFindAnimeUsesOnlyAnimeRoots(t *testing.T) {
+	base := t.TempDir()
+	movies := filepath.Join(base, "movies")
+	anime := filepath.Join(base, "anime")
+	name := "Frieren Beyond Journey's End (2023)"
+	for _, root := range []string{filepath.Join(movies, name), filepath.Join(anime, name)} {
+		if err := os.MkdirAll(root, 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	scan := NewScan([]Drive{{ID: "hdd2", MovieRoot: movies, AnimeRoot: anime}})
+
+	matches := scan.FindAnime(name)
+	if len(matches) != 1 || matches[0].DriveID != "hdd2" || matches[0].Path != filepath.Join(anime, name) {
+		t.Fatalf("anime matches = %+v", matches)
+	}
+}
+
 func TestTVShowsScanOnlyPrimaryRoots(t *testing.T) {
 	base := t.TempDir()
 	primary := filepath.Join(base, "t1")

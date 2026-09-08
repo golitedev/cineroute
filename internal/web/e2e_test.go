@@ -287,7 +287,7 @@ func newTestServer(t *testing.T) (*Server, *fakeQB, *httptest.Server, map[string
 	t.Cleanup(qbSrv.Close)
 
 	roots := map[string]string{}
-	dirs := []string{"/t1", "/m1", "/t2", "/m2", "/t3", "/m3", "/t4", "/m4"}
+	dirs := []string{"/t1", "/m1", "/a1", "/t2", "/m2", "/a2", "/t3", "/m3", "/a3", "/t4", "/m4", "/a4"}
 	base := t.TempDir()
 	for _, d := range dirs {
 		p := filepath.Join(base, d)
@@ -301,10 +301,10 @@ func newTestServer(t *testing.T) (*Server, *fakeQB, *httptest.Server, map[string
 	cfg.Listen = "127.0.0.1:0"
 	cfg.QBittorrent.URL = qbSrv.URL
 	cfg.Drives = []config.Drive{
-		{ID: "hdd1", MovieRoot: roots["/m1"], TVRoot: roots["/t1"]},
-		{ID: "hdd2", MovieRoot: roots["/m2"], TVRoot: roots["/t2"]},
-		{ID: "hdd3", MovieRoot: roots["/m3"], TVRoot: roots["/t3"]},
-		{ID: "hdd4", MovieRoot: roots["/m4"], TVRoot: roots["/t4"]},
+		{ID: "hdd1", MovieRoot: roots["/m1"], TVRoot: roots["/t1"], AnimeRoot: roots["/a1"]},
+		{ID: "hdd2", MovieRoot: roots["/m2"], TVRoot: roots["/t2"], AnimeRoot: roots["/a2"]},
+		{ID: "hdd3", MovieRoot: roots["/m3"], TVRoot: roots["/t3"], AnimeRoot: roots["/a3"]},
+		{ID: "hdd4", MovieRoot: roots["/m4"], TVRoot: roots["/t4"], AnimeRoot: roots["/a4"]},
 	}
 
 	tmdbSrv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -973,6 +973,75 @@ func TestNormalIntakeCanUseRemoteDestination(t *testing.T) {
 	}
 	if _, err := os.Stat(want); err != nil {
 		t.Fatalf("remote parent folder was not created: %v", err)
+	}
+}
+
+func TestAnimeDestinationUsesExistingSharedLibraryFolder(t *testing.T) {
+	_, fake, httpSrv, roots := newTestServer(t)
+	want := filepath.Join(roots["/a3"], "Lost (2004)")
+	if err := os.MkdirAll(want, 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	in := uploadTorrent(t, httpSrv, "lost.torrent", singleFileTorrent("Lost.S01.2004.1080p.WEB-DL.mkv", 500))
+	resp, err := http.Post(httpSrv.URL+"/api/intakes/"+in.ID+"/destination",
+		"application/json", strings.NewReader(`{"library":"anime","remote":false}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var j apiResponse
+	json.NewDecoder(resp.Body).Decode(&j)
+	resp.Body.Close()
+	if j.Error != "" || j.Intake == nil || j.Intake.Dest == nil {
+		t.Fatalf("anime destination selection failed: %+v", j)
+	}
+	if j.Intake.Library != "anime" || j.Intake.Dest.Library != "anime" || j.Intake.Dest.Remote || j.Intake.Dest.SavePath != want || j.Intake.Dest.DriveID != "hdd3" {
+		t.Fatalf("anime preview = %+v, want %s on hdd3", j.Intake, want)
+	}
+
+	resp, err = http.Post(httpSrv.URL+"/api/intakes/"+in.ID+"/submit", "application/json", strings.NewReader(`{}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	j = apiResponse{}
+	json.NewDecoder(resp.Body).Decode(&j)
+	resp.Body.Close()
+	if j.Intake == nil || j.Intake.Error != "" || j.Intake.Result == nil || j.Intake.Result.SavePath != want {
+		t.Fatalf("anime submit failed: %+v", j.Intake)
+	}
+
+	resp, err = http.Post(httpSrv.URL+"/api/intakes/"+in.ID+"/companion-search", "application/json", strings.NewReader(`{}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if resp.StatusCode != http.StatusConflict {
+		resp.Body.Close()
+		t.Fatalf("anime companion search status = %d, want %d", resp.StatusCode, http.StatusConflict)
+	}
+	resp.Body.Close()
+
+	fake.mu.Lock()
+	defer fake.mu.Unlock()
+	if len(fake.added) != 1 || fake.added[0].savepath != want {
+		t.Fatalf("qBittorrent anime save path = %+v, want %s", fake.added, want)
+	}
+}
+
+func TestAnimeDestinationAllocatesNewTitleToAnimeRoot(t *testing.T) {
+	_, _, httpSrv, roots := newTestServer(t)
+	in := uploadTorrent(t, httpSrv, "toy.torrent", singleFileTorrent("Toy.Story.1995.1080p.WEB-DL.mkv", 500))
+
+	resp, err := http.Post(httpSrv.URL+"/api/intakes/"+in.ID+"/destination",
+		"application/json", strings.NewReader(`{"library":"anime","remote":false}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	var j apiResponse
+	json.NewDecoder(resp.Body).Decode(&j)
+	want := filepath.Join(roots["/a1"], "Toy Story (1995)")
+	if j.Error != "" || j.Intake == nil || j.Intake.Dest == nil || j.Intake.Dest.Library != "anime" || j.Intake.Dest.SavePath != want {
+		t.Fatalf("new anime preview = %+v, want %s", j.Intake, want)
 	}
 }
 

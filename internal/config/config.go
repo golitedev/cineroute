@@ -66,6 +66,7 @@ type Drive struct {
 	MovieRemoteRoot string `yaml:"movie_remote_root"`
 	TVRoot          string `yaml:"tv_root"`
 	TVRemoteRoot    string `yaml:"tv_remote_root"`
+	AnimeRoot       string `yaml:"anime_root"`
 }
 
 func Default() *Config {
@@ -94,10 +95,10 @@ func Default() *Config {
 		},
 		Library: Library{FolderFormat: "{title} ({year})"},
 		Drives: []Drive{
-			{ID: "hdd1", MovieRoot: "/hdd1/movies", MovieRemoteRoot: "/hdd1/movies-remote", TVRoot: "/hdd1/tv", TVRemoteRoot: "/hdd1/tv-remote"},
-			{ID: "hdd2", MovieRoot: "/hdd2/movies", MovieRemoteRoot: "/hdd2/movies-remote", TVRoot: "/hdd2/tv", TVRemoteRoot: "/hdd2/tv-remote"},
-			{ID: "hdd3", MovieRoot: "/hdd3/movies", MovieRemoteRoot: "/hdd3/movies-remote", TVRoot: "/hdd3/tv", TVRemoteRoot: "/hdd3/tv-remote"},
-			{ID: "hdd4", MovieRoot: "/hdd4/movies", MovieRemoteRoot: "/hdd4/movies-remote", TVRoot: "/hdd4/tv", TVRemoteRoot: "/hdd4/tv-remote"},
+			{ID: "hdd1", MovieRoot: "/hdd1/movies", MovieRemoteRoot: "/hdd1/movies-remote", TVRoot: "/hdd1/tv", TVRemoteRoot: "/hdd1/tv-remote", AnimeRoot: "/hdd1/anime"},
+			{ID: "hdd2", MovieRoot: "/hdd2/movies", MovieRemoteRoot: "/hdd2/movies-remote", TVRoot: "/hdd2/tv", TVRemoteRoot: "/hdd2/tv-remote", AnimeRoot: "/hdd2/anime"},
+			{ID: "hdd3", MovieRoot: "/hdd3/movies", MovieRemoteRoot: "/hdd3/movies-remote", TVRoot: "/hdd3/tv", TVRemoteRoot: "/hdd3/tv-remote", AnimeRoot: "/hdd3/anime"},
+			{ID: "hdd4", MovieRoot: "/hdd4/movies", MovieRemoteRoot: "/hdd4/movies-remote", TVRoot: "/hdd4/tv", TVRemoteRoot: "/hdd4/tv-remote", AnimeRoot: "/hdd4/anime"},
 		},
 	}
 }

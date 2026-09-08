@@ -85,6 +85,7 @@ drives:
     movie_remote_root: "/hdd1/movies-remote"
     tv_root: "/hdd1/tv"
     tv_remote_root: "/hdd1/tv-remote"
+    anime_root: "/hdd1/anime"
   # Repeat the same layout below /hdd2, /hdd3 and /hdd4.
 ```
 
@@ -147,6 +148,10 @@ content path, file tree, empty category/tags, size, state).
   the same `Title (Year)` folder regardless of free space. If that drive is
   tight, a warning is shown but the submission is never blocked.
 * **New titles** go to the drive with the most plain free space.
+* **Anime is a separate shared library destination.** Select Anime during
+  intake to route the title to the matching drive's `anime_root`. Existing
+  anime stays on its current drive and new anime uses the drive with the most
+  free space. Anime has no remote copy, companion search, or hardlink workflow.
 * **Forgiving TMDB search:** if the year filter returns nothing (a year
   that is part of the title, like *Blade Runner 2049*, or a season pack
   carrying the season's air year instead of the show's first-air year), the

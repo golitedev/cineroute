@@ -513,15 +513,18 @@ async function pick(id,rid){
 }
 function destinationModeHTML(x,disabled=false){
   const remote=!!(x.dest?x.dest.remote:x.remote);
+  const library=(x.dest&&x.dest.library)||x.library||x.media_type;
+  const anime=library==="anime";
   const locked=disabled||destinationBusy.has(x.group||x.id);
-  return '<div class="destination-mode"><div><div class="destination-mode-title">Destination root</div><div class="small">'+(remote?'Remote library root':'Primary library root')+'</div></div><div class="destination-mode-buttons" role="group" aria-label="Destination root"><button type="button" class="'+(!remote?'active':'')+'" aria-pressed="'+(!remote)+'" onclick="setDestinationMode(\''+esc(x.id)+'\',false)"'+(locked?' disabled':'')+'>Normal</button><button type="button" class="'+(remote?'active':'')+'" aria-pressed="'+remote+'" onclick="setDestinationMode(\''+esc(x.id)+'\',true)"'+(locked?' disabled':'')+'>Remote</button></div></div>';
+  const label=anime?'Shared Anime library':remote?'Remote library root':'Normal library root';
+  return '<div class="destination-mode"><div><div class="destination-mode-title">Destination library</div><div class="small">'+label+'</div></div><div class="destination-mode-buttons" role="group" aria-label="Destination library"><button type="button" class="'+(!anime&&!remote?'active':'')+'" aria-pressed="'+(!anime&&!remote)+'" onclick="setDestinationMode(\''+esc(x.id)+'\',\'normal\')"'+(locked?' disabled':'')+'>Normal</button><button type="button" class="'+(!anime&&remote?'active':'')+'" aria-pressed="'+(!anime&&remote)+'" onclick="setDestinationMode(\''+esc(x.id)+'\',\'remote\')"'+(locked?' disabled':'')+'>Remote</button><button type="button" class="'+(anime?'active':'')+'" aria-pressed="'+anime+'" onclick="setDestinationMode(\''+esc(x.id)+'\',\'anime\')"'+(locked?' disabled':'')+'>Anime</button></div></div>';
 }
-async function setDestinationMode(id,remote){
+async function setDestinationMode(id,mode){
   const intake=intakes.find(x=>x.id===id);if(!intake)return;
   const key=intake.group||id;
   if(destinationBusy.has(key)||busy.has(key))return;
   destinationBusy.add(key);render();
-  try{await postJSON("/api/intakes/"+id+"/destination",{remote})}catch(e){alert(e.message)}
+  try{await postJSON("/api/intakes/"+id+"/destination",{remote:mode==="remote",library:mode==="anime"?"anime":intake.media_type})}catch(e){alert(e.message)}
   destinationBusy.delete(key);
   await refresh();
 }
@@ -1015,6 +1018,7 @@ function destHTML(x){
   if(dest){
     rows=[
       ["Media type",esc(x.media_type)],
+      ["Library",esc(dest.library||x.library||x.media_type)],
       ["TMDB title",esc((x.match&&(x.match.title||x.match.name))||"")],
       ["Year",x.match?(x.match.release_date||x.match.first_air_date||"").slice(0,4):"—"],
       ["Canonical folder",'<span class="mono">'+esc(dest.folder_name)+"</span>"],
@@ -1048,7 +1052,7 @@ function destHTML(x){
       "<tr><td>Hash</td><td class='mono'>"+esc(x.result.hash)+"</td></tr>"+
       "</tbody></table>"+
       '<span class="small">CineRoute will perform no further operations on this torrent.</span>'+
-      (x.media_type==="movie"||x.media_type==="tv"?'<div class="actions"><button data-id="'+esc(x.id)+'" onclick="searchIntakeCompanion(this.dataset.id)">Find companion</button></div>':"")+"</div>";
+      ((x.media_type==="movie"||x.media_type==="tv")&&x.library!=="anime"?'<div class="actions"><button data-id="'+esc(x.id)+'" onclick="searchIntakeCompanion(this.dataset.id)">Find companion</button></div>':"")+"</div>";
   }else if(x.status==="submitting"||busy.has(x.group)){
     html+='<div class="okbox">Adding stopped, verifying, starting…</div>';
   }else{
@@ -1081,6 +1085,7 @@ function cardTV(g){
       destinationModeHTML(rep,allSubmitted||busy.has(busyKey)||g.some(x=>x.status==="submitting"))+
       '<table class="kv"><tbody>'+
       "<tr><td>TMDB title</td><td>"+esc(rep.match.title||rep.match.name)+"</td></tr>"+
+      "<tr><td>Library</td><td>"+esc(dest.library||rep.library||rep.media_type)+"</td></tr>"+
       "<tr><td>Canonical folder</td><td class='mono'>"+esc(dest.folder_name)+"</td></tr>"+
       "<tr><td>Drive</td><td>"+esc(dest.drive_id||"—")+"</td></tr>"+
       (dest.existing?"<tr><td>Existing library folder</td><td>yes</td></tr>":"")+
@@ -1094,7 +1099,7 @@ function cardTV(g){
       return "";
     }).filter(Boolean).join("<br>");
     if(msgs)html+='<div class="'+(g.some(x=>x.status==="failed")?"errbox":"okbox")+'" style="margin-top:8px">'+msgs+"</div>";
-    if(allSubmitted)html+='<div class="actions"><button data-id="'+esc(rep.id)+'" onclick="searchIntakeCompanion(this.dataset.id)">Find companion</button></div>';
+    if(allSubmitted&&rep.library!=="anime")html+='<div class="actions"><button data-id="'+esc(rep.id)+'" onclick="searchIntakeCompanion(this.dataset.id)">Find companion</button></div>';
     if(!allSubmitted&&!busy.has(busyKey)){
       html+='<div class="actions"><button class="primary" onclick="submit(\''+rep.id+'\')">Add all '+g.length+' to qBittorrent (stopped, verify, start)</button></div>';
     }
