@@ -126,6 +126,9 @@ func updateInspection(movie *Movie, path, remotePath string, main, remote copyIn
 func inspectMovieFolder(path, folderName string) copyInspection {
 	videos, err := movieVideoFiles(path)
 	if err != nil {
+		if os.IsNotExist(err) {
+			return copyInspection{Quality: "none"}
+		}
 		return copyInspection{Error: fmt.Sprintf("cannot inspect movie folder: %v", err)}
 	}
 	inspection := copyInspection{Files: append([]string(nil), videos...)}
@@ -180,6 +183,9 @@ func inspectMovieFolder(path, folderName string) copyInspection {
 func inspectTVFolder(path, folderName string) copyInspection {
 	videos, err := movieVideoFiles(path)
 	if err != nil {
+		if os.IsNotExist(err) {
+			return copyInspection{Quality: "none"}
+		}
 		return copyInspection{Error: fmt.Sprintf("cannot inspect TV show folder: %v", err)}
 	}
 	inspection := copyInspection{Files: append([]string(nil), videos...)}

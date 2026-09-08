@@ -414,6 +414,7 @@ func (s *Server) approveCompanion(w http.ResponseWriter, r *http.Request) {
 		Title:       movie.Title,
 		ReleaseDate: fmt.Sprintf("%04d-01-01", movie.Year),
 	}
+	needsPrimary := len(movie.ExistingFiles) == 0 && len(movie.RemoteFiles) > 0
 	// This companion already has a canonical library folder, so approval does not
 	// select or reserve a drive. Let separate approvals progress concurrently.
 	outcome, err := s.submitTorrent(r.Context(), submissionRequest{
@@ -423,8 +424,10 @@ func (s *Server) approveCompanion(w http.ResponseWriter, r *http.Request) {
 		MediaType:          mediaType,
 		Match:              match,
 		RequireExisting:    true,
-		UseMovieRemoteRoot: mediaType == "movie",
-		UseTVRemoteRoot:    mediaType == "tv",
+		UseMovieRemoteRoot: mediaType == "movie" && !needsPrimary,
+		UseTVRemoteRoot:    mediaType == "tv" && !needsPrimary,
+		ExistingDriveID:    movie.DriveID,
+		ExistingFolderName: movie.FolderName,
 	})
 	if err != nil {
 		markApprovalError(err)

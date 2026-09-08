@@ -189,10 +189,11 @@ CineRoute never downloads a companion automatically. Approved torrents use
 the same stopped-add, verification and explicit-start transaction as normal
 intake. When a drive has `movie_remote_root` or `tv_remote_root` configured—or
 the conventional `/mN`/`/mrN` or `/tN`/`/trN` aliases are both mounted—the
-companion goes into the matching folder there; the folder is created if it is
-not already present. The main library folder remains the authoritative drive
-anchor. Companion scans never read remote roots as a source library and never
-rename files or folders.
+companion normally goes into the matching folder there; the folder is created
+if it is not already present. For a title found only in the remote root, an
+approved release instead goes into the normal folder on the same drive. The
+main library folder remains the authoritative drive anchor. Scans never rename
+or move files or folders.
 
 The feature uses small SQLite databases for the queue, search candidates and
 search history: normally `/data/companions.db` for movies and
@@ -211,16 +212,18 @@ title and year; TV searches use the show title only. TV search results are
 ranked with the same evidence as movie results, but CineRoute hides individual
 episode releases such as `S03E04` and only allows season or series packs to be
 approved.
-When both the main and matching remote folder contain video files, a library
-scan automatically classifies the movie or TV show as Added. Otherwise, each
-folder is placed in the searchable review queue regardless of its current
-quality or size, so language companions can be reviewed deliberately. Skipped
-items are never returned to that queue; when both copies are found, they are
-classified as Added. Added items remain unchanged by later library scans.
+Companion scans use the union of folders in the normal and remote roots. When
+both matching folders contain video files, a scan automatically classifies the
+movie or TV show as Added. Otherwise, each folder is placed in the searchable
+review queue regardless of its current quality or size, so language companions
+can be reviewed deliberately. Skipped items are never returned to that queue;
+when both copies are found, they are classified as Added. Added items remain
+unchanged by later library scans.
 
-The **Hardlink** button on a movie or TV companion recreates the main folder's
-relative directory tree below the matching remote root and hardlinks every
-regular file. Existing links to the same inode are accepted, while symlinks,
+The **Hardlink** button on a movie or TV companion fills whichever side has no
+video. It normally recreates the main folder's tree below the remote root; for
+a remote-only title, it links the remote tree into the normal folder. Existing
+links to the same inode are accepted, while symlinks,
 special files and conflicting destination files are rejected. Main and remote
 roots must be below the same `/hddN` mount and the CineRoute UID/GID must be
 allowed to create files in the remote root. Hardlinks cannot cross filesystems,

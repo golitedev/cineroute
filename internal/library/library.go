@@ -134,11 +134,85 @@ func (s *Scan) Movies() ([]MovieFolder, error) {
 	return s.folders(func(d Drive) string { return d.MovieRoot }, "movie")
 }
 
+// CompanionMovies lists the union of immediate children in the primary and
+// remote movie roots. Paths always point at the primary root so remote-only
+// titles can be downloaded or hardlinked into their canonical library path.
+func (s *Scan) CompanionMovies() ([]MovieFolder, error) {
+	return s.companionFolders(
+		func(d Drive) string { return d.MovieRoot },
+		func(d Drive) (string, bool) {
+			if d.MovieRemoteRoot != "" {
+				return d.MovieRemoteRoot, true
+			}
+			return conventionalRemoteRoot(d.MovieRoot, "m", "mr")
+		},
+		"movie",
+	)
+}
+
 // TVShows lists only immediate TV-root children in deterministic order. Remote
 // TV roots are intentionally not scanned; they are inspected only as matching
 // destinations for shows found under the primary TV roots.
 func (s *Scan) TVShows() ([]Folder, error) {
 	return s.folders(func(d Drive) string { return d.TVRoot }, "TV")
+}
+
+// CompanionTVShows is the TV equivalent of CompanionMovies.
+func (s *Scan) CompanionTVShows() ([]Folder, error) {
+	return s.companionFolders(
+		func(d Drive) string { return d.TVRoot },
+		func(d Drive) (string, bool) {
+			if d.TVRemoteRoot != "" {
+				return d.TVRemoteRoot, true
+			}
+			return conventionalRemoteRoot(d.TVRoot, "t", "tr")
+		},
+		"TV",
+	)
+}
+
+func (s *Scan) companionFolders(primaryRootOf func(Drive) string, remoteRootOf func(Drive) (string, bool), label string) ([]Folder, error) {
+	var out []Folder
+	for _, d := range s.drives {
+		primaryRoot := primaryRootOf(d)
+		if primaryRoot == "" {
+			continue
+		}
+		seen := make(map[string]bool)
+		primaryEntries, err := os.ReadDir(primaryRoot)
+		if err != nil {
+			return nil, fmt.Errorf("read %s root %q (%s): %w", label, primaryRoot, d.ID, err)
+		}
+		for _, entry := range primaryEntries {
+			if !entry.IsDir() {
+				continue
+			}
+			seen[entry.Name()] = true
+			out = append(out, Folder{DriveID: d.ID, Path: filepath.Join(primaryRoot, entry.Name()), Name: entry.Name()})
+		}
+		remoteRoot, ok := remoteRootOf(d)
+		if !ok || remoteRoot == "" {
+			continue
+		}
+		remoteEntries, err := os.ReadDir(remoteRoot)
+		if err != nil {
+			return nil, fmt.Errorf("read remote %s root %q (%s): %w", label, remoteRoot, d.ID, err)
+		}
+		for _, entry := range remoteEntries {
+			if !entry.IsDir() || seen[entry.Name()] {
+				continue
+			}
+			seen[entry.Name()] = true
+			out = append(out, Folder{DriveID: d.ID, Path: filepath.Join(primaryRoot, entry.Name()), Name: entry.Name()})
+		}
+	}
+	sort.Slice(out, func(i, j int) bool {
+		if out[i].DriveID != out[j].DriveID {
+			return out[i].DriveID < out[j].DriveID
+		}
+		return out[i].Name < out[j].Name
+	})
+	return out, nil
 }
 
 func (s *Scan) folders(rootOf func(Drive) string, label string) ([]Folder, error) {

@@ -107,6 +107,51 @@ func TestHardlinkPreservesMovieAndTVTrees(t *testing.T) {
 	}
 }
 
+func TestHardlinkRemoteOnlyMovieIntoPrimaryFolder(t *testing.T) {
+	base := t.TempDir()
+	mainRoot := filepath.Join(base, "movies")
+	remoteRoot := filepath.Join(base, "movies-remote")
+	folderName := "Remote Only (2024)"
+	remoteFolder := filepath.Join(remoteRoot, folderName)
+	remoteFile := filepath.Join(remoteFolder, "Remote.Only.2024.1080p.WEB-DL.mkv")
+	if err := os.MkdirAll(remoteFolder, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(remoteFile, []byte("video"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	mainFolder := filepath.Join(mainRoot, folderName)
+	manager := &Manager{
+		cfg:  config.Default(),
+		lib:  library.NewScan([]library.Drive{{ID: "hdd1", MovieRoot: mainRoot, MovieRemoteRoot: remoteRoot}}),
+		kind: companionMovie,
+		state: stateFile{Version: stateVersion, Movies: []*Movie{{
+			ID: "item", DriveID: "hdd1", Path: mainFolder, RemotePath: remoteFolder, FolderName: folderName,
+			RemoteFiles: []string{remoteFile}, Status: StatusPending,
+		}}},
+		searches: map[string]searchState{},
+	}
+
+	result, err := manager.Hardlink("item")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.SourcePath != remoteFolder || result.DestinationPath != mainFolder || result.LinkedFiles != 1 {
+		t.Fatalf("reverse hardlink result = %+v", result)
+	}
+	mainInfo, err := os.Stat(filepath.Join(mainFolder, filepath.Base(remoteFile)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	remoteInfo, err := os.Stat(remoteFile)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !os.SameFile(mainInfo, remoteInfo) {
+		t.Fatal("remote-only movie was copied instead of hardlinked")
+	}
+}
+
 func TestHardlinkRejectsDestinationConflictBeforeCreatingFiles(t *testing.T) {
 	base := t.TempDir()
 	source := filepath.Join(base, "movies", "Movie (2024)")

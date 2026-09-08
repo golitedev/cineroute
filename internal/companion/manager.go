@@ -173,9 +173,9 @@ func (m *Manager) remotePath(driveID, folderName string) (string, bool) {
 
 func (m *Manager) libraryFolders() ([]library.MovieFolder, error) {
 	if m.kind == companionTV {
-		return m.lib.TVShows()
+		return m.lib.CompanionTVShows()
 	}
-	return m.lib.Movies()
+	return m.lib.CompanionMovies()
 }
 
 func (m *Manager) parseFolder(folder library.MovieFolder) (string, int, error) {
@@ -411,8 +411,8 @@ func (m *Manager) ProwlarrStatus(ctx context.Context) (string, string) {
 	return name, name
 }
 
-// Scan reconciles the immediate children of the configured primary library
-// roots into durable state. TV scans use only TV roots, never TV remote roots.
+// Scan reconciles the union of immediate children in the configured primary
+// and remote library roots into durable state.
 // Live searching, review and submitting states are preserved unless both main
 // and remote videos are already present. Startup recovery is handled separately
 // when the state file is loaded. It never renames or moves media files.

@@ -225,6 +225,53 @@ func TestScanMarksMovieWithMainAndRemoteVideosComplete(t *testing.T) {
 	}
 }
 
+func TestScanQueuesRemoteOnlyMovieAndTVShow(t *testing.T) {
+	tests := []struct {
+		name       string
+		kind       companionKind
+		folderName string
+		videoName  string
+	}{
+		{name: "movie", kind: companionMovie, folderName: "Remote Movie (2021)", videoName: "Remote.Movie.2021.1080p.WEB-DL.mkv"},
+		{name: "TV show", kind: companionTV, folderName: "Remote Show (2022)", videoName: "Remote.Show.S01.1080p.WEB-DL.mkv"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			base := t.TempDir()
+			primary := filepath.Join(base, "primary")
+			remote := filepath.Join(base, "remote")
+			if err := os.MkdirAll(primary, 0o755); err != nil {
+				t.Fatal(err)
+			}
+			remoteFolder := filepath.Join(remote, tt.folderName)
+			if err := os.MkdirAll(remoteFolder, 0o755); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.WriteFile(filepath.Join(remoteFolder, tt.videoName), []byte("video"), 0o644); err != nil {
+				t.Fatal(err)
+			}
+			drive := library.Drive{ID: "hdd1", MovieRoot: primary, MovieRemoteRoot: remote}
+			if tt.kind == companionTV {
+				drive = library.Drive{ID: "hdd1", TVRoot: primary, TVRemoteRoot: remote}
+			}
+			cfg := config.Default()
+			cfg.Companion.StatePath = filepath.Join(t.TempDir(), "companions.db")
+			m := newManager(cfg, library.NewScan([]library.Drive{drive}), nil, tt.kind, cfg.Companion.StatePath)
+
+			if err := m.Scan(context.Background()); err != nil {
+				t.Fatal(err)
+			}
+			if len(m.state.Movies) != 1 {
+				t.Fatalf("items = %d, want 1", len(m.state.Movies))
+			}
+			item := m.state.Movies[0]
+			if item.Status != StatusPending || item.Path != filepath.Join(primary, tt.folderName) || len(item.ExistingFiles) != 0 || len(item.RemoteFiles) != 1 {
+				t.Fatalf("remote-only item = %+v", item)
+			}
+		})
+	}
+}
+
 func TestScanPreservesSkippedAndAddedMovies(t *testing.T) {
 	root := t.TempDir()
 	for _, name := range []string{"Skipped (2020)", "Added (2021)"} {
@@ -392,7 +439,7 @@ func TestTVCompanionUsesTitleOnlySearch(t *testing.T) {
 	}
 }
 
-func TestTVCompanionScansPrimaryRootsAndInspectsRemoteCopy(t *testing.T) {
+func TestTVCompanionScansPrimaryAndRemoteRoots(t *testing.T) {
 	primary := t.TempDir()
 	remote := t.TempDir()
 	folderName := "Breaking Bad (2008)"
@@ -424,8 +471,8 @@ func TestTVCompanionScansPrimaryRootsAndInspectsRemoteCopy(t *testing.T) {
 		t.Fatal(err)
 	}
 	view := m.View("")
-	if view.MediaType != "tv" || len(view.Movies) != 2 {
-		t.Fatalf("TV companion view = %+v, want two primary-root shows", view)
+	if view.MediaType != "tv" || len(view.Movies) != 3 {
+		t.Fatalf("TV companion view = %+v, want primary and remote-root shows", view)
 	}
 	shows := make(map[string]*Movie, len(view.Movies))
 	for _, show := range view.Movies {
@@ -444,6 +491,10 @@ func TestTVCompanionScansPrimaryRootsAndInspectsRemoteCopy(t *testing.T) {
 	empty := shows["Empty Show (2020)"]
 	if empty == nil || empty.Status != StatusPending || !strings.Contains(empty.Error, "no video file") {
 		t.Fatalf("empty TV show should remain searchable with an inspection note: %+v", empty)
+	}
+	remoteOnly := shows["Remote Only (2024)"]
+	if remoteOnly == nil || remoteOnly.Status != StatusPending || remoteOnly.Path != filepath.Join(primary, "Remote Only (2024)") {
+		t.Fatalf("remote-only TV show should be searchable at its normal destination: %+v", remoteOnly)
 	}
 }
 

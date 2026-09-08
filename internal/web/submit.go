@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -26,6 +27,8 @@ type submissionRequest struct {
 	RequireExisting    bool
 	UseMovieRemoteRoot bool
 	UseTVRemoteRoot    bool
+	ExistingDriveID    string
+	ExistingFolderName string
 }
 
 type submissionOutcome struct {
@@ -205,6 +208,42 @@ func (s *Server) submitTorrent(ctx context.Context, req submissionRequest) (*sub
 		matches = s.lib.FindTV(folder)
 	} else {
 		matches = s.lib.FindMovie(folder)
+	}
+	if req.RequireExisting && req.ExistingDriveID != "" {
+		sameDrive := matches[:0]
+		for _, match := range matches {
+			if match.DriveID == req.ExistingDriveID {
+				sameDrive = append(sameDrive, match)
+			}
+		}
+		matches = sameDrive
+	}
+	// A companion discovered only in a remote root has no primary match yet.
+	// Revalidate that remote folder and synthesize its primary destination on
+	// the same drive so approval cannot be rerouted by free-space allocation.
+	if req.RequireExisting && len(matches) == 0 && req.ExistingDriveID != "" && req.ExistingFolderName != "" {
+		remotePath, ok := s.remotePath(isTV, req.ExistingDriveID, req.ExistingFolderName)
+		if !ok {
+			return nil, errors.New(s.remoteRootError(isTV, req.ExistingDriveID))
+		}
+		info, statErr := os.Stat(remotePath)
+		if statErr != nil || !info.IsDir() {
+			return nil, fmt.Errorf("remote %s folder no longer exists; rescan the library before approving the companion", itemLabel)
+		}
+		for _, drive := range s.lib.Drives() {
+			if drive.ID != req.ExistingDriveID {
+				continue
+			}
+			root := drive.MovieRoot
+			if isTV {
+				root = drive.TVRoot
+			}
+			if root != "" {
+				folder = req.ExistingFolderName
+				matches = []library.Folder{{DriveID: drive.ID, Path: filepath.Join(root, folder), Name: folder}}
+			}
+			break
+		}
 	}
 	if req.RequireExisting {
 		switch len(matches) {

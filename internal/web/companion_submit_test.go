@@ -99,6 +99,41 @@ func TestCompanionSubmissionRequiresExistingMovieFolder(t *testing.T) {
 	}
 }
 
+func TestRemoteOnlyCompanionSubmissionUsesNormalFolderOnSameDrive(t *testing.T) {
+	srv, fake, _, roots := newTestServer(t)
+	remoteRoot := filepath.Join(t.TempDir(), "movies-remote")
+	folderName := "Remote Only (2024)"
+	remoteFolder := filepath.Join(remoteRoot, folderName)
+	if err := os.MkdirAll(remoteFolder, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	srv.cfg.Drives = []config.Drive{{ID: "hdd3", MovieRoot: roots["/m3"], MovieRemoteRoot: remoteRoot, TVRoot: roots["/t3"]}}
+	srv.lib = library.NewScan([]library.Drive{{ID: "hdd3", MovieRoot: roots["/m3"], MovieRemoteRoot: remoteRoot, TVRoot: roots["/t3"]}})
+
+	raw := singleFileTorrent("Remote.Only.2024.1080p.WEB-DL.mkv", 100)
+	meta, err := torrentmeta.Parse(raw)
+	if err != nil {
+		t.Fatal(err)
+	}
+	out, err := srv.submitTorrent(context.Background(), submissionRequest{
+		Bytes: raw, Filename: "companion.torrent", Meta: meta, MediaType: "movie",
+		Match:           tmdb.Result{ID: 1, Title: "Remote Only", ReleaseDate: "2024-01-01"},
+		RequireExisting: true, ExistingDriveID: "hdd3", ExistingFolderName: folderName,
+	})
+	if err != nil {
+		t.Fatalf("remote-only companion submission failed: %v", err)
+	}
+	want := filepath.Join(roots["/m3"], folderName)
+	if out == nil || out.Dest == nil || out.Dest.SavePath != want || out.Dest.DriveID != "hdd3" {
+		t.Fatalf("remote-only destination = %+v, want %s on hdd3", out, want)
+	}
+	fake.mu.Lock()
+	defer fake.mu.Unlock()
+	if len(fake.added) != 1 || fake.added[0].savepath != want {
+		t.Fatalf("qBittorrent save path = %+v, want %s", fake.added, want)
+	}
+}
+
 func TestCompanionSubmissionUsesTVRemoteFolder(t *testing.T) {
 	srv, fake, _, roots := newTestServer(t)
 	mainFolder := filepath.Join(roots["/t3"], "Lost (2004)")

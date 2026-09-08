@@ -67,6 +67,40 @@ func TestTVShowsScanOnlyPrimaryRoots(t *testing.T) {
 	}
 }
 
+func TestCompanionFoldersIncludeRemoteOnlyMoviesAndTVShows(t *testing.T) {
+	base := t.TempDir()
+	movies := filepath.Join(base, "movies")
+	moviesRemote := filepath.Join(base, "movies-remote")
+	tv := filepath.Join(base, "tv")
+	tvRemote := filepath.Join(base, "tv-remote")
+	for _, path := range []string{
+		filepath.Join(movies, "Primary Movie (2020)"),
+		filepath.Join(moviesRemote, "Remote Movie (2021)"),
+		filepath.Join(tv, "Primary Show (2022)"),
+		filepath.Join(tvRemote, "Remote Show (2023)"),
+	} {
+		if err := os.MkdirAll(path, 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	scan := NewScan([]Drive{{ID: "hdd1", MovieRoot: movies, MovieRemoteRoot: moviesRemote, TVRoot: tv, TVRemoteRoot: tvRemote}})
+
+	movieFolders, err := scan.CompanionMovies()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(movieFolders) != 2 || movieFolders[1].Name != "Remote Movie (2021)" || movieFolders[1].Path != filepath.Join(movies, "Remote Movie (2021)") {
+		t.Fatalf("companion movies = %+v", movieFolders)
+	}
+	showFolders, err := scan.CompanionTVShows()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(showFolders) != 2 || showFolders[1].Name != "Remote Show (2023)" || showFolders[1].Path != filepath.Join(tv, "Remote Show (2023)") {
+		t.Fatalf("companion TV shows = %+v", showFolders)
+	}
+}
+
 func TestRemotePathsInferMountedConventionalRoots(t *testing.T) {
 	base := t.TempDir()
 	mainRoot := filepath.Join(base, "m1")

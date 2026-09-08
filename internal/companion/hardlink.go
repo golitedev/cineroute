@@ -10,7 +10,7 @@ import (
 	"time"
 )
 
-// HardlinkResult describes one completed main-to-remote folder link.
+// HardlinkResult describes one completed link between matching library roots.
 type HardlinkResult struct {
 	SourcePath            string `json:"source_path"`
 	DestinationPath       string `json:"destination_path"`
@@ -27,9 +27,9 @@ type hardlinkEntry struct {
 	same   bool
 }
 
-// Hardlink recreates an item's main-library tree below its configured remote
-// folder and links every regular file. Existing links to the same inode make
-// the operation safe to retry; any other destination conflict is rejected.
+// Hardlink fills whichever side of an item's primary/remote pair has no video.
+// Existing links to the same inode make the operation safe to retry; any other
+// destination conflict is rejected.
 func (m *Manager) Hardlink(id string) (HardlinkResult, error) {
 	if !m.Enabled() {
 		return HardlinkResult{}, errors.New("1080p companions are disabled")
@@ -53,13 +53,19 @@ func (m *Manager) Hardlink(id string) (HardlinkResult, error) {
 	if !ok || destination == "" {
 		return HardlinkResult{}, fmt.Errorf("drive %s has no %s remote root configured", item.DriveID, m.itemLabel())
 	}
-	result, err := hardlinkTree(item.Path, destination)
+	source := item.Path
+	target := destination
+	if len(item.ExistingFiles) == 0 && len(item.RemoteFiles) > 0 {
+		source, target = destination, item.Path
+	}
+	result, err := hardlinkTree(source, target)
 	if err != nil {
 		return HardlinkResult{}, err
 	}
 
 	now := time.Now()
 	item.RemotePath = destination
+	m.inspectFolder(item, item.Path, destination, item.FolderName)
 	item.Status = StatusComplete
 	item.Error = ""
 	item.QBHash = ""
