@@ -2,6 +2,7 @@ package torrentmeta
 
 import (
 	"bytes"
+	"sort"
 	"strconv"
 	"strings"
 )
@@ -31,7 +32,13 @@ func makeTorrent(name string, files map[string]int64) []byte {
 	} else {
 		b.WriteString(beStr("files"))
 		b.WriteString("l")
-		for path, ln := range files {
+		paths := make([]string, 0, len(files))
+		for path := range files {
+			paths = append(paths, path)
+		}
+		sort.Strings(paths)
+		for _, path := range paths {
+			ln := files[path]
 			b.WriteString("d")
 			b.WriteString(beStr("length"))
 			b.WriteString(beInt(ln))
