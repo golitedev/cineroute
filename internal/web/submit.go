@@ -226,6 +226,21 @@ func (s *Server) submitTorrent(ctx context.Context, req submissionRequest) (*sub
 	} else {
 		matches = s.lib.FindMovie(folder)
 	}
+	var routedExisting *mediaMatch
+	if !req.RequireExisting {
+		var remoteMatches []library.Folder
+		if libraryName != "anime" {
+			if isTV {
+				remoteMatches = s.lib.FindTVRemote(folder)
+			} else {
+				remoteMatches = s.lib.FindMovieRemote(folder)
+			}
+		}
+		routedExisting = resolveMediaMatch(matches, remoteMatches)
+		if routedExisting != nil && routedExisting.Conflict {
+			return nil, errors.New("this title exists on multiple drives; resolve the duplicate folders before submitting")
+		}
+	}
 	if req.RequireExisting && req.ExistingDriveID != "" {
 		sameDrive := matches[:0]
 		for _, match := range matches {
@@ -278,6 +293,23 @@ func (s *Server) submitTorrent(ctx context.Context, req submissionRequest) (*sub
 	var savePath string
 	var driveID string
 	switch {
+	case routedExisting != nil:
+		driveID = routedExisting.DriveID
+		if req.Remote {
+			if routedExisting.Remote != nil {
+				savePath = routedExisting.Remote.Path
+			} else {
+				var ok bool
+				savePath, ok = s.remotePath(isTV, driveID, folder)
+				if !ok {
+					return nil, errors.New(s.remoteRootError(isTV, driveID))
+				}
+			}
+		} else if routedExisting.Primary != nil {
+			savePath = routedExisting.Primary.Path
+		} else {
+			savePath = s.primaryPath(isTV, driveID, folder)
+		}
 	case len(matches) == 1:
 		// An existing show/movie stays on its drive regardless of free
 		// space; a tight drive only produces a warning.
@@ -348,11 +380,18 @@ func (s *Server) submitTorrent(ctx context.Context, req submissionRequest) (*sub
 		FolderName:  folder,
 		Library:     libraryName,
 		Remote:      req.Remote,
-		Existing:    len(matches) > 0,
+		Existing:    routedExisting != nil || len(matches) > 0,
 		ContentPath: req.Meta.ContentPath(savePath),
 		RootFolder:  req.Meta.RootFolder,
 		NeededBytes: req.Meta.Size,
 		EnoughSpace: true,
+	}
+	if routedExisting != nil {
+		dest.ExistingAt = routedExisting.Location
+		dest.ExistingPaths = routedExisting.Paths
+	} else if len(matches) > 0 {
+		dest.ExistingAt = "normal"
+		dest.ExistingPaths = []string{matches[0].Path}
 	}
 	if st, ok := s.driveStatus(driveID); ok {
 		dest.UsableSpace = st.Available

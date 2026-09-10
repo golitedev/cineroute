@@ -144,9 +144,11 @@ content path, file tree, empty category/tags, size, state).
 * **v1, v2 and hybrid torrents** are supported. Hash verification uses the
   hash qBittorrent actually reports: v1 for v1/hybrid, v2 (SHA-256) for
   pure-v2 torrents.
-* **Existing TV show** is always kept on its drive — every season goes into
-  the same `Title (Year)` folder regardless of free space. If that drive is
-  tight, a warning is shown but the submission is never blocked.
+* **Existing movies and TV shows** are always kept on their drive. Normal
+  intake checks both the normal and remote roots, so a title found only under
+  `movies-remote` or `tv-remote` anchors a normal download to the matching HDD.
+  If that drive is tight, a warning is shown but the submission is never
+  blocked.
 * **New titles** go to the drive with the most plain free space.
 * **Anime is a separate shared library destination.** Select Anime during
   intake to route the title to the matching drive's `anime_root`. Existing

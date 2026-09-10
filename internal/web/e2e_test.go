@@ -976,6 +976,80 @@ func TestNormalIntakeCanUseRemoteDestination(t *testing.T) {
 	}
 }
 
+func TestNormalIntakeStaysOnDriveWithRemoteOnlyFolder(t *testing.T) {
+	tests := []struct {
+		name       string
+		filename   string
+		folder     string
+		mediaType  string
+		primaryKey string
+	}{
+		{name: "movie", filename: "Toy.Story.1995.2160p.mkv", folder: "Toy Story (1995)", mediaType: "movie", primaryKey: "/m3"},
+		{name: "TV", filename: "Lost.S01.2160p.mkv", folder: "Lost (2004)", mediaType: "tv", primaryKey: "/t3"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			srv, fake, httpSrv, roots := newTestServer(t)
+			remoteMovie1 := filepath.Join(t.TempDir(), "movies-remote1")
+			remoteMovie3 := filepath.Join(t.TempDir(), "movies-remote3")
+			remoteTV1 := filepath.Join(t.TempDir(), "tv-remote1")
+			remoteTV3 := filepath.Join(t.TempDir(), "tv-remote3")
+			for _, root := range []string{remoteMovie1, remoteMovie3, remoteTV1, remoteTV3} {
+				if err := os.MkdirAll(root, 0o755); err != nil {
+					t.Fatal(err)
+				}
+			}
+			remoteRoot := remoteMovie3
+			if tt.mediaType == "tv" {
+				remoteRoot = remoteTV3
+			}
+			if err := os.Mkdir(filepath.Join(remoteRoot, tt.folder), 0o755); err != nil {
+				t.Fatal(err)
+			}
+
+			srv.cfg.Drives = []config.Drive{
+				{ID: "hdd1", MovieRoot: roots["/m1"], MovieRemoteRoot: remoteMovie1, TVRoot: roots["/t1"], TVRemoteRoot: remoteTV1},
+				{ID: "hdd3", MovieRoot: roots["/m3"], MovieRemoteRoot: remoteMovie3, TVRoot: roots["/t3"], TVRemoteRoot: remoteTV3},
+			}
+			srv.lib = library.NewScan([]library.Drive{
+				{ID: "hdd1", MovieRoot: roots["/m1"], MovieRemoteRoot: remoteMovie1, TVRoot: roots["/t1"], TVRemoteRoot: remoteTV1},
+				{ID: "hdd3", MovieRoot: roots["/m3"], MovieRemoteRoot: remoteMovie3, TVRoot: roots["/t3"], TVRemoteRoot: remoteTV3},
+			})
+
+			in := uploadTorrent(t, httpSrv, tt.name+".torrent", singleFileTorrent(tt.filename, 500))
+			if in.Dest == nil {
+				t.Fatalf("destination was not planned: %+v", in)
+			}
+			want := filepath.Join(roots[tt.primaryKey], tt.folder)
+			if in.Dest.DriveID != "hdd3" || in.Dest.SavePath != want || !in.Dest.Existing || in.Dest.ExistingAt != "remote" {
+				t.Fatalf("remote-only preview = %+v, want normal path %s on hdd3", in.Dest, want)
+			}
+			if len(in.Dest.ExistingPaths) != 1 || in.Dest.ExistingPaths[0] != filepath.Join(remoteRoot, tt.folder) {
+				t.Fatalf("existing remote paths = %v", in.Dest.ExistingPaths)
+			}
+
+			resp, err := http.Post(httpSrv.URL+"/api/intakes/"+in.ID+"/submit", "application/json", strings.NewReader(`{}`))
+			if err != nil {
+				t.Fatal(err)
+			}
+			var result apiResponse
+			json.NewDecoder(resp.Body).Decode(&result)
+			resp.Body.Close()
+			if result.Intake == nil || result.Intake.Error != "" || result.Intake.Result == nil {
+				t.Fatalf("submit failed: %+v", result)
+			}
+			if result.Intake.Dest.DriveID != "hdd3" || result.Intake.Dest.SavePath != want || result.Intake.Dest.ExistingAt != "remote" {
+				t.Fatalf("authoritative destination moved drives: %+v", result.Intake.Dest)
+			}
+			fake.mu.Lock()
+			defer fake.mu.Unlock()
+			if len(fake.added) != 1 || fake.added[0].savepath != want {
+				t.Fatalf("qBittorrent destination = %+v, want %s", fake.added, want)
+			}
+		})
+	}
+}
+
 func TestAnimeDestinationUsesExistingSharedLibraryFolder(t *testing.T) {
 	_, fake, httpSrv, roots := newTestServer(t)
 	want := filepath.Join(roots["/a3"], "Lost (2004)")

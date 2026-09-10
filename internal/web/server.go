@@ -90,21 +90,23 @@ type classifierResult struct {
 }
 
 type Destination struct {
-	DriveID       string   `json:"drive_id"`
-	DriveName     string   `json:"drive_name"`
-	SavePath      string   `json:"save_path"`
-	FolderName    string   `json:"folder_name"`
-	Library       string   `json:"library"`
-	Remote        bool     `json:"remote"`
-	Existing      bool     `json:"existing"`
-	ExistingPaths []string `json:"existing_paths,omitempty"`
-	ContentPath   string   `json:"content_path"`
-	RootFolder    bool     `json:"root_folder"`
-	UsableSpace   int64    `json:"usable_space"`
-	NeededBytes   int64    `json:"needed_bytes"`
-	EnoughSpace   bool     `json:"enough_space"`
-	Shortfall     int64    `json:"shortfall"`
-	Warnings      []string `json:"warnings,omitempty"`
+	DriveID          string   `json:"drive_id"`
+	DriveName        string   `json:"drive_name"`
+	SavePath         string   `json:"save_path"`
+	FolderName       string   `json:"folder_name"`
+	Library          string   `json:"library"`
+	Remote           bool     `json:"remote"`
+	Existing         bool     `json:"existing"`
+	ExistingAt       string   `json:"existing_at,omitempty"`
+	ExistingConflict bool     `json:"existing_conflict,omitempty"`
+	ExistingPaths    []string `json:"existing_paths,omitempty"`
+	ContentPath      string   `json:"content_path"`
+	RootFolder       bool     `json:"root_folder"`
+	UsableSpace      int64    `json:"usable_space"`
+	NeededBytes      int64    `json:"needed_bytes"`
+	EnoughSpace      bool     `json:"enough_space"`
+	Shortfall        int64    `json:"shortfall"`
+	Warnings         []string `json:"warnings,omitempty"`
 }
 
 type SubmitResult struct {

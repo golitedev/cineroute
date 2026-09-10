@@ -9,6 +9,7 @@ import (
 	"io"
 	"mime/multipart"
 	"net/http"
+	"path/filepath"
 	"sort"
 	"strings"
 	"time"
@@ -957,13 +958,17 @@ func (s *Server) planDestination(in *Intake) (*Destination, string) {
 	}
 
 	var matches []library.Folder
+	var remoteMatches []library.Folder
 	if libraryName == "anime" {
 		matches = s.lib.FindAnime(folder)
 	} else if isTV {
 		matches = s.lib.FindTV(folder)
+		remoteMatches = s.lib.FindTVRemote(folder)
 	} else {
 		matches = s.lib.FindMovie(folder)
+		remoteMatches = s.lib.FindMovieRemote(folder)
 	}
+	existing := resolveMediaMatch(matches, remoteMatches)
 
 	d := &Destination{
 		FolderName:  folder,
@@ -973,46 +978,49 @@ func (s *Server) planDestination(in *Intake) (*Destination, string) {
 		NeededBytes: in.Meta.Size,
 	}
 
-	if len(matches) == 1 {
-		m := matches[0]
-		d.DriveID = m.DriveID
-		d.DriveName = m.DriveID
+	if existing != nil && !existing.Conflict {
+		d.DriveID = existing.DriveID
+		d.DriveName = existing.DriveID
 		d.Existing = true
-		d.ExistingPaths = []string{m.Path}
-		d.SavePath = m.Path
+		d.ExistingAt = existing.Location
+		d.ExistingPaths = existing.Paths
+		if existing.Primary != nil {
+			d.SavePath = existing.Primary.Path
+		} else {
+			d.SavePath = s.primaryPath(isTV, existing.DriveID, folder)
+		}
 		if in.Remote {
-			remotePath, ok := s.remotePath(isTV, m.DriveID, folder)
-			if !ok {
+			if existing.Remote != nil {
+				d.SavePath = existing.Remote.Path
+			} else if remotePath, ok := s.remotePath(isTV, existing.DriveID, folder); ok {
+				d.SavePath = remotePath
+			} else {
 				d.EnoughSpace = false
-				return d, s.remoteRootError(isTV, m.DriveID)
+				return d, s.remoteRootError(isTV, existing.DriveID)
 			}
-			d.SavePath = remotePath
 		}
-		d.ContentPath = in.Meta.ContentPath(m.Path)
-		if in.Remote {
-			d.ContentPath = in.Meta.ContentPath(d.SavePath)
-		}
+		d.ContentPath = in.Meta.ContentPath(d.SavePath)
 		d.EnoughSpace = true
 		// The title stays on its drive regardless of free space; a tight
 		// drive only produces a warning.
-		if st, ok := s.driveStatus(m.DriveID); ok {
+		if st, ok := s.driveStatus(existing.DriveID); ok {
 			d.UsableSpace = st.Available
 			d.EnoughSpace = st.Available >= in.Meta.Size
 			d.Shortfall = in.Meta.Size - st.Available
 			if !d.EnoughSpace {
 				d.Warnings = append(d.Warnings, fmt.Sprintf(
 					"%s has only %s free (torrent needs %s); adding anyway to keep the title on its drive",
-					m.DriveID, humanBytes(st.Available), humanBytes(in.Meta.Size)))
+					existing.DriveID, humanBytes(st.Available), humanBytes(in.Meta.Size)))
 			}
 		}
 		return d, ""
 	}
 
-	if len(matches) > 1 {
+	if existing != nil && existing.Conflict {
 		d.Existing = true
-		for _, m := range matches {
-			d.ExistingPaths = append(d.ExistingPaths, m.Path)
-		}
+		d.ExistingAt = existing.Location
+		d.ExistingConflict = true
+		d.ExistingPaths = existing.Paths
 		d.EnoughSpace = false
 		return d, "this title exists on multiple drives; resolve the duplicates before submitting"
 	}
@@ -1059,6 +1067,66 @@ func (s *Server) planDestination(in *Intake) (*Destination, string) {
 	d.EnoughSpace = d.UsableSpace >= in.Meta.Size
 	d.Shortfall = in.Meta.Size - d.UsableSpace
 	return d, ""
+}
+
+type mediaMatch struct {
+	DriveID  string
+	Primary  *library.Folder
+	Remote   *library.Folder
+	Location string
+	Paths    []string
+	Conflict bool
+}
+
+func resolveMediaMatch(primary, remote []library.Folder) *mediaMatch {
+	if len(primary) == 0 && len(remote) == 0 {
+		return nil
+	}
+	m := &mediaMatch{}
+	for i := range primary {
+		m.Paths = append(m.Paths, primary[i].Path)
+	}
+	for i := range remote {
+		m.Paths = append(m.Paths, remote[i].Path)
+	}
+	if len(primary) > 1 || len(remote) > 1 {
+		m.Conflict = true
+	}
+	if len(primary) > 0 {
+		m.Primary = &primary[0]
+		m.DriveID = primary[0].DriveID
+	}
+	if len(remote) > 0 {
+		m.Remote = &remote[0]
+		if m.DriveID != "" && m.DriveID != remote[0].DriveID {
+			m.Conflict = true
+		} else {
+			m.DriveID = remote[0].DriveID
+		}
+	}
+	switch {
+	case len(primary) > 0 && len(remote) > 0:
+		m.Location = "normal and remote"
+	case len(remote) > 0:
+		m.Location = "remote"
+	default:
+		m.Location = "normal"
+	}
+	return m
+}
+
+func (s *Server) primaryPath(isTV bool, driveID, folder string) string {
+	for _, drive := range s.cfg.Drives {
+		if drive.ID != driveID {
+			continue
+		}
+		root := drive.MovieRoot
+		if isTV {
+			root = drive.TVRoot
+		}
+		return filepath.Join(root, folder)
+	}
+	return ""
 }
 
 func (s *Server) remotePath(isTV bool, driveID, folder string) (string, bool) {

@@ -1023,7 +1023,7 @@ function destHTML(x){
       ["Year",x.match?(x.match.release_date||x.match.first_air_date||"").slice(0,4):"—"],
       ["Canonical folder",'<span class="mono">'+esc(dest.folder_name)+"</span>"],
       ["Drive",esc(dest.drive_id||"—")],
-      ["Existing library folder",dest.existing?"yes":"no"],
+      ["Existing media folder",dest.existing?("yes — "+(dest.existing_at||"normal")):"no"],
       ["Save path",'<span class="mono">'+esc(dest.save_path)+"</span>"],
       ["Content path",'<span class="mono">'+esc(dest.content_path)+"</span>"],
       ["root_folder",String(dest.root_folder)],
@@ -1037,7 +1037,7 @@ function destHTML(x){
   if(dest&&dest.warnings&&dest.warnings.length){
     html+='<div class="errbox" style="background:#2b2412;border-color:#6b5214;color:#e3b341">'+esc(dest.warnings.join("\n"))+"</div>";
   }
-  if(dest&&dest.existing_paths&&dest.existing_paths.length>1){
+  if(dest&&dest.existing_conflict){
     html+='<div class="errbox">'+esc("Title exists at:\n"+dest.existing_paths.join("\n"))+"<br>Resolve the duplicates in your library first.</div>";
   }else if(x.error&&x.status!=="submitted"){
     html+='<div class="errbox">'+esc(x.error)+"</div>";
@@ -1088,7 +1088,7 @@ function cardTV(g){
       "<tr><td>Library</td><td>"+esc(dest.library||rep.library||rep.media_type)+"</td></tr>"+
       "<tr><td>Canonical folder</td><td class='mono'>"+esc(dest.folder_name)+"</td></tr>"+
       "<tr><td>Drive</td><td>"+esc(dest.drive_id||"—")+"</td></tr>"+
-      (dest.existing?"<tr><td>Existing library folder</td><td>yes</td></tr>":"")+
+      (dest.existing?"<tr><td>Existing media folder</td><td>yes — "+esc(dest.existing_at||"normal")+"</td></tr>":"")+
       "<tr><td>Save path</td><td class='mono'>"+esc(dest.save_path)+"</td></tr>"+
       '</tbody></table>';
     const msgs=g.map(m=>{

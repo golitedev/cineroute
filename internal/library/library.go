@@ -64,6 +64,28 @@ func (s *Scan) FindTV(canonical string) []Folder {
 	return s.find(canonical, func(d Drive) string { return d.TVRoot })
 }
 
+// FindMovieRemote searches configured remote movie roots for an existing
+// canonical folder. Unlike MovieRemotePath, this only returns folders that
+// already exist.
+func (s *Scan) FindMovieRemote(canonical string) []Folder {
+	return s.findRemote(canonical, func(d Drive) (string, bool) {
+		if d.MovieRemoteRoot != "" {
+			return d.MovieRemoteRoot, true
+		}
+		return conventionalRemoteRoot(d.MovieRoot, "m", "mr")
+	})
+}
+
+// FindTVRemote is the TV equivalent of FindMovieRemote.
+func (s *Scan) FindTVRemote(canonical string) []Folder {
+	return s.findRemote(canonical, func(d Drive) (string, bool) {
+		if d.TVRemoteRoot != "" {
+			return d.TVRemoteRoot, true
+		}
+		return conventionalRemoteRoot(d.TVRoot, "t", "tr")
+	})
+}
+
 func (s *Scan) FindAnime(canonical string) []Folder {
 	return s.find(canonical, func(d Drive) string { return d.AnimeRoot })
 }
@@ -273,6 +295,13 @@ func (s *Scan) find(canonical string, rootOf func(Drive) string) []Folder {
 		}
 	}
 	return out
+}
+
+func (s *Scan) findRemote(canonical string, rootOf func(Drive) (string, bool)) []Folder {
+	return s.find(canonical, func(d Drive) string {
+		root, _ := rootOf(d)
+		return root
+	})
 }
 
 var canonicalMovieRe = regexp.MustCompile(`^(.*?)\s*\((\d{4})\)$`)
