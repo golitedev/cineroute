@@ -53,15 +53,14 @@ th{color:var(--dim);font-weight:500;width:170px}
 .badge.ok{color:var(--ok);border-color:#2c6a3a}
 .badge.err{color:var(--err);border-color:#7a2f2d}
 .badge.warn{color:var(--warn);border-color:#6b5214}
-.tmdb-list{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:8px;margin-top:6px}
-.tmdb-item{border:1px solid var(--border);border-radius:8px;padding:8px;cursor:pointer;display:flex;flex-direction:column;gap:7px;min-width:0}
+.tmdb-list{display:grid;grid-template-columns:repeat(auto-fit,minmax(0,1fr));gap:5px;margin-top:6px;width:100%;max-width:calc(63px * var(--count,4))}
+.tmdb-item{border:1px solid var(--border);border-radius:6px;padding:3px;cursor:pointer;display:flex;flex-direction:column;gap:2px;min-width:0}
 .tmdb-item:hover{border-color:var(--accent)}
 .tmdb-item.selected{border-color:var(--accent);background:#121a2e}
-.tmdb-item img{width:100%;aspect-ratio:2/3;object-fit:cover;border-radius:4px;background:#0f1115;display:block}
-.tmdb-item .t{font-weight:600;font-size:12px;line-height:1.3;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;overflow-wrap:anywhere}
+.tmdb-item img{width:100%;aspect-ratio:2/3;object-fit:cover;border-radius:3px;background:#0f1115;display:block}
+.tmdb-item .t{font-weight:600;font-size:9.5px;line-height:1.2;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;overflow-wrap:anywhere}
 .tmdb-item .y{color:var(--dim);font-weight:400;white-space:nowrap}
-@media(max-width:600px){.tmdb-list{grid-template-columns:repeat(2,minmax(0,1fr))}}
-@media(max-width:480px){.tmdb-list{grid-template-columns:repeat(4,minmax(0,1fr));gap:6px}.tmdb-item{padding:5px}.tmdb-item .t{font-size:11px}}
+@media(max-width:600px){.tmdb-item .t{font-size:10px}}
 .hidden{display:none}
 .mono{font-family:ui-monospace,monospace;font-size:12px;word-break:break-all}
 .errbox{background:#2d1618;border:1px solid #7a2f2d;border-radius:8px;padding:10px 12px;color:#ff9b92;white-space:pre-wrap;margin-top:10px}
@@ -977,9 +976,12 @@ function tmdbHTML(x){
   const mid=x.match&&x.match.id;
   // Only the first few candidates are shown: the top result is auto-confirmed
   // and is almost always correct, so the rest of the list is rarely useful.
-  const results=x.tmdb.slice(0,4);
+  const results=x.tmdb.slice(0,8);
+  // auto-fit keeps the row only as wide as the cards it holds, so a short list
+  // does not stretch across the card; --count caps how many fit per row.
+  const listStyle='--count:'+Math.min(results.length,6);
   return '<div style="margin-top:14px"><h2>TMDB match <span class="small">— first result auto-confirmed, click another to change</span></h2>'+
-    '<div class="tmdb-list">'+
+    '<div class="tmdb-list" style="'+listStyle+'">'+
     results.map(r=>{
       const title=r.title||r.name;const yr=(r.release_date||r.first_air_date||"").slice(0,4);
       const poster=r.poster_path?('<img src="https://image.tmdb.org/t/p/w92'+esc(r.poster_path)+'" alt="" loading="lazy">'):'<img alt="">';
