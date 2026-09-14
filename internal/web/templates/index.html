@@ -9,7 +9,7 @@
      Firefox bookmarks toolbar. The SVG is still served for the header logo. -->
 <link rel="icon" type="image/png" sizes="64x64" href="/favicon.png">
 <style>
-:root{--bg:#0f1115;--panel:#171a21;--border:#2a2f3a;--text:#e6e9ef;--dim:#8b93a3;--accent:#4c8dff;--ok:#3fb950;--warn:#d29922;--err:#f85149}
+:root{--bg:#0f1115;--panel:#171a21;--border:#2a2f3a;--text:#e6e9ef;--dim:#8b93a3;--accent:#4c8dff;--ok:#3fb950;--warn:#d29922;--err:#f85149;--remote:#ffb86c}
 *{box-sizing:border-box}
 body{margin:0;font:14px/1.5 system-ui,sans-serif;background:var(--bg);color:var(--text)}
 header{display:flex;align-items:center;gap:16px;padding:14px 20px;border-bottom:1px solid var(--border);background:#13161c}
@@ -80,6 +80,7 @@ th{color:var(--dim);font-weight:500;width:170px}
 .companion-row:first-child{border-top:0}
 .companion-row .title{font-weight:600}
 .companion-row .meta{color:var(--dim);font-size:12px;margin-top:2px}
+.companion-row .meta .remote-tag{color:var(--remote);font-weight:600}
 .companion-detail{border-color:var(--accent)}
 .companion-existing-files{margin-top:4px}
 .companion-existing-files .mono{display:block;margin-top:2px;word-break:break-all}
@@ -734,8 +735,8 @@ function companionSearchText(m){
 }
 function companionRow(m){
   const warn=m.jellyfin_warning?'<div class="small">'+esc(m.jellyfin_warning)+"</div>":"";
-  const copies=(m.existing_copy||"main copy unknown")+(m.remote_path?" · remote "+(m.remote_copy||"empty"):"");
-  return `<div class="companion-row"><div><div class="title">${esc(m.folder_name||m.title)}</div><div class="meta">${esc(m.drive_id)} · ${esc(copies)}${m.year?" · "+m.year:""}</div>${warn}</div><span class="badge ${companionStatusClass(m)} status">${esc(companionStatus(m))}</span><button data-id="${esc(m.id)}" onclick="openCompanionMovie(this.dataset.id)">Open</button></div>`;
+  const copies=esc(m.existing_copy||"main copy unknown")+(m.remote_path?' · <span class="remote-tag">remote</span> '+esc(m.remote_copy||"empty"):"");
+  return `<div class="companion-row"><div><div class="title">${esc(m.folder_name||m.title)}</div><div class="meta">${esc(m.drive_id)} · ${copies}${m.year?" · "+m.year:""}</div>${warn}</div><span class="badge ${companionStatusClass(m)} status">${esc(companionStatus(m))}</span><button data-id="${esc(m.id)}" onclick="openCompanionMovie(this.dataset.id)">Open</button></div>`;
 }
 function setCompanionFilter(filter){companionFilter=filter;companionPage=0;renderCompanions()}
 function setCompanionSearch(value){companionSearchTerm=value;companionPage=0;renderCompanions()}
