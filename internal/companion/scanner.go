@@ -25,7 +25,6 @@ const copyQualityAbsent = "absent"
 type copyInspection struct {
 	Files           []string
 	Quality         string
-	Exists          bool
 	Has1080pWebDL   bool
 	Has1080pBluRay  bool
 	JellyfinWarning string
@@ -46,7 +45,6 @@ func inspectRemoteMovieFolder(path, folderName string) copyInspection {
 		return copyInspection{Error: fmt.Sprintf("cannot inspect remote movie folder: %v", err)}
 	}
 	inspection := inspectMovieFolder(path, folderName)
-	inspection.Exists = true
 	if inspection.Quality == "none" && inspection.Error != "" {
 		// A remote folder is a destination for a copy, so it is valid for it
 		// to exist before its first video is added.
@@ -66,7 +64,6 @@ func inspectRemoteTVFolder(path, folderName string) copyInspection {
 		return copyInspection{Error: fmt.Sprintf("cannot inspect remote TV show folder: %v", err)}
 	}
 	inspection := inspectTVFolder(path, folderName)
-	inspection.Exists = true
 	if inspection.Quality == "none" && inspection.Error != "" {
 		inspection.Error = ""
 	}
@@ -118,11 +115,9 @@ func updateTVInspection(movie *Movie, path, remotePath, folderName string) (copy
 func updateInspection(movie *Movie, path, remotePath string, main, remote copyInspection, includeWarnings bool) (copyInspection, copyInspection) {
 	movie.RemotePath = remotePath
 	movie.ExistingCopy = main.Quality
-	movie.MainExists = main.Exists
 	movie.ExistingFiles = movieVideoPaths(path, main.Files)
 	movie.ExistingFileSizes = movieVideoSizes(path, main.Files)
 	movie.RemoteCopy = remote.Quality
-	movie.RemoteFolderExists = remote.Exists
 	movie.RemoteFiles = movieVideoPaths(remotePath, remote.Files)
 	movie.RemoteFileSizes = movieVideoSizes(remotePath, remote.Files)
 	if includeWarnings {
@@ -141,7 +136,7 @@ func inspectMovieFolder(path, folderName string) copyInspection {
 		}
 		return copyInspection{Error: fmt.Sprintf("cannot inspect movie folder: %v", err)}
 	}
-	inspection := copyInspection{Files: append([]string(nil), videos...), Exists: true}
+	inspection := copyInspection{Files: append([]string(nil), videos...)}
 	if len(videos) == 0 {
 		inspection.Quality = "none"
 		inspection.Error = "no video file found in movie folder; manual review required"
@@ -198,7 +193,7 @@ func inspectTVFolder(path, folderName string) copyInspection {
 		}
 		return copyInspection{Error: fmt.Sprintf("cannot inspect TV show folder: %v", err)}
 	}
-	inspection := copyInspection{Files: append([]string(nil), videos...), Exists: true}
+	inspection := copyInspection{Files: append([]string(nil), videos...)}
 	if len(videos) == 0 {
 		inspection.Quality = "none"
 		inspection.Error = "no video file found in TV show folder; manual review required"
@@ -318,7 +313,6 @@ func jellyfinWarning(folderName, videoName string) string {
 func inspectError(movie *Movie, inspection copyInspection) {
 	// This is the main folder, which was read successfully, so it exists.
 	movie.ExistingCopy = inspection.Quality
-	movie.MainExists = inspection.Quality != copyQualityAbsent
 	movie.ExistingFiles = movieVideoPaths(movie.Path, inspection.Files)
 	movie.ExistingFileSizes = movieVideoSizes(movie.Path, inspection.Files)
 	movie.JellyfinWarning = inspection.JellyfinWarning

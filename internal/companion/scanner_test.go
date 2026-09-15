@@ -6,10 +6,11 @@ import (
 	"testing"
 )
 
-// TestCopyInspectionDistinguishesMissingFromEmpty covers the companion list
-// display: a folder that does not exist is "absent" and a folder that exists
-// without video is "none". They must not collapse into the same state, because
-// the list shows which side actually holds the title.
+// TestCopyInspectionDistinguishesMissingFromEmpty covers the states the
+// companion list depends on: a folder that does not exist is "absent", while a
+// folder that exists without video is "none". They must not collapse into one
+// value, because a remote-only title is recognized by its main folder being
+// absent rather than merely empty.
 func TestCopyInspectionDistinguishesMissingFromEmpty(t *testing.T) {
 	base := t.TempDir()
 	folderName := "The Thing (1982)"
@@ -40,38 +41,29 @@ func TestCopyInspectionDistinguishesMissingFromEmpty(t *testing.T) {
 	if got, want := main.Quality, "1080p"; got != want {
 		t.Errorf("main quality: got %q want %q", got, want)
 	}
-	if !main.Exists {
-		t.Error("main folder exists but Exists is false")
-	}
 	if got, want := remote.Quality, "none"; got != want {
 		t.Errorf("empty remote quality: got %q want %q", got, want)
 	}
-	if !remote.Exists {
-		t.Error("empty remote folder exists but Exists is false")
-	}
 
-	// Missing remote folder: "absent", because the display distinguishes a
-	// folder that is not there from one that is there and empty.
+	// A folder that is not there at all is absent, not empty.
 	missingRemote := filepath.Join(remoteRoot, "Not There (1999)")
-	absent := inspectRemoteMovieFolder(missingRemote, "Not There (1999)")
-	if got, want := absent.Quality, copyQualityAbsent; got != want {
+	if got, want := inspectRemoteMovieFolder(missingRemote, "Not There (1999)").Quality, copyQualityAbsent; got != want {
 		t.Errorf("missing remote quality: got %q want %q", got, want)
 	}
-	if absent.Exists {
-		t.Error("missing remote folder must not report Exists")
-	}
-
-	// Missing main folder behaves the same way.
 	missingMain := filepath.Join(mainRoot, "Not There (1999)")
-	if inspection := inspectMovieFolder(missingMain, "Not There (1999)"); inspection.Quality != copyQualityAbsent || inspection.Exists {
-		t.Errorf("missing main folder: quality=%q exists=%v", inspection.Quality, inspection.Exists)
+	if got, want := inspectMovieFolder(missingMain, "Not There (1999)").Quality, copyQualityAbsent; got != want {
+		t.Errorf("missing main quality: got %q want %q", got, want)
+	}
+	missingTV := filepath.Join(remoteRoot, "Not There (1999)")
+	if got, want := inspectRemoteTVFolder(missingTV, "Not There (1999)").Quality, copyQualityAbsent; got != want {
+		t.Errorf("missing remote TV quality: got %q want %q", got, want)
 	}
 }
 
-// TestUpdateInspectionRecordsFolderPresence verifies the persisted state that
-// the companion list reads: Exists flags and absence sentinels must be stored
-// on the movie, not just computed locally.
-func TestUpdateInspectionRecordsFolderPresence(t *testing.T) {
+// TestUpdateInspectionRecordsRemoteOnlyCopy verifies the persisted state behind
+// the companion list for a title that only exists in the remote root, which is
+// the case displayed as "main · remote" with remote highlighted.
+func TestUpdateInspectionRecordsRemoteOnlyCopy(t *testing.T) {
 	base := t.TempDir()
 	folderName := "Allegiant (2016)"
 	mainRoot := filepath.Join(base, "movies")
@@ -89,19 +81,11 @@ func TestUpdateInspectionRecordsFolderPresence(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	// Main folder is missing and the title only exists in the remote root,
-	// which is the case the companion list shows as main · remote.
 	movie := &Movie{ID: "c_test", FolderName: folderName}
 	updateMovieInspection(movie, filepath.Join(mainRoot, folderName), remoteFolder, folderName)
 
 	if movie.ExistingCopy != copyQualityAbsent {
 		t.Errorf("ExistingCopy: got %q want %q", movie.ExistingCopy, copyQualityAbsent)
-	}
-	if movie.MainExists {
-		t.Error("MainExists must be false when the main folder is not present")
-	}
-	if !movie.RemoteFolderExists {
-		t.Error("RemoteFolderExists must be true for an existing remote folder")
 	}
 	if movie.RemoteCopy != "1080p" {
 		t.Errorf("RemoteCopy: got %q want %q", movie.RemoteCopy, "1080p")
@@ -109,6 +93,7 @@ func TestUpdateInspectionRecordsFolderPresence(t *testing.T) {
 	if len(movie.RemoteFiles) != 1 {
 		t.Errorf("RemoteFiles: got %d want 1", len(movie.RemoteFiles))
 	}
+	// No main video files is what keeps the main half of "main · remote" grey.
 	if len(movie.ExistingFiles) != 0 {
 		t.Errorf("ExistingFiles: got %d want 0", len(movie.ExistingFiles))
 	}

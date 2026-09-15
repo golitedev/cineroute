@@ -740,23 +740,16 @@ function renderCompanions(){
 function companionSearchText(m){
   return [m.id,m.title,m.folder_name,m.drive_id,m.path,m.remote_path,m.existing_copy,m.remote_copy,m.year,m.status,companionStatus(m),m.error,m.jellyfin_warning,...(m.existing_files||[]),...(m.remote_files||[])].filter(value=>value!==undefined&&value!==null).join(" ").toLowerCase();
 }
-// copyStatus shows where a title actually lives. A side is orange only when it
-// holds video files; the other side stays grey so a remote-only title reads
-// "main · remote" with just the remote half highlighted.
+// companionCopyStatus shows where a title actually lives. The label is always
+// "main · remote" and only the side that holds a video file is highlighted, so
+// a remote-only title shows remote in orange and a main-only title shows main
+// in orange. The other side stays grey.
 function companionCopyStatus(m){
   const present={
     main:!!(m.existing_files&&m.existing_files.length),
     remote:!!(m.remote_files&&m.remote_files.length)
   };
-  const state={
-    main:m.existing_copy||"unknown",
-    remote:m.remote_folder_exists?(m.remote_copy||"unknown"):"absent"
-  };
-  const note={
-    main:present.main?(state.main==="1080p"?"":state.main):(m.main_exists?"empty":"absent"),
-    remote:present.remote?(state.remote==="1080p"?"":state.remote):(m.remote_folder_exists?"empty":"absent")
-  };
-  const tag=(side,label)=>'<span class="copy-tag'+(present[side]?" present":"")+'">'+label+(note[side]?" "+esc(note[side]):"")+'</span>';
+  const tag=(side,label)=>'<span class="copy-tag'+(present[side]?" present":"")+'">'+label+'</span>';
   return tag("main","main")+" · "+tag("remote","remote");
 }
 function companionRow(m){
