@@ -40,29 +40,31 @@ func isLiveWorkflowStatus(status string) bool {
 // Search results live in the companion store separately: Prowlarr download
 // URLs can contain the API key and are short-lived, so they are never written.
 type Movie struct {
-	ID                string           `json:"id"`
-	DriveID           string           `json:"drive_id"`
-	Path              string           `json:"path"`
-	RemotePath        string           `json:"remote_path,omitempty"`
-	FolderName        string           `json:"folder_name"`
-	Title             string           `json:"title"`
-	Year              int              `json:"year"`
-	TmdbID            int              `json:"tmdb_id"`
-	Status            string           `json:"status"`
-	Error             string           `json:"error,omitempty"`
-	QBHash            string           `json:"qb_hash,omitempty"`
-	ExistingCopy      string           `json:"existing_copy,omitempty"`
-	ExistingFiles     []string         `json:"existing_files,omitempty"`
-	ExistingFileSizes map[string]int64 `json:"existing_file_sizes,omitempty"`
-	RemoteCopy        string           `json:"remote_copy,omitempty"`
-	RemoteFiles       []string         `json:"remote_files,omitempty"`
-	RemoteFileSizes   map[string]int64 `json:"remote_file_sizes,omitempty"`
-	TVApprovedPacks   []string         `json:"tv_approved_packs,omitempty"`
-	JellyfinWarning   string           `json:"jellyfin_warning,omitempty"`
-	Missing           bool             `json:"missing,omitempty"`
-	CreatedAt         time.Time        `json:"created_at"`
-	UpdatedAt         time.Time        `json:"updated_at"`
-	AddedAt           *time.Time       `json:"added_at,omitempty"`
+	ID                 string           `json:"id"`
+	DriveID            string           `json:"drive_id"`
+	Path               string           `json:"path"`
+	RemotePath         string           `json:"remote_path,omitempty"`
+	FolderName         string           `json:"folder_name"`
+	Title              string           `json:"title"`
+	Year               int              `json:"year"`
+	TmdbID             int              `json:"tmdb_id"`
+	Status             string           `json:"status"`
+	Error              string           `json:"error,omitempty"`
+	QBHash             string           `json:"qb_hash,omitempty"`
+	ExistingCopy       string           `json:"existing_copy,omitempty"`
+	MainExists         bool             `json:"main_exists,omitempty"`
+	ExistingFiles      []string         `json:"existing_files,omitempty"`
+	ExistingFileSizes  map[string]int64 `json:"existing_file_sizes,omitempty"`
+	RemoteCopy         string           `json:"remote_copy,omitempty"`
+	RemoteFolderExists bool             `json:"remote_folder_exists,omitempty"`
+	RemoteFiles        []string         `json:"remote_files,omitempty"`
+	RemoteFileSizes    map[string]int64 `json:"remote_file_sizes,omitempty"`
+	TVApprovedPacks    []string         `json:"tv_approved_packs,omitempty"`
+	JellyfinWarning    string           `json:"jellyfin_warning,omitempty"`
+	Missing            bool             `json:"missing,omitempty"`
+	CreatedAt          time.Time        `json:"created_at"`
+	UpdatedAt          time.Time        `json:"updated_at"`
+	AddedAt            *time.Time       `json:"added_at,omitempty"`
 }
 
 type stateFile struct {

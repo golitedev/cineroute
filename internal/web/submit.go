@@ -390,7 +390,7 @@ func (s *Server) submitTorrent(ctx context.Context, req submissionRequest) (*sub
 		dest.ExistingAt = routedExisting.Location
 		dest.ExistingPaths = routedExisting.Paths
 	} else if len(matches) > 0 {
-		dest.ExistingAt = "normal"
+		dest.ExistingAt = "main"
 		dest.ExistingPaths = []string{matches[0].Path}
 	}
 	if st, ok := s.driveStatus(driveID); ok {

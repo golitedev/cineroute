@@ -1106,11 +1106,11 @@ func resolveMediaMatch(primary, remote []library.Folder) *mediaMatch {
 	}
 	switch {
 	case len(primary) > 0 && len(remote) > 0:
-		m.Location = "normal and remote"
+		m.Location = "main and remote"
 	case len(remote) > 0:
 		m.Location = "remote"
 	default:
-		m.Location = "normal"
+		m.Location = "main"
 	}
 	return m
 }
