@@ -12,12 +12,18 @@ import (
 
 // HardlinkResult describes one completed link between matching library roots.
 type HardlinkResult struct {
-	SourcePath            string `json:"source_path"`
-	DestinationPath       string `json:"destination_path"`
-	LinkedFiles           int    `json:"linked_files"`
-	ExistingFiles         int    `json:"existing_files"`
-	MovedFiles            int    `json:"moved_files,omitempty"`
-	RemovedDuplicateFiles int    `json:"removed_duplicate_files,omitempty"`
+	SourcePath string `json:"source_path"`
+	// DestinationPath is the remote folder that mirrors SourcePath after the
+	// operation completes.
+	DestinationPath string `json:"destination_path"`
+	LinkedFiles     int    `json:"linked_files"`
+	ExistingFiles   int    `json:"existing_files"`
+	MovedFiles      int    `json:"moved_files,omitempty"`
+	// RemovedDuplicateFiles counts remote files that were unlinked because the
+	// primary tree does not contain them: old links left behind by renames or
+	// replaced subtitles, and unrelated extras. Only used by reconcile, never
+	// by the additive hardlinkTree.
+	RemovedDuplicateFiles int `json:"removed_duplicate_files,omitempty"`
 }
 
 type hardlinkEntry struct {

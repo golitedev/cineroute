@@ -9,7 +9,7 @@ import (
 	"cineroute/internal/library"
 )
 
-func TestHardlinkManagerRelinksRenamedMovieAndPreservesExtraFiles(t *testing.T) {
+func TestHardlinkManagerRelinksRenamedMovieAndRemoveKeepsUnrelatedFiles(t *testing.T) {
 	base := t.TempDir()
 	primary := filepath.Join(base, "movies")
 	remote := filepath.Join(base, "movies-remote")
@@ -145,5 +145,177 @@ func TestHardlinkManagerRelinksRenamedMovieAndPreservesExtraFiles(t *testing.T) 
 	}
 	if len(refreshed.Items) != 1 || refreshed.Items[0].MediaType != "tv" {
 		t.Fatalf("refreshed items after remove = %+v, want only TV hardlink", refreshed.Items)
+	}
+}
+
+// TestHardlinkManagerRelinkMirrorsReplacedSubtitles covers the renamed external
+// subtitle workflow: wrong-named subs were linked to the remote tree, then the
+// primary library replaced them with correctly named files. Relink must add the
+// new links and drop every remote file the primary folder no longer has,
+// including stale links whose inode no longer exists in the primary tree and
+// unrelated extras.
+func TestHardlinkManagerRelinkMirrorsReplacedSubtitles(t *testing.T) {
+	base := t.TempDir()
+	primary := filepath.Join(base, "tv")
+	remote := filepath.Join(base, "tv-remote")
+	for _, dir := range []string{primary, remote} {
+		if err := os.MkdirAll(dir, 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	source := filepath.Join(primary, "Example Show (2021)")
+	remoteFolder := filepath.Join(remote, "Example Show (2021)")
+	if err := os.MkdirAll(source, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	episode := filepath.Join(source, "Example.Show.S01E01.mkv")
+	if err := os.WriteFile(episode, []byte("episode"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	wrongSub := filepath.Join(source, "Example.Show.S01E01.wrong-name.srt")
+	if err := os.WriteFile(wrongSub, []byte("wrong sub"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := hardlinkTree(source, remoteFolder); err != nil {
+		t.Fatal(err)
+	}
+
+	// Replace the wrongly named subtitle with a correctly named one and add an
+	// unrelated remote-only file that must not survive the relink.
+	if err := os.Remove(wrongSub); err != nil {
+		t.Fatal(err)
+	}
+	rightSub := filepath.Join(source, "Example.Show.S01E01.right-name.srt")
+	if err := os.WriteFile(rightSub, []byte("right sub"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	extra := filepath.Join(remoteFolder, "stray-download.nfo")
+	if err := os.WriteFile(extra, []byte("not in primary"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	scan := library.NewScan([]library.Drive{{
+		ID:           "hdd3",
+		TVRoot:       primary,
+		TVRemoteRoot: remote,
+	}})
+	manager := NewHardlinkManager(scan)
+	view, err := manager.View(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if view.Stats.Total != 1 || len(view.Items) != 1 {
+		t.Fatalf("stats = %+v, want one hardlink item", view.Stats)
+	}
+	item := view.Items[0]
+	if item.Status != "partial" || item.SourceFileCount != 2 || item.LinkedFiles != 1 || item.ExtraFileCount != 2 {
+		t.Fatalf("item = %+v, want partial with one linked and two extra files", item)
+	}
+
+	result, refreshed, err := manager.Relink(context.Background(), item.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.LinkedFiles != 1 || result.RemovedDuplicateFiles != 2 {
+		t.Fatalf("relink result = %+v, want one new link and two removed stale files", result)
+	}
+
+	staleRemoteSub := filepath.Join(remoteFolder, "Example.Show.S01E01.wrong-name.srt")
+	if _, err := os.Lstat(staleRemoteSub); !os.IsNotExist(err) {
+		t.Fatalf("stale remote subtitle still exists: %v", err)
+	}
+	if _, err := os.Lstat(extra); !os.IsNotExist(err) {
+		t.Fatalf("remote-only extra file still exists: %v", err)
+	}
+	linkedRemoteSub := filepath.Join(remoteFolder, "Example.Show.S01E01.right-name.srt")
+	remoteInfo, err := os.Lstat(linkedRemoteSub)
+	if err != nil {
+		t.Fatalf("relinked remote subtitle is missing: %v", err)
+	}
+	sourceInfo, err := os.Lstat(rightSub)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !os.SameFile(sourceInfo, remoteInfo) {
+		t.Fatalf("remote subtitle is not hardlinked to the primary subtitle")
+	}
+
+	if len(refreshed.Items) != 1 {
+		t.Fatalf("refreshed items = %d, want 1", len(refreshed.Items))
+	}
+	relinked := refreshed.Items[0]
+	if relinked.Status != "healthy" || relinked.RemoteFileCount != 2 || relinked.ExtraFileCount != 0 {
+		t.Fatalf("relinked item = %+v, want healthy with exactly the two primary files", relinked)
+	}
+}
+
+// TestHardlinkManagerRelinkReplacesSameNameConflict covers a primary file that
+// was replaced while keeping its old name: the stale remote link must be
+// replaced with a link to the new primary file instead of failing the relink.
+func TestHardlinkManagerRelinkReplacesSameNameConflict(t *testing.T) {
+	base := t.TempDir()
+	primary := filepath.Join(base, "movies")
+	remote := filepath.Join(base, "movies-remote")
+	for _, dir := range []string{primary, remote} {
+		if err := os.MkdirAll(dir, 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	source := filepath.Join(primary, "Example Movie (2022)")
+	remoteFolder := filepath.Join(remote, "Example Movie (2022)")
+	if err := os.MkdirAll(source, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	movie := filepath.Join(source, "movie.mkv")
+	if err := os.WriteFile(movie, []byte("movie"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	sub := filepath.Join(source, "movie.en.srt")
+	if err := os.WriteFile(sub, []byte("old subtitle"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := hardlinkTree(source, remoteFolder); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Remove(sub); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(sub, []byte("new subtitle"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	scan := library.NewScan([]library.Drive{{
+		ID:              "hdd1",
+		MovieRoot:       primary,
+		MovieRemoteRoot: remote,
+	}})
+	manager := NewHardlinkManager(scan)
+	view, err := manager.View(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if view.Stats.Total != 1 || len(view.Items) != 1 {
+		t.Fatalf("stats = %+v, want one hardlink item", view.Stats)
+	}
+
+	result, _, err := manager.Relink(context.Background(), view.Items[0].ID)
+	if err != nil {
+		t.Fatalf("relink: %v", err)
+	}
+	if result.LinkedFiles != 1 || result.RemovedDuplicateFiles != 1 {
+		t.Fatalf("relink result = %+v, want one replacement link and one removed stale file", result)
+	}
+	remoteInfo, err := os.Lstat(filepath.Join(remoteFolder, "movie.en.srt"))
+	if err != nil {
+		t.Fatalf("remote subtitle is missing: %v", err)
+	}
+	sourceInfo, err := os.Lstat(sub)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !os.SameFile(sourceInfo, remoteInfo) {
+		t.Fatalf("remote subtitle was not replaced with a link to the new primary file")
 	}
 }

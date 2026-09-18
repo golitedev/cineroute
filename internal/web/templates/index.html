@@ -651,13 +651,13 @@ async function removeHardlink(id,button){
 }
 async function relinkHardlink(id,button){
   const item=(hardlinkData&&hardlinkData.items||[]).find(entry=>entry.id===id);
-  if(!item||!confirm("Relink this remote folder to the current primary name "+(item.source_folder||"")+"?"))return;
+  if(!item||!confirm("Relink this remote folder to the current primary name "+(item.source_folder||"")+"? The remote folder will be made identical to the primary folder: missing files are hardlinked and remote files that are not in the primary folder are removed."))return;
   button.disabled=true;button.innerHTML='<span class="approval-spinner" aria-hidden="true"></span>Relinking…';
   try{
     const response=await postJSON("/api/hardlinks/"+encodeURIComponent(id)+"/relink",{});
     const result=response.result||{};
     const removed=result.removed_duplicate_files||0;
-    hardlinkData=response.view||response;hardlinkNotice="Relinked the remote folder to "+(result.destination_path||item.source_folder)+"."+(removed?" Removed "+removed+" old duplicate link"+(removed===1?"":"s"):"");renderHardlinks();
+    hardlinkData=response.view||response;hardlinkNotice="Relinked the remote folder to "+(result.destination_path||item.source_folder)+"."+(removed?" Removed "+removed+" file"+(removed===1?"":"s")+" not present in the primary folder":"");renderHardlinks();
   }catch(e){alert(e.message);button.disabled=false;button.textContent="Relink"}
 }
 

@@ -192,8 +192,11 @@ func (m *HardlinkManager) scanLocked(ctx context.Context) (HardlinkView, error) 
 }
 
 // Relink moves a discovered remote folder to the current primary folder name
-// and then reapplies the normal source-tree hardlink operation. This handles
-// a primary folder rename without asking the user to type filesystem paths.
+// and then mirrors the primary tree into it. This handles a primary folder
+// rename without asking the user to type filesystem paths, and it also removes
+// remote files the primary folder no longer has: old links left behind by
+// renames or replaced subtitles, and unrelated extras. The primary library
+// itself is never modified.
 func (m *HardlinkManager) Relink(ctx context.Context, id string) (HardlinkResult, HardlinkView, error) {
 	if m == nil || m.lib == nil {
 		return HardlinkResult{}, HardlinkView{}, errors.New("library scanner is unavailable")
@@ -246,16 +249,29 @@ func (m *HardlinkManager) Relink(ctx context.Context, id string) (HardlinkResult
 	return result, refreshed, nil
 }
 
+type hardlinkReconcileAction string
+
+const (
+	reconcileKeep    hardlinkReconcileAction = "keep"
+	reconcileMove    hardlinkReconcileAction = "move"
+	reconcileReplace hardlinkReconcileAction = "replace"
+	reconcileLink    hardlinkReconcileAction = "link"
+)
+
 type hardlinkReconcilePlan struct {
 	source *hardlinkSourceFile
 	remote *hardlinkRemoteFile
 	target string
+	action hardlinkReconcileAction
 }
 
-// reconcileHardlinkTree updates an existing remote tree to the source tree's
-// current relative paths. It moves matching hardlinked files where possible,
-// creates only missing links, and removes duplicate old link entries. This is
-// intentionally different from hardlinkTree, which is additive by design.
+// reconcileHardlinkTree mirrors the source tree into an existing remote tree.
+// It moves matching hardlinked files into their current relative paths, creates
+// only missing links, replaces remote entries whose content no longer matches
+// the primary file, and unlinks every remote file that the primary tree does
+// not have — old links left behind by renames or replaced subtitles, and
+// unrelated extras alike. This is intentionally different from hardlinkTree,
+// which is additive by design.
 func reconcileHardlinkTree(sourceRoot, destinationRoot string) (HardlinkResult, error) {
 	sourceRoot = filepath.Clean(sourceRoot)
 	destinationRoot = filepath.Clean(destinationRoot)
@@ -285,14 +301,6 @@ func reconcileHardlinkTree(sourceRoot, destinationRoot string) (HardlinkResult, 
 	if err != nil {
 		return result, fmt.Errorf("inspect hardlink destination tree: %w", err)
 	}
-	sourceByInode := make(map[hardlinkInode][]*hardlinkSourceFile, len(sourceFiles))
-	for i := range sourceFiles {
-		key, ok := hardlinkFileInode(sourceFiles[i].info)
-		if !ok {
-			return result, errors.New("inspect hardlink source: file identity is unavailable")
-		}
-		sourceByInode[key] = append(sourceByInode[key], &sourceFiles[i])
-	}
 	remoteByInode := make(map[hardlinkInode][]*hardlinkRemoteFile, len(remoteFiles))
 	for i := range remoteFiles {
 		key, ok := hardlinkFileInode(remoteFiles[i].info)
@@ -314,14 +322,19 @@ func reconcileHardlinkTree(sourceRoot, destinationRoot string) (HardlinkResult, 
 		expectedTargets[target] = true
 		targetInfo, statErr := os.Lstat(target)
 		if statErr == nil {
-			if targetInfo.Mode()&os.ModeSymlink != 0 || !targetInfo.Mode().IsRegular() {
-				return result, fmt.Errorf("hardlink destination conflicts with a non-regular file: %s", target)
+			if targetInfo.IsDir() {
+				return result, fmt.Errorf("hardlink destination conflicts with a directory: %s", target)
 			}
-			if !os.SameFile(source.info, targetInfo) {
-				return result, fmt.Errorf("hardlink destination already contains a different file: %s", target)
+			if os.SameFile(source.info, targetInfo) {
+				usedRemote[target] = true
+				plans = append(plans, hardlinkReconcilePlan{source: source, target: target, action: reconcileKeep})
+				continue
 			}
+			// The remote entry is stale: an old link whose primary file was
+			// replaced, or unrelated content at the current path. It must not
+			// be used as a rename source for another link.
 			usedRemote[target] = true
-			plans = append(plans, hardlinkReconcilePlan{source: source, target: target})
+			plans = append(plans, hardlinkReconcilePlan{source: source, target: target, action: reconcileReplace})
 			continue
 		}
 		if !errors.Is(statErr, os.ErrNotExist) {
@@ -335,36 +348,49 @@ func reconcileHardlinkTree(sourceRoot, destinationRoot string) (HardlinkResult, 
 		if remote != nil {
 			usedRemote[remote.path] = true
 		}
-		plans = append(plans, hardlinkReconcilePlan{source: source, remote: remote, target: target})
+		action := reconcileLink
+		if remote != nil {
+			action = reconcileMove
+		}
+		plans = append(plans, hardlinkReconcilePlan{source: source, remote: remote, target: target, action: action})
 	}
 
 	for _, plan := range plans {
 		if err := os.MkdirAll(filepath.Dir(plan.target), 0o755); err != nil {
 			return result, fmt.Errorf("create hardlink destination folder %q: %w", filepath.Dir(plan.target), err)
 		}
-		if plan.remote != nil {
+		switch plan.action {
+		case reconcileKeep:
+			result.ExistingFiles++
+		case reconcileMove:
 			if err := os.Rename(plan.remote.path, plan.target); err != nil {
 				return result, fmt.Errorf("move existing hardlink %q: %w", plan.remote.path, err)
 			}
 			result.ExistingFiles++
 			result.MovedFiles++
-			continue
+		case reconcileReplace:
+			if err := os.Remove(plan.target); err != nil {
+				return result, fmt.Errorf("remove stale hardlink %q: %w", plan.target, err)
+			}
+			result.RemovedDuplicateFiles++
+			if err := createHardlinkFile(plan.source.path, plan.target); err != nil {
+				return result, err
+			}
+			result.LinkedFiles++
+		default:
+			if err := createHardlinkFile(plan.source.path, plan.target); err != nil {
+				return result, err
+			}
+			result.LinkedFiles++
 		}
-		if _, statErr := os.Lstat(plan.target); statErr == nil {
-			result.ExistingFiles++
-			continue
-		} else if !errors.Is(statErr, os.ErrNotExist) {
-			return result, fmt.Errorf("inspect hardlink destination %q: %w", plan.target, statErr)
-		}
-		if err := createHardlinkFile(plan.source.path, plan.target); err != nil {
-			return result, err
-		}
-		result.LinkedFiles++
 	}
 
-	// Any source-linked file left at a non-current path is an old duplicate
-	// from a rename. It is safe to unlink because its inode is still present in
-	// the primary tree and every current target has already been established.
+	// The remote tree must mirror the primary tree. Every remote file that is
+	// not at a current relative path is stale — an old link left behind by a
+	// rename or a replaced subtitle, or content that was never part of the
+	// primary folder — and is unlinked whether or not its inode still exists in
+	// the source. Removing such a link never touches the primary library, and
+	// all current targets have already been established above.
 	currentRemoteFiles, err := collectHardlinkRemoteFiles(destinationRoot)
 	if err != nil {
 		return result, fmt.Errorf("reinspect hardlink destination tree: %w", err)
@@ -373,12 +399,8 @@ func reconcileHardlinkTree(sourceRoot, destinationRoot string) (HardlinkResult, 
 		if expectedTargets[remote.path] {
 			continue
 		}
-		key, ok := hardlinkFileInode(remote.info)
-		if !ok || len(sourceByInode[key]) == 0 {
-			continue
-		}
 		if err := os.Remove(remote.path); err != nil {
-			return result, fmt.Errorf("remove duplicate hardlink %q: %w", remote.path, err)
+			return result, fmt.Errorf("remove stale hardlink %q: %w", remote.path, err)
 		}
 		result.RemovedDuplicateFiles++
 	}

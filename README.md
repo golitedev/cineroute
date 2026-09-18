@@ -240,7 +240,10 @@ The **Manage hardlinks** tab scans all configured remote movie and TV roots and
 identifies hardlinks by inode, including links whose primary folder was renamed
 outside CineRoute. It shows source and remote paths, file maps, link counts,
 linked data, health and relink warnings. **Relink** moves a remote folder to
-the current primary folder name and reapplies the normal hardlink tree.
+the current primary folder name and then mirrors the primary tree into it:
+missing links are created and remote files the primary folder does not have —
+old links left behind by renames or replaced subtitles, and unrelated extras —
+are removed. The primary library is never modified.
 **Remove** unlinks only verified hardlinked files and keeps the primary files
 and unrelated remote files. The tab can be rescanned at any time and supports
 searching and status/media filters.
