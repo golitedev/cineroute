@@ -795,15 +795,22 @@ func makeHardlinkItem(root hardlinkRoot, remotePath string, remoteFiles []hardli
 	item.PathsMatch = best.relativeMatches == best.linkedFiles
 	item.CanRelink = true
 	item.CanRemove = item.LinkedFiles > 0
-	if !item.NameMatches || !item.PathsMatch {
+	// The remote tree is expected to mirror the primary tree. A name or path
+	// mismatch and remote files the primary folder does not have both mean the
+	// mirror is out of date, and relink is the operation that fixes either.
+	if !item.NameMatches || !item.PathsMatch || item.ExtraFileCount > 0 {
 		item.Status = "needs_relink"
 		switch {
 		case !item.NameMatches && !item.PathsMatch:
 			item.StatusReason = fmt.Sprintf("Primary folder is %q while the remote folder is %q, and linked files are at older relative paths.", item.SourceFolder, item.RemoteFolder)
 		case !item.NameMatches:
 			item.StatusReason = fmt.Sprintf("Primary folder is %q while the remote folder is %q.", item.SourceFolder, item.RemoteFolder)
-		default:
+		case !item.PathsMatch:
 			item.StatusReason = "Some linked files are at older relative paths; relink will align the remote tree with the primary library."
+		case item.LinkedFiles < item.SourceFileCount:
+			item.StatusReason = fmt.Sprintf("The remote folder has %d file%s the primary folder does not have, and %d primary file%s %s not linked; relink will mirror the primary folder.", item.ExtraFileCount, hardlinkPlural(item.ExtraFileCount), item.SourceFileCount-item.LinkedFiles, hardlinkPlural(item.SourceFileCount-item.LinkedFiles), hardlinkAre(item.SourceFileCount-item.LinkedFiles))
+		default:
+			item.StatusReason = fmt.Sprintf("The remote folder contains %d file%s that the primary folder does not have; relink will remove them.", item.ExtraFileCount, hardlinkPlural(item.ExtraFileCount))
 		}
 	} else if item.LinkedFiles < item.SourceFileCount {
 		item.Status = "partial"
@@ -885,6 +892,20 @@ func hardlinkStatusRank(status string) int {
 	default:
 		return 4
 	}
+}
+
+func hardlinkPlural(count int) string {
+	if count == 1 {
+		return ""
+	}
+	return "s"
+}
+
+func hardlinkAre(count int) string {
+	if count == 1 {
+		return "is"
+	}
+	return "are"
 }
 
 func findHardlinkItem(items []*HardlinkItem, id string) *HardlinkItem {

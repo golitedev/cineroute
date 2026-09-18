@@ -209,8 +209,8 @@ func TestHardlinkManagerRelinkMirrorsReplacedSubtitles(t *testing.T) {
 		t.Fatalf("stats = %+v, want one hardlink item", view.Stats)
 	}
 	item := view.Items[0]
-	if item.Status != "partial" || item.SourceFileCount != 2 || item.LinkedFiles != 1 || item.ExtraFileCount != 2 {
-		t.Fatalf("item = %+v, want partial with one linked and two extra files", item)
+	if item.Status != "needs_relink" || item.SourceFileCount != 2 || item.LinkedFiles != 1 || item.ExtraFileCount != 2 {
+		t.Fatalf("item = %+v, want needs_relink with one linked and two extra files", item)
 	}
 
 	result, refreshed, err := manager.Relink(context.Background(), item.ID)

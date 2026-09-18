@@ -239,7 +239,10 @@ container mounts or Btrfs subvolumes.
 The **Manage hardlinks** tab scans all configured remote movie and TV roots and
 identifies hardlinks by inode, including links whose primary folder was renamed
 outside CineRoute. It shows source and remote paths, file maps, link counts,
-linked data, health and relink warnings. **Relink** moves a remote folder to
+linked data, health and relink warnings. Folders whose remote copy contains
+files the primary folder does not have, whose primary folder was renamed, or
+whose links sit at older relative paths are reported as **Needs relink**.
+**Relink** moves a remote folder to
 the current primary folder name and then mirrors the primary tree into it:
 missing links are created and remote files the primary folder does not have —
 old links left behind by renames or replaced subtitles, and unrelated extras —
