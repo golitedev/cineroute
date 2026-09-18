@@ -351,7 +351,17 @@ func (s *Server) relinkHardlink(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusServiceUnavailable, "hardlink manager is unavailable")
 		return
 	}
-	result, view, err := s.hardlinks.Relink(r.Context(), r.PathValue("id"))
+	var body struct {
+		Direction string `json:"direction"`
+	}
+	if r.Body != nil {
+		r.Body = http.MaxBytesReader(w, r.Body, 1<<20)
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil && !errors.Is(err, io.EOF) {
+			writeErr(w, http.StatusBadRequest, "invalid body")
+			return
+		}
+	}
+	result, view, err := s.hardlinks.Relink(r.Context(), r.PathValue("id"), body.Direction)
 	if err != nil {
 		writeErr(w, http.StatusConflict, err.Error())
 		return

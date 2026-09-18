@@ -151,8 +151,9 @@ input[type=number]{width:90px}
 .hardlink-stat.blue .value{color:#8bb8ff}
 .hardlink-controls{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
 .hardlink-search{flex:1;min-width:220px}
-.hardlink-filter-row{display:flex;gap:6px;flex-wrap:wrap;margin-top:12px}
+.hardlink-filter-row{display:flex;gap:6px;flex-wrap:wrap;margin-top:12px;align-items:center}
 .hardlink-filter-row button.active{border-color:var(--accent);color:#fff;background:#121a2e}
+.hardlink-mirror-label{font-size:11px;letter-spacing:.05em;text-transform:uppercase;color:var(--dim);margin-right:4px}
 .hardlink-list{display:grid;gap:12px}
 .hardlink-card{background:var(--panel);border:1px solid var(--border);border-radius:10px;padding:15px 16px;margin:0;position:relative}
 .hardlink-card.needs-relink{border-color:#715a20}
@@ -331,6 +332,11 @@ input[type=number]{width:90px}
       <button data-filter="partial" onclick="setHardlinkFilter('partial')">Partial</button>
       <button data-filter="orphaned" onclick="setHardlinkFilter('orphaned')">Orphaned</button>
     </div>
+    <div class="hardlink-filter-row" id="hardlinkMirrorRow" role="group" aria-label="Relink mirror direction">
+      <span class="hardlink-mirror-label">Relink mirror</span>
+      <button data-mirror="main_to_remote" onclick="setHardlinkMirror('main_to_remote')">Main → remote</button>
+      <button data-mirror="remote_to_main" onclick="setHardlinkMirror('remote_to_main')">Remote → main</button>
+    </div>
   </div>
   <div id="hardlinkList" class="hardlink-list"></div>
   <div id="hardlinkPagination" class="pagination"></div>
@@ -354,6 +360,7 @@ let companionLoadToken=0;
 const companionApprovals=new Map();
 let hardlinkData=null;
 let hardlinkFilter="all";
+let hardlinkMirror="main_to_remote";
 let hardlinkSearchTerm="";
 let hardlinkPage=0;
 let hardlinkLoadToken=0;
@@ -601,6 +608,7 @@ function renderHardlinks(){
   const notice=hardlinkNotice?'<div class="okbox" style="margin-top:8px">'+esc(hardlinkNotice)+"</div>":"";
   $("hardlinkScanNote").innerHTML='<span>Last scanned '+esc(dateTime(hardlinkData.scanned_at))+" · "+(stats.drives||0)+" drive"+((stats.drives||0)===1?"":"s")+" checked</span>"+(warnings?'<div class="hardlink-warning">'+esc(warnings)+"</div>":"")+notice;
   document.querySelectorAll("#hardlinkFilters button").forEach(button=>button.classList.toggle("active",button.dataset.filter===hardlinkFilter));
+  document.querySelectorAll("#hardlinkMirrorRow button").forEach(button=>button.classList.toggle("active",button.dataset.mirror===hardlinkMirror));
   const searchInput=$("hardlinkSearchInput");
   if(document.activeElement!==searchInput)searchInput.value=hardlinkSearchTerm;
   $("hardlinkSearchClear").disabled=!hardlinkSearchTerm.trim();
@@ -630,6 +638,7 @@ function hardlinkCard(item){
   return '<article class="hardlink-card '+esc(item.status||"")+'"><div class="hardlink-card-head"><div class="hardlink-heading"><div class="hardlink-title-line"><span class="hardlink-type'+typeClass+'">'+type+'</span><h3>'+esc(item.remote_folder||item.remote_path)+'</h3></div><div class="hardlink-meta">'+esc(item.drive_id)+" · "+pathStatus+'</div></div><div class="hardlink-card-actions"><span class="badge '+statusClass+'">'+esc(hardlinkStatusLabel(item))+'</span>'+relink+remove+'</div></div><div class="hardlink-path-grid"><div class="hardlink-path"><div class="hardlink-path-label">Primary source</div><span class="mono">'+esc(source)+'</span></div><div class="hardlink-path"><div class="hardlink-path-label">Remote hardlink folder</div><span class="mono">'+esc(item.remote_path)+'</span></div></div><div class="hardlink-metrics"><span class="metric">'+esc(fileSummary)+'</span><span class="metric">'+esc(fmtBytes(item.linked_bytes||0))+" linked data</span>"+(item.extra_file_count?'<span class="metric">'+esc(item.extra_file_count)+" extra file"+(item.extra_file_count===1?"":"s")+'</span>':"")+'</div><div class="hardlink-reason">'+esc(item.status_reason||"")+'</div>'+(files?'<details class="hardlink-files"><summary>Show file map · '+esc(fileSummary)+'</summary><div class="hardlink-file-list">'+files+'</div></details>':"")+'</article>';
 }
 function setHardlinkFilter(filter){hardlinkFilter=filter;hardlinkPage=0;renderHardlinks()}
+function setHardlinkMirror(direction){hardlinkMirror=direction;renderHardlinks()}
 function setHardlinkSearch(value){hardlinkSearchTerm=value;hardlinkPage=0;renderHardlinks()}
 function clearHardlinkSearch(){hardlinkSearchTerm="";hardlinkPage=0;renderHardlinks();$("hardlinkSearchInput").focus()}
 let hardlinkNotice="";
@@ -651,13 +660,24 @@ async function removeHardlink(id,button){
 }
 async function relinkHardlink(id,button){
   const item=(hardlinkData&&hardlinkData.items||[]).find(entry=>entry.id===id);
-  if(!item||!confirm("Relink this remote folder to the current primary name "+(item.source_folder||"")+"? The remote folder will be made identical to the primary folder: missing files are hardlinked and remote files that are not in the primary folder are removed."))return;
+  if(!item)return;
+  const toRemote=hardlinkMirror!=="remote_to_main";
+  const question=toRemote
+    ?"Relink this remote folder to the current primary name "+(item.source_folder||"")+"? The remote folder will be made identical to the primary folder: missing files are hardlinked and remote files that are not in the primary folder are removed."
+    :"Link this remote folder's extra files into the primary folder "+(item.source_folder||"")+"? They are hardlinked into the primary folder and nothing is deleted.";
+  if(!confirm(question))return;
   button.disabled=true;button.innerHTML='<span class="approval-spinner" aria-hidden="true"></span>Relinking…';
   try{
-    const response=await postJSON("/api/hardlinks/"+encodeURIComponent(id)+"/relink",{});
+    const response=await postJSON("/api/hardlinks/"+encodeURIComponent(id)+"/relink",{direction:hardlinkMirror});
     const result=response.result||{};
-    const removed=result.removed_duplicate_files||0;
-    hardlinkData=response.view||response;hardlinkNotice="Relinked the remote folder to "+(result.destination_path||item.source_folder)+"."+(removed?" Removed "+removed+" file"+(removed===1?"":"s")+" not present in the primary folder":"");renderHardlinks();
+    if(toRemote){
+      const removed=result.removed_duplicate_files||0;
+      hardlinkNotice="Relinked the remote folder to "+(result.destination_path||item.source_folder)+"."+(removed?" Removed "+removed+" file"+(removed===1?"":"s")+" not present in the primary folder":"");
+    }else{
+      const linked=result.linked_files||0;
+      hardlinkNotice="Linked "+linked+" remote file"+(linked===1?"":"s")+" into "+(result.destination_path||item.source_folder||"the primary folder")+".";
+    }
+    hardlinkData=response.view||response;renderHardlinks();
   }catch(e){alert(e.message);button.disabled=false;button.textContent="Relink"}
 }
 

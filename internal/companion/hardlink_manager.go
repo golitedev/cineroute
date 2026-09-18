@@ -191,13 +191,24 @@ func (m *HardlinkManager) scanLocked(ctx context.Context) (HardlinkView, error) 
 	return view, nil
 }
 
-// Relink moves a discovered remote folder to the current primary folder name
-// and then mirrors the primary tree into it. This handles a primary folder
-// rename without asking the user to type filesystem paths, and it also removes
-// remote files the primary folder no longer has: old links left behind by
-// renames or replaced subtitles, and unrelated extras. The primary library
-// itself is never modified.
-func (m *HardlinkManager) Relink(ctx context.Context, id string) (HardlinkResult, HardlinkView, error) {
+// Relink directions. main_to_remote mirrors the primary tree into the remote
+// folder and removes remote files the primary folder does not have.
+// remote_to_main is additive only: it links remote files the primary folder
+// does not have into the primary folder and never deletes anything there.
+const (
+	RelinkMainToRemote = "main_to_remote"
+	RelinkRemoteToMain = "remote_to_main"
+)
+
+// Relink reconciles a discovered remote folder with its primary folder. With
+// the main_to_remote direction it moves the remote folder to the current
+// primary folder name and then mirrors the primary tree into it. This handles
+// a primary folder rename without asking the user to type filesystem paths,
+// and it also removes remote files the primary folder no longer has: old
+// links left behind by renames or replaced subtitles, and unrelated extras.
+// The primary library itself is never modified. With remote_to_main the
+// remote folder's extra files are hardlinked into the primary folder instead.
+func (m *HardlinkManager) Relink(ctx context.Context, id, direction string) (HardlinkResult, HardlinkView, error) {
 	if m == nil || m.lib == nil {
 		return HardlinkResult{}, HardlinkView{}, errors.New("library scanner is unavailable")
 	}
@@ -216,6 +227,23 @@ func (m *HardlinkManager) Relink(ctx context.Context, id string) (HardlinkResult
 	}
 	if !hardlinkPathWithin(item.SourceRoot, item.SourcePath) || !hardlinkPathWithin(item.RemoteRoot, item.RemotePath) {
 		return HardlinkResult{}, view, errors.New("hardlink paths are outside the configured library roots")
+	}
+	if direction == "" {
+		direction = RelinkMainToRemote
+	}
+	if direction != RelinkMainToRemote && direction != RelinkRemoteToMain {
+		return HardlinkResult{}, view, fmt.Errorf("unknown relink direction %q", direction)
+	}
+	if direction == RelinkRemoteToMain {
+		result, err := absorbRemoteHardlinkTree(item.RemotePath, item.SourcePath)
+		if err != nil {
+			return HardlinkResult{}, view, err
+		}
+		refreshed, scanErr := m.scanLocked(ctx)
+		if scanErr != nil {
+			return result, HardlinkView{}, scanErr
+		}
+		return result, refreshed, nil
 	}
 	destination := filepath.Join(item.RemoteRoot, item.SourceFolder)
 	if !hardlinkPathWithin(item.RemoteRoot, destination) {
@@ -418,6 +446,68 @@ func chooseReconcileRemoteFile(matches []*hardlinkRemoteFile, relative string, s
 		return match
 	}
 	return nil
+}
+
+// absorbRemoteHardlinkTree links remote files that the primary tree does not
+// have into the primary tree. It is the additive counterpart of
+// reconcileHardlinkTree and is deliberately one-way safe: nothing in the
+// primary library is ever removed or replaced. Remote files whose inode
+// already exists in the primary folder are left alone even when they sit at a
+// different relative path (a primary-side rename), only one remote file per
+// unique inode is adopted, and a different file occupying a target path fails
+// the operation instead of being overwritten.
+func absorbRemoteHardlinkTree(remoteRoot, primaryRoot string) (HardlinkResult, error) {
+	remoteRoot = filepath.Clean(remoteRoot)
+	primaryRoot = filepath.Clean(primaryRoot)
+	result := HardlinkResult{SourcePath: remoteRoot, DestinationPath: primaryRoot}
+	if err := validateHardlinkRoots(remoteRoot, primaryRoot); err != nil {
+		return result, err
+	}
+	remoteFiles, err := collectHardlinkRemoteFiles(remoteRoot)
+	if err != nil {
+		return result, fmt.Errorf("inspect hardlink source tree: %w", err)
+	}
+	if len(remoteFiles) == 0 {
+		return result, errors.New("hardlink source contains no regular files")
+	}
+	primaryFiles, err := collectHardlinkFiles(primaryRoot)
+	if err != nil {
+		return result, fmt.Errorf("inspect hardlink destination tree: %w", err)
+	}
+	primaryInodes := make(map[hardlinkInode]bool, len(primaryFiles))
+	for i := range primaryFiles {
+		if key, ok := hardlinkFileInode(primaryFiles[i].info); ok {
+			primaryInodes[key] = true
+		}
+	}
+	adopted := map[hardlinkInode]bool{}
+	for i := range remoteFiles {
+		remote := &remoteFiles[i]
+		key, hasInode := hardlinkFileInode(remote.info)
+		if hasInode && (primaryInodes[key] || adopted[key]) {
+			// The content is already in the primary folder, either at its
+			// current path or adopted during this pass. Never duplicate it.
+			result.ExistingFiles++
+			continue
+		}
+		target := filepath.Join(primaryRoot, remote.relative)
+		if _, statErr := os.Lstat(target); statErr == nil {
+			return result, fmt.Errorf("primary folder already contains a different file at %s; rename or remove it first", remote.relative)
+		} else if !errors.Is(statErr, os.ErrNotExist) {
+			return result, fmt.Errorf("inspect hardlink destination %q: %w", target, statErr)
+		}
+		if err := os.MkdirAll(filepath.Dir(target), 0o755); err != nil {
+			return result, fmt.Errorf("create hardlink destination folder %q: %w", filepath.Dir(target), err)
+		}
+		if err := createHardlinkFile(remote.path, target); err != nil {
+			return result, err
+		}
+		if hasInode {
+			adopted[key] = true
+		}
+		result.LinkedFiles++
+	}
+	return result, nil
 }
 
 func collectHardlinkSourceFilesStrict(root string) ([]hardlinkSourceFile, error) {
