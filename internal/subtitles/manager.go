@@ -127,6 +127,7 @@ type Manager struct {
 	batchCancel    context.CancelFunc
 	quota          QuotaView
 	stateErr       error
+	workDirErr     error
 	lastFeatureErr string
 
 	// onStage is called before each pipeline stage so the HTTP layer can expose
@@ -213,6 +214,15 @@ func newManager(cfg Config, lib *library.Scan, st *store, prober Prober, syncer 
 		_ = m.store.saveItems(m.items)
 	}
 	pruned := m.pruneWorkDirs()
+	if err := ensureWorkDir(cfg.WorkDir); err != nil {
+		m.workDirErr = err
+		slog.Error("subtitles: work directory is not writable; movies cannot be processed",
+			"work_dir", cfg.WorkDir,
+			"err", err,
+			"hint", "the container user must own the directory or have write permission: chown it on the host, or point subtitles.work_dir at a writable path such as /data/subtitles-work")
+	} else {
+		slog.Info("subtitles: work directory ready", "work_dir", cfg.WorkDir)
+	}
 	roots := RemoteMovieRoots(m.lib.Drives())
 	slog.Info("subtitles: subsystem ready",
 		"state_path", cfg.StatePath,
@@ -392,6 +402,7 @@ type View struct {
 	Batch              BatchStatus    `json:"batch"`
 	Quota              QuotaView      `json:"quota"`
 	StateError         string         `json:"state_error,omitempty"`
+	WorkDirError       string         `json:"work_dir_error,omitempty"`
 	FeatureError       string         `json:"feature_error,omitempty"`
 	Open               string         `json:"open,omitempty"`
 	OpenItem           *Item          `json:"open_item,omitempty"`
@@ -454,6 +465,9 @@ func (m *Manager) View(openID string) View {
 	}
 	if m.stateErr != nil {
 		view.StateError = m.stateErr.Error()
+	}
+	if m.workDirErr != nil {
+		view.WorkDirError = m.workDirErr.Error()
 	}
 	if openID != "" {
 		if item, ok := m.byID[openID]; ok {
@@ -1272,4 +1286,23 @@ func copyItem(item *Item) *Item {
 		copied.Metrics = &metrics
 	}
 	return &copied
+}
+
+// ensureWorkDir creates the work directory and verifies that it is writable, so
+// a bad /tmp mount is reported once at startup instead of failing every movie.
+func ensureWorkDir(path string) error {
+	if strings.TrimSpace(path) == "" {
+		return errors.New("work directory is not configured")
+	}
+	if err := os.MkdirAll(path, 0o755); err != nil {
+		return err
+	}
+	probe, err := os.CreateTemp(path, ".write-test-*")
+	if err != nil {
+		return err
+	}
+	name := probe.Name()
+	_ = probe.Close()
+	_ = os.Remove(name)
+	return nil
 }

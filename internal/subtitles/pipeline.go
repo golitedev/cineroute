@@ -96,7 +96,7 @@ func (m *Manager) processItem(ctx context.Context, item *Item, opts runOptions) 
 
 	workDir := m.itemWorkDir(item.ID)
 	if err := os.MkdirAll(workDir, 0o755); err != nil {
-		return StatusFailed, fmt.Errorf("create work directory: %w", err)
+		return StatusFailed, fmt.Errorf("create work directory %s: %w (the container user must be able to write subtitles.work_dir; see the Subtitles section of the README)", workDir, err)
 	}
 	item.WorkDir = workDir
 	referencePath := filepath.Join(workDir, "reference.srt")

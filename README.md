@@ -341,7 +341,17 @@ key alone works, but a logged-in account has the higher free-tier quota.
 
 The queue lives in `/data/subtitles.db`; every intermediate file
 (`reference.srt`, `<file_id>.raw.srt`, `<file_id>.aligned.srt`) lives under
-`subtitles.work_dir`, which defaults to `/tmp/cineroute-subtitles`. Mount `/tmp`
+`subtitles.work_dir`, which defaults to `/tmp/cineroute-subtitles`.
+
+If processing a movie fails with `create work directory ...: permission denied`,
+the container user cannot write `subtitles.work_dir`. That happens when `/tmp`
+is bind-mounted from a host directory owned by another user, because the mount
+replaces the image's world-writable `/tmp`. Either make the host directory
+writable by the container user (`chown 1001:10 <host-dir>` to match the compose
+`user:` setting) or point `subtitles.work_dir` at a path that is already
+writable inside the container, for example `/data/subtitles-work`. The Subtitles
+page shows the problem at the top of the page, and the startup log reports
+`subtitles: work directory is not writable`. Mount `/tmp`
 on real storage (see `compose.example.yaml`), use **Clear work files** to reclaim
 space, and `work_retention_days` prunes stale folders at startup.
 

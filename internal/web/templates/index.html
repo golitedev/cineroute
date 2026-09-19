@@ -1321,7 +1321,8 @@ function renderSubtitles(){
   $("subtitleCancelButton").classList.toggle("hidden",!b.running);
   const message=[];
   if(subtitleData.state_error)message.push('<div class="errbox">'+esc(subtitleData.state_error)+"</div>");
-  else if(subtitleData.feature_error)message.push('<div class="small">Feature lookup: '+esc(subtitleData.feature_error)+"</div>");
+  if(subtitleData.work_dir_error)message.push('<div class="errbox">Work directory '+esc(subtitleData.work_dir)+' is not writable: '+esc(subtitleData.work_dir_error)+' - fix its ownership on the host or set subtitles.work_dir to a writable path such as /data/subtitles-work.</div>');
+  if(subtitleData.feature_error)message.push('<div class="small">Feature lookup: '+esc(subtitleData.feature_error)+"</div>");
   $("subtitleMessage").innerHTML=message.join("");
   document.querySelectorAll("#subtitleFilters button").forEach(btn=>btn.classList.toggle("active",btn.dataset.filter===subtitleFilter));
   const searchInput=$("subtitleSearchInput");

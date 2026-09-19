@@ -634,3 +634,37 @@ func TestPipelineTriesFurtherReferenceStreams(t *testing.T) {
 		t.Fatalf("expected both streams to be tried, extracted=%v", h.prober.extracted)
 	}
 }
+
+// TestWorkDirectoryIsValidated covers the most common deployment mistake: the
+// container cannot write subtitles.work_dir (usually a /tmp bind mount owned by
+// another user). It must be reported once, with the path, instead of surfacing
+// only as a per-movie failure.
+func TestWorkDirectoryIsValidated(t *testing.T) {
+	base := t.TempDir()
+	blocker := filepath.Join(base, "blocker")
+	if err := os.WriteFile(blocker, []byte("not a directory"), 0o644); err != nil {
+		t.Fatalf("write blocker: %v", err)
+	}
+	if err := ensureWorkDir(filepath.Join(blocker, "work")); err == nil {
+		t.Fatal("expected ensureWorkDir to fail when the parent is a regular file")
+	}
+
+	statePath := filepath.Join(base, "subtitles.db")
+	st, err := openStore(statePath)
+	if err != nil {
+		t.Fatalf("openStore: %v", err)
+	}
+	t.Cleanup(func() { _ = st.close() })
+
+	cfg := DefaultConfig()
+	cfg.StatePath = statePath
+	cfg.WorkDir = filepath.Join(blocker, "work")
+	m := newManager(cfg, library.NewScan(nil), st, &fakeProber{}, fakeSyncer{}, &fakeOS{})
+	view := m.View("")
+	if view.WorkDirError == "" {
+		t.Fatalf("view did not report the unwritable work directory: %+v", view)
+	}
+	if !strings.Contains(view.WorkDirError, "not a directory") {
+		t.Errorf("work directory error = %q", view.WorkDirError)
+	}
+}
