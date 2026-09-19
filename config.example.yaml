@@ -87,7 +87,9 @@ subtitles:
   min_video_bytes: 20971520
   skip_sample_files: true
   probe_timeout_seconds: 60
-  extract_timeout_seconds: 300
+  # Extracting an embedded subtitle demuxes the whole video file, which can take
+  # several minutes for a large movie on a spinning disk.
+  extract_timeout_seconds: 900
   sync_timeout_seconds: 300
   alass_no_split: false
   alass_split_penalty: 7

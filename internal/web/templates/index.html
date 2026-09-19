@@ -1314,7 +1314,7 @@ function renderSubtitles(){
   const quota=subtitleData.quota||{};
   const quotaText=quota.known?("OpenSubtitles downloads left: "+quota.remaining+(quota.reset_at?(" (resets "+esc(quota.reset_at)+")"):"")):"OpenSubtitles quota: not checked yet";
   const b=subtitleData.batch||{};
-  const progress=b.running?((b.kind==="scan"?"Scanning":"Processing")+" "+b.done+" / "+b.total+(b.current?" — "+esc(b.current):"")):(b.canceled?"Last job canceled after "+b.done+" / "+b.total:(b.error||quotaText));
+  const progress=b.running?((b.kind==="scan"?"Scanning":"Processing")+" "+b.done+" / "+b.total+(b.stage?" · "+esc(b.stage):"")+(b.current?" — "+esc(b.current):"")):(b.canceled?"Last job canceled after "+b.done+" / "+b.total:(b.error||quotaText));
   $("subtitleProgress").textContent=progress;
   $("subtitleRunButton").disabled=!!b.running;
   $("subtitleScanButton").disabled=!!b.running;
@@ -1345,6 +1345,15 @@ function renderSubtitles(){
   const page=filtered.slice(subtitlePage*pageSize,(subtitlePage+1)*pageSize);
   $("subtitleList").innerHTML=page.length?page.map(subtitleRow).join(""):'<div class="small" style="margin-top:12px">No movies in this filter. Scan the remote movie libraries first.</div>';
   $("subtitlePagination").innerHTML=filtered.length?'<button '+(subtitlePage===0?"disabled":"")+' onclick="subtitlePage--;renderSubtitles()">Previous</button><span class="small">Page '+(subtitlePage+1)+" of "+pages+" · "+filtered.length+' movies</span><button '+(subtitlePage>=pages-1?"disabled":"")+' onclick="subtitlePage++;renderSubtitles()">Next</button>':"";
+  // One job at a time: disable the per-movie actions while something is running so
+  // a second click cannot be rejected with "a subtitle job is already running".
+  if(b.running){
+    document.querySelectorAll("#subtitleList button[data-id]").forEach(button=>{
+      if(button.textContent==="Details")return;
+      button.disabled=true;
+      button.title="A subtitle job is running";
+    });
+  }
   renderSubtitleDetail();
 }
 function renderSubtitleDetail(){

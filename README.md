@@ -339,6 +339,13 @@ Searches never consume download quota; downloads do, so CineRoute stops as soon
 as `subtitles.quota_reserve` downloads remain and reports the reset time. An API
 key alone works, but a logged-in account has the higher free-tier quota.
 
+Processing one movie takes seconds when the reference is an external `.srt`,
+but extracting an **embedded** reference means demuxing the whole video file,
+which can take several minutes for a large movie on a spinning disk; the alass
+sync itself is fast. `subtitles.extract_timeout_seconds` (default 900) bounds
+that step, so a batch of 20 large movies can run for a while — go to the page
+to watch the current movie and stage, and cancel if you need to.
+
 The queue lives in `/data/subtitles.db`; every intermediate file
 (`reference.srt`, `<file_id>.raw.srt`, `<file_id>.aligned.srt`) lives under
 `subtitles.work_dir`, which defaults to `/tmp/cineroute-subtitles`.

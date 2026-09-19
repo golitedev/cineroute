@@ -170,7 +170,7 @@ func Default() *Config {
 			MinVideoBytes:         20 << 20,
 			SkipSampleFiles:       true,
 			ProbeTimeoutSeconds:   60,
-			ExtractTimeoutSeconds: 300,
+			ExtractTimeoutSeconds: 900,
 			SyncTimeoutSeconds:    300,
 			AlassSplitPenalty:     7,
 			Accept: SubtitleAccept{
