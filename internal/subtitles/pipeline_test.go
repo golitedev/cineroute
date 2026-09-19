@@ -428,3 +428,75 @@ func TestConcurrentViewDuringRun(t *testing.T) {
 		t.Fatalf("status = %s, want added", status)
 	}
 }
+
+// TestScanReportsExternalSubtitleAvailability covers the queue split the
+// Subtitles page exposes: movies that already have an external text subtitle
+// file versus movies whose reference must be extracted from the video.
+func TestScanReportsExternalSubtitleAvailability(t *testing.T) {
+	h := newTestHarness(t)
+
+	withExternal := h.addRemoteMovie(t, "External (2019)", "External.2019.1080p.mkv")
+	if err := os.WriteFile(filepath.Join(filepath.Dir(withExternal), "External.2019.1080p.en.srt"), []byte(referenceSRT), 0o644); err != nil {
+		t.Fatalf("write external subtitle: %v", err)
+	}
+	embeddedOnly := h.addRemoteMovie(t, "Embedded (2020)", "Embedded.2020.1080p.mkv")
+	h.configureEmbeddedEnglish(embeddedOnly)
+
+	if err := h.manager.Scan(context.Background()); err != nil {
+		t.Fatalf("Scan: %v", err)
+	}
+	view := h.manager.View("")
+	if len(view.Items) != 2 {
+		t.Fatalf("scan produced %d items, want 2", len(view.Items))
+	}
+	byName := map[string]*Item{}
+	for _, item := range view.Items {
+		byName[item.VideoName] = item
+	}
+
+	external := byName["External.2019.1080p.mkv"]
+	if external == nil {
+		t.Fatal("external-subtitle movie was not scanned")
+	}
+	if !external.HasExternalSubtitle || len(external.ExternalSubtitles) != 1 {
+		t.Fatalf("external movie = %+v", external)
+	}
+	if external.ExternalSubtitles[0].Language != "en" || !external.ExternalSubtitles[0].Usable {
+		t.Errorf("external ref = %+v", external.ExternalSubtitles[0])
+	}
+
+	embedded := byName["Embedded.2020.1080p.mkv"]
+	if embedded == nil {
+		t.Fatal("embedded-only movie was not scanned")
+	}
+	if embedded.HasExternalSubtitle || len(embedded.ExternalSubtitles) != 0 {
+		t.Fatalf("embedded-only movie = %+v", embedded)
+	}
+	if len(embedded.EmbeddedSubStreams) == 0 {
+		t.Fatal("embedded subtitle streams were not recorded")
+	}
+
+	// The statistics the page header shows must split the queue the same way.
+	if view.Stats.WithExternalSubtitle != 1 || view.Stats.NoExternalSubtitle != 1 {
+		t.Fatalf("stats = %+v, want one of each", view.Stats)
+	}
+
+	// Skipping removes a movie from the work queue but keeps it listed.
+	if err := h.manager.Skip(embedded.ID); err != nil {
+		t.Fatalf("Skip: %v", err)
+	}
+	after := h.manager.View("")
+	if after.Stats.Skipped != 1 || after.Stats.NoExternalSubtitle != 0 {
+		t.Fatalf("stats after skip = %+v", after.Stats)
+	}
+	if after.Items[0].ID == "" {
+		t.Fatal("skipped items must stay visible")
+	}
+	// A rescan must not resurrect a skipped movie.
+	if err := h.manager.Scan(context.Background()); err != nil {
+		t.Fatalf("rescan: %v", err)
+	}
+	if got := h.manager.itemByID(embedded.ID); got == nil || got.Status != StatusSkipped {
+		t.Fatalf("skipped status after rescan = %+v", got)
+	}
+}

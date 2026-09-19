@@ -228,6 +228,19 @@ func applyScanResult(existing *Item, driveID, root, folderName, videoPath string
 	}
 
 	swedish, sources := hasSwedishSubtitle(targetLanguage, external, media.Streams)
+	externalRefs := make([]ExternalSubtitleRef, 0, len(external))
+	hasExternal := false
+	for _, sub := range external {
+		externalRefs = append(externalRefs, ExternalSubtitleRef{
+			FileName: sub.FileName,
+			Language: sub.Language,
+			Ext:      sub.Ext,
+			Usable:   sub.Usable,
+		})
+		if sub.Usable {
+			hasExternal = true
+		}
+	}
 	languages := make([]string, 0, len(external))
 	for _, sub := range external {
 		if sub.Language != "" {
@@ -256,7 +269,9 @@ func applyScanResult(existing *Item, driveID, root, folderName, videoPath string
 		Year:                 year,
 		Status:               StatusPending,
 		ExistingSubLanguages: languages,
+		ExternalSubtitles:    externalRefs,
 		EmbeddedSubStreams:   media.Streams,
+		HasExternalSubtitle:  hasExternal,
 		HasSwedish:           swedish,
 		SwedishSources:       sources,
 		CreatedAt:            now,

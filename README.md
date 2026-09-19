@@ -300,11 +300,21 @@ movie libraries (`movie_remote_root`). For every remote video file CineRoute:
    and end gaps, no clamped cues, no over-long junk cues). Anything else stays
    in the work directory with its metrics and is reported as **Needs review**.
 
-**Scan remote movies** builds the queue and **Add Swedish subtitles** processes
-the next batch; every row can also be run, retried with more candidates (up to
-20), skipped or reset on its own. Each movie shows its detected languages, the
-chosen reference, the OpenSubtitles candidate, the timing metrics and the full
-attempt history.
+**Scan remote movies** reads `movie_remote_root` on every drive and lists every
+remote movie; movies that already have a Swedish subtitle (an external
+`*.sv.srt` or an embedded Swedish stream) are shown as **Has Swedish** and are
+never queued. Movies that still need one become **Needs subtitles**, and the
+page shows for each whether an external text subtitle is available or whether
+the reference must be extracted from an embedded stream — the **No external
+SRT** / **Has external SRT** filters and the header counters split those two
+groups.
+
+**Add Swedish subtitles** processes the next batch; every row can also be run,
+retried with more candidates (up to 20), skipped or reset on its own. **Skip**
+removes a movie from the work queue and it stays skipped across rescans until
+you press **Reset**. Each movie shows its detected languages, external subtitle
+files, embedded streams, the chosen reference, the OpenSubtitles candidate, the
+timing metrics and the full attempt history.
 
 Set the credentials with `subtitles.opensubtitles.*` or
 `CINEROUTE_OS_API_KEY` / `CINEROUTE_OS_USERNAME` / `CINEROUTE_OS_PASSWORD`.

@@ -47,6 +47,16 @@ type EmbeddedSubtitle struct {
 	Usable bool `json:"usable"`
 }
 
+// ExternalSubtitleRef is one subtitle file sitting next to a video file.
+type ExternalSubtitleRef struct {
+	FileName string `json:"file_name"`
+	Language string `json:"language,omitempty"`
+	Ext      string `json:"ext,omitempty"`
+	// Usable is false for image-based formats (.sub/.idx VobSub) that alass
+	// cannot parse.
+	Usable bool `json:"usable"`
+}
+
 // Reference is the timing reference used for synchronization.
 type Reference struct {
 	Basename string `json:"basename"`
@@ -75,10 +85,15 @@ type Item struct {
 	Step   string `json:"step,omitempty"`
 	Error  string `json:"error,omitempty"`
 
-	ExistingSubLanguages []string           `json:"existing_sub_languages,omitempty"`
-	EmbeddedSubStreams   []EmbeddedSubtitle `json:"embedded_sub_streams,omitempty"`
-	HasSwedish           bool               `json:"has_swedish"`
-	SwedishSources       []string           `json:"swedish_sources,omitempty"`
+	ExistingSubLanguages []string              `json:"existing_sub_languages,omitempty"`
+	ExternalSubtitles    []ExternalSubtitleRef `json:"external_subtitles,omitempty"`
+	EmbeddedSubStreams   []EmbeddedSubtitle    `json:"embedded_sub_streams,omitempty"`
+	// HasExternalSubtitle is true when a usable text subtitle file sits next to
+	// the video, which is the easy case. Movies without one need their reference
+	// extracted from an embedded stream (or report no_reference).
+	HasExternalSubtitle bool     `json:"has_external_subtitle"`
+	HasSwedish          bool     `json:"has_swedish"`
+	SwedishSources      []string `json:"swedish_sources,omitempty"`
 
 	ReferenceKind   string `json:"reference_kind,omitempty"`
 	ReferenceLang   string `json:"reference_lang,omitempty"`
@@ -146,6 +161,13 @@ type Stats struct {
 	Failed      int `json:"failed"`
 	Skipped     int `json:"skipped"`
 	Processing  int `json:"processing"`
+	// NoExternalSubtitle counts movies still needing subtitles that have no
+	// usable subtitle file next to the video, so the reference must come from an
+	// embedded stream.
+	NoExternalSubtitle int `json:"no_external_subtitle"`
+	// WithExternalSubtitle counts movies still needing subtitles that do have an
+	// external text subtitle to use as the reference.
+	WithExternalSubtitle int `json:"with_external_subtitle"`
 }
 
 // Canceled produces a cancel error without importing context everywhere.

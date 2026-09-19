@@ -98,9 +98,15 @@ func TestSubtitleEndpointsListAndScan(t *testing.T) {
 			if view.Stats.Total != 1 {
 				t.Fatalf("stats after scan = %+v, want one item", view.Stats)
 			}
+			if view.Stats.NoExternalSubtitle != 1 || view.Stats.WithExternalSubtitle != 0 {
+				t.Fatalf("external-SRT stats = %+v, want one movie without an external SRT", view.Stats)
+			}
 			item := view.Items[0]
 			if item.Title != "Movie" || item.Year != 2019 {
 				t.Fatalf("item = %+v", item)
+			}
+			if item.HasExternalSubtitle || item.HasSwedish {
+				t.Fatalf("item flags = %+v", item)
 			}
 			if item.DriveID != "hdd1" {
 				t.Errorf("drive = %q", item.DriveID)

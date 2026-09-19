@@ -396,6 +396,13 @@ func (m *Manager) View(openID string) View {
 	for _, item := range m.items {
 		view.Items = append(view.Items, copyItem(item))
 		view.Stats.Total++
+		if stillNeedsWork(item) {
+			if item.HasExternalSubtitle {
+				view.Stats.WithExternalSubtitle++
+			} else {
+				view.Stats.NoExternalSubtitle++
+			}
+		}
 		switch item.Status {
 		case StatusPending:
 			view.Stats.Pending++
@@ -1091,6 +1098,20 @@ func (m *Manager) UpdateSettings(patch SettingsView) error {
 	return nil
 }
 
+// stillNeedsWork reports whether an item is still waiting for a Swedish
+// subtitle, which is what the external-reference statistics count.
+func stillNeedsWork(item *Item) bool {
+	if item.HasSwedish {
+		return false
+	}
+	switch item.Status {
+	case StatusSkipped, StatusAdded, StatusAddedReview, StatusHasSwedish:
+		return false
+	default:
+		return true
+	}
+}
+
 // copyItem returns a snapshot of an item so JSON encoding never reads fields
 // while the pipeline publishes an update.
 func copyItem(item *Item) *Item {
@@ -1099,6 +1120,7 @@ func copyItem(item *Item) *Item {
 	}
 	copied := *item
 	copied.ExistingSubLanguages = append([]string(nil), item.ExistingSubLanguages...)
+	copied.ExternalSubtitles = append([]ExternalSubtitleRef(nil), item.ExternalSubtitles...)
 	copied.EmbeddedSubStreams = append([]EmbeddedSubtitle(nil), item.EmbeddedSubStreams...)
 	copied.SwedishSources = append([]string(nil), item.SwedishSources...)
 	if item.Metrics != nil {
