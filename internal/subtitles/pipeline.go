@@ -169,11 +169,12 @@ func (m *Manager) processItem(ctx context.Context, item *Item, opts runOptions) 
 		return StatusNoMatch, errors.New("no safe Swedish subtitle candidate was found")
 	}
 	slog.Info("subtitles: candidates audited", "id", item.ID, "safe", len(candidates))
-	slog.Debug("subtitles: top candidate",
+	slog.Info("subtitles: top candidate",
 		"id", item.ID,
 		"file_id", candidates[0].FileID,
 		"release", candidates[0].Release,
-		"score", fmt.Sprintf("%.1f", candidates[0].Score),
+		"identity_score", fmt.Sprintf("%.1f", candidates[0].Score),
+		"release_score", fmt.Sprintf("%.1f", candidates[0].PassScore),
 		"category", candidates[0].Category)
 
 	if opts.refreshQuota {
@@ -625,10 +626,16 @@ func (m *Manager) auditCandidates(item *Item, merged map[int]opensubtitles.Item,
 		release := releaseName(raw)
 		safe, score, safetyReasons, movieTitle, featureYear := CandidateSafety(reference, raw, release, acceptedTitles, m.cfg.TitleOverrides, featureID)
 		category, auditReasons := AuditCandidate(reference, raw, release)
+		passScore, passReasons, _, passOK := ScoreCandidate(reference, raw)
+		if !passOK {
+			passScore = rejectedScore
+		}
 		reasons := append(append([]string{}, auditReasons...), safetyReasons...)
+		reasons = append(reasons, passReasons...)
 		out = append(out, Candidate{
 			FileID:      fileID,
 			Score:       score,
+			PassScore:   passScore,
 			Category:    category,
 			Safe:        safe,
 			Release:     release,
@@ -639,11 +646,25 @@ func (m *Manager) auditCandidates(item *Item, merged map[int]opensubtitles.Item,
 			Raw:         raw.Raw,
 		})
 	}
+	// Ordering decides which downloads are spent first, so it must be explicit
+	// and stable: safe before unsafe, then the identity score, then a strong
+	// audit result over a source fallback, then the first-pass release score
+	// (filename/source/edition similarity), and finally the file id so two runs
+	// always choose the same candidate.
 	sort.SliceStable(out, func(i, j int) bool {
 		if out[i].Safe != out[j].Safe {
 			return out[i].Safe
 		}
-		return out[i].Score > out[j].Score
+		if out[i].Score != out[j].Score {
+			return out[i].Score > out[j].Score
+		}
+		if out[i].Category != out[j].Category {
+			return out[i].Category == CategoryStrong
+		}
+		if out[i].PassScore != out[j].PassScore {
+			return out[i].PassScore > out[j].PassScore
+		}
+		return out[i].FileID < out[j].FileID
 	})
 	for index := range out {
 		out[index].Rank = index + 1

@@ -23,6 +23,7 @@ type Candidate struct {
 	FileID      int
 	Rank        int
 	Score       float64
+	PassScore   float64
 	Category    string
 	Safe        bool
 	Release     string

@@ -712,3 +712,48 @@ func TestLiveStageIsVisibleDuringProcessing(t *testing.T) {
 		t.Fatalf("the live item never showed the reference stage: %v", observed)
 	}
 }
+
+// TestCandidateOrderingIsDeterministic pins the download order: safe candidates
+// first, then identity score, then a strong audit result over a source fallback,
+// then the release score, and finally the file id so repeated runs never spend
+// quota on a different candidate.
+func TestCandidateOrderingIsDeterministic(t *testing.T) {
+	h := newTestHarness(t)
+	item := &Item{
+		ID:        "test-item",
+		VideoName: "Movie.2019.1080p.AMZN.WEB-DL.DDP5.1.H.264-GRP.mkv",
+		Title:     "Movie",
+		Year:      2019,
+	}
+	accepted := map[string]bool{NormalizedTitle("Movie"): true}
+
+	makeItem := func(fileID int, release, fileName string) opensubtitles.Item {
+		item := opensubtitles.Item{}
+		item.Attributes.Release = release
+		item.Attributes.FeatureDetails.MovieName = "Movie"
+		item.Attributes.FeatureDetails.Year = opensubtitles.Intish(2019)
+		item.Attributes.Files = []opensubtitles.File{{FileID: opensubtitles.Intish(fileID), FileName: fileName}}
+		item.Raw = []byte(`{"id":"x","attributes":{}}`)
+		return item
+	}
+	merged := map[int]opensubtitles.Item{
+		10: makeItem(10, "Movie.2019.1080p.AMZN.WEB-DL.DDP5.1.H.264-GRP", "Movie.2019.1080p.AMZN.WEB-DL.sv.srt"),
+		11: makeItem(11, "Movie.2019.1080p.AMZN.WEB-DL.DDP5.1.H.264-GRP", "Movie.2019.1080p.AMZN.WEB-DL.sv.srt"),
+		// A BluRay release of the same movie: safe, but a different source family.
+		12: makeItem(12, "Movie.2019.1080p.BluRay.x264-OTHER", "Movie.2019.1080p.BluRay.sv.srt"),
+	}
+
+	for attempt := 0; attempt < 5; attempt++ {
+		candidates := h.manager.auditCandidates(item, merged, accepted, "")
+		if len(candidates) != 3 {
+			t.Fatalf("candidates = %+v", candidates)
+		}
+		if candidates[0].FileID != 10 || candidates[1].FileID != 11 {
+			t.Fatalf("attempt %d ordered %d,%d,%d; identical WEB-DL candidates must come first in file-id order",
+				attempt, candidates[0].FileID, candidates[1].FileID, candidates[2].FileID)
+		}
+		if candidates[2].FileID != 12 || candidates[2].Category != CategoryFallback {
+			t.Fatalf("the BluRay release should sort last as a fallback: %+v", candidates[2])
+		}
+	}
+}
