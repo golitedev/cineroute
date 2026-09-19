@@ -51,6 +51,9 @@ Done
 * **qBittorrent 5.x** (Web API 2.11+) with the WebUI enabled.
 * Four HDDs with movie/TV roots (see config below). CineRoute and
 qBittorrent must see the **same** paths.
+* Docker image only: `ffmpeg`/`ffprobe` and the vendored `alass` are bundled.
+  For a source build, install `ffmpeg` and `alass` (or point
+  `subtitles.ffmpeg_path` / `subtitles.alass_path` at existing binaries).
 
 ## Configuration
 
@@ -62,6 +65,8 @@ Secrets can also come from environment variables:
 | TMDB API key | `CINEROUTE_TMDB_API_KEY` |
 | qBittorrent URL / user / password | `CINEROUTE_QBIT_URL` / `CINEROUTE_QBIT_USERNAME` / `CINEROUTE_QBIT_PASSWORD` |
 | Prowlarr URL / API key / indexer | `CINEROUTE_PROWLARR_URL` / `CINEROUTE_PROWLARR_API_KEY` / `CINEROUTE_PROWLARR_INDEXER` |
+| OpenSubtitles API key / user / password (Subtitles page) | `CINEROUTE_OS_API_KEY` / `CINEROUTE_OS_USERNAME` / `CINEROUTE_OS_PASSWORD` |
+| Enable or disable the Subtitles page | `CINEROUTE_SUBTITLES_ENABLED` |
 | Web UI username (login form and basic auth, default `cineroute`) | `CINEROUTE_AUTH_USERNAME` |
 | Web UI password (login form with a 90-day session cookie; basic auth is the fallback) | `CINEROUTE_AUTH_PASSWORD` |
 | Listen address | `CINEROUTE_LISTEN` |
@@ -168,7 +173,8 @@ content path, file tree, empty category/tags, size, state).
 ## Not implemented yet
 
 SQLite history, intake recovery after crash, singleton lease, archives,
-auto-submit mode.
+auto-submit mode, Swedish subtitles for the remote **TV** roots, OCR for
+image-based subtitles (PGS/DVD) and audio/voice-activity reference mode.
 
 ## Companion copies
 
@@ -275,3 +281,49 @@ CineRoute preserves original torrent filenames. Jellyfin may not automatically
 group another version when its original filename does not begin with the
 parent `Title (Year)` folder name; the companion scan displays that warning.
 It does not rename seeded files.
+
+## Swedish subtitles
+
+The **Subtitles** page adds Swedish external subtitles to movies in the remote
+movie libraries (`movie_remote_root`). For every remote video file CineRoute:
+
+1. picks a timing reference — an external `en`/`es` subtitle next to the movie,
+   else an embedded English stream, else embedded Spanish, else any other
+   embedded **text** stream (image-based PGS/DVD subtitles cannot be used);
+2. searches OpenSubtitles.com for a Swedish subtitle, resolving the canonical
+   feature and auditing every candidate (title, year, source, edition, forced,
+   machine-translated and multi-part/collection releases);
+3. downloads the best candidates (up to `max_candidates`, default 5) and syncs
+   each one against the reference with **alass**;
+4. installs `<video-basename>.sv.srt` next to the movie only when the alignment
+   passes the timing gate (90 % of cues within 2 s, p90 ≤ 2.5 s, bounded start
+   and end gaps, no clamped cues, no over-long junk cues). Anything else stays
+   in the work directory with its metrics and is reported as **Needs review**.
+
+**Scan remote movies** builds the queue and **Add Swedish subtitles** processes
+the next batch; every row can also be run, retried with more candidates (up to
+20), skipped or reset on its own. Each movie shows its detected languages, the
+chosen reference, the OpenSubtitles candidate, the timing metrics and the full
+attempt history.
+
+Set the credentials with `subtitles.opensubtitles.*` or
+`CINEROUTE_OS_API_KEY` / `CINEROUTE_OS_USERNAME` / `CINEROUTE_OS_PASSWORD`.
+Searches never consume download quota; downloads do, so CineRoute stops as soon
+as `subtitles.quota_reserve` downloads remain and reports the reset time. An API
+key alone works, but a logged-in account has the higher free-tier quota.
+
+The queue lives in `/data/subtitles.db`; every intermediate file
+(`reference.srt`, `<file_id>.raw.srt`, `<file_id>.aligned.srt`) lives under
+`subtitles.work_dir`, which defaults to `/tmp/cineroute-subtitles`. Mount `/tmp`
+on real storage (see `compose.example.yaml`), use **Clear work files** to reclaim
+space, and `work_retention_days` prunes stale folders at startup.
+
+The workflow — reference selection, the multi-query search, candidate auditing,
+the alass invocation, the timing gate and the promo/malformed cue cleanup — is a
+direct port of the batch pipeline that produced the remote library's existing
+Swedish subtitles, so results match that proven run. One caveat: a **main →
+remote** hardlink relink removes remote files the primary folder does not have,
+including generated `*.sv.srt` files. Run **remote → main** first if you want a
+subtitle linked into the main copy as well; the Hardlinks toggle picks the
+direction. alass is vendored under `third_party/alass` (GPL-3.0) and is always
+executed as a separate process.

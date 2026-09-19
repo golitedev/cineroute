@@ -45,6 +45,73 @@ companion:
   search_limit: 50
   search_interval_seconds: 10
 
+# Swedish external subtitles for the remote movie libraries.
+# CineRoute picks a reference subtitle (external en/es first, then an embedded
+# text stream), searches OpenSubtitles.com, syncs the Swedish subtitle with the
+# bundled alass and writes <video-basename>.sv.srt next to the remote movie.
+subtitles:
+  enabled: true
+  # Queue database; mount /data writable.
+  state_path: "/data/subtitles.db"
+  # All intermediate files (reference, downloaded and aligned SRTs). Point this
+  # at a scratch/SSD mount; the container's /tmp works well.
+  work_dir: "/tmp/cineroute-subtitles"
+  work_retention_days: 7
+  target_language: "sv"
+  reference_languages: ["en", "es"]
+  # Bundled in the image; override to use binaries installed elsewhere.
+  ffmpeg_path: "ffmpeg"
+  ffprobe_path: "ffprobe"
+  alass_path: "alass"
+  # Files probed per scan run (0 = no cap). Probed results are cached.
+  scan_batch_size: 200
+  # Movies processed per "Add Swedish subtitles" run.
+  run_batch_size: 20
+  # Delay between OpenSubtitles API calls (searches do not use download quota).
+  request_interval_ms: 400
+  # Stop downloading once this many quota downloads remain.
+  quota_reserve: 5
+  # Downloads attempted per movie. "Retry with more candidates" uses 20.
+  max_candidates: 5
+  # Extra precise query + ranking signal; never a hard filter.
+  use_moviehash: true
+  # Remove uploader/site promo cues and isolated over-10-minute cues.
+  remove_promo_cues: true
+  # Install the release-matched subtitle without alass when the reference is
+  # unusable (marked added_review). Off by default.
+  allow_unaligned_fallback: false
+  # A reference with fewer cues than this is treated as unusable.
+  min_reference_cues: 20
+  min_video_bytes: 20971520
+  skip_sample_files: true
+  probe_timeout_seconds: 60
+  extract_timeout_seconds: 300
+  sync_timeout_seconds: 300
+  alass_no_split: false
+  alass_split_penalty: 7
+  # Never overwrite an existing <video>.sv.srt (reserved for a future release).
+  overwrite_existing: false
+  # Timing gate from the proven manual pipeline; a subtitle that fails it is not
+  # installed, and the attempt is kept for review instead.
+  accept:
+    min_within_2s: 0.90
+    max_p90_nearest_seconds: 2.5
+    max_start_gap_minutes: 10
+    max_end_gap_minutes: 10
+    max_zero_start_cues: 3
+    max_cue_minutes: 10
+    max_overrun_minutes: 15
+  # Optional local-title -> English release-title map for localized filenames,
+  # e.g. "el laberinto del fauno": "Pan's Labyrinth".
+  title_overrides: {}
+  opensubtitles:
+    base_url: "https://api.opensubtitles.com/api/v1"
+    # Alternatively: CINEROUTE_OS_API_KEY, CINEROUTE_OS_USERNAME, CINEROUTE_OS_PASSWORD
+    api_key: ""
+    # Optional but recommended: a logged-in account has a higher daily quota.
+    username: ""
+    password: ""
+
 library:
   folder_format: "{title} ({year})"
 

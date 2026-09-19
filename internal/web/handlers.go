@@ -119,16 +119,17 @@ type storageJSON struct {
 
 func (s *Server) status(w http.ResponseWriter, r *http.Request) {
 	out := struct {
-		TMDB            string      `json:"tmdb"`
-		QBittorrent     string      `json:"qbittorrent"`
-		Prowlarr        string      `json:"prowlarr"`
-		ProwlarrIndexer string      `json:"prowlarr_indexer,omitempty"`
-		QBVersion       string      `json:"qb_version"`
-		QBWebAPI        string      `json:"qb_webapi"`
-		Preallocate     string      `json:"preallocate"`
-		TempPath        string      `json:"temp_path"`
-		Storage         storageJSON `json:"storage"`
-		Auth            bool        `json:"auth"`
+		TMDB            string           `json:"tmdb"`
+		QBittorrent     string           `json:"qbittorrent"`
+		Prowlarr        string           `json:"prowlarr"`
+		ProwlarrIndexer string           `json:"prowlarr_indexer,omitempty"`
+		QBVersion       string           `json:"qb_version"`
+		QBWebAPI        string           `json:"qb_webapi"`
+		Preallocate     string           `json:"preallocate"`
+		TempPath        string           `json:"temp_path"`
+		Storage         storageJSON      `json:"storage"`
+		Auth            bool             `json:"auth"`
+		Subtitles       *subtitlesStatus `json:"subtitles,omitempty"`
 	}{TMDB: "not configured", QBittorrent: "not checked", Prowlarr: "not configured"}
 	if s.tmdb != nil {
 		out.TMDB = "configured"
@@ -176,6 +177,10 @@ func (s *Server) status(w http.ResponseWriter, r *http.Request) {
 	}
 	out.Storage = storage
 	out.Auth = s.cfg.AuthPassword != ""
+	if s.subtitles != nil && s.cfg.Subtitles.Enabled {
+		status := s.subtitlesStatus(r.Context())
+		out.Subtitles = &status
+	}
 	writeJSON(w, http.StatusOK, out)
 }
 

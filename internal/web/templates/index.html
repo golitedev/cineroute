@@ -222,6 +222,7 @@ input[type=number]{width:90px}
   <button id="movieCompanionTab" onclick="showView('companions',true,'movie')">Movie Companions</button>
   <button id="tvCompanionTab" onclick="showView('companions',true,'tv')">TV Companions</button>
   <button id="hardlinksTab" onclick="showView('hardlinks')">Hardlinks</button>
+  <button id="subtitlesTab" onclick="showView('subtitles')">Subtitles</button>
 </div>
 
 <div id="routeView">
@@ -341,6 +342,58 @@ input[type=number]{width:90px}
   <div id="hardlinkList" class="hardlink-list"></div>
   <div id="hardlinkPagination" class="pagination"></div>
 </div>
+
+<div id="subtitlesView" class="hidden">
+  <div class="card">
+    <div class="companion-toolbar">
+      <div>
+        <h2 style="margin-bottom:4px">Subtitles</h2>
+        <div id="subtitleDescription" class="small">Finds a Swedish subtitle for every movie in the remote movie libraries, syncs it with alass and writes it as &lt;video&gt;.sv.srt next to the movie.</div>
+      </div>
+      <div class="actions" style="margin-top:0">
+        <button id="subtitleScanButton" onclick="scanSubtitles()">Scan remote movies</button>
+        <button id="subtitleRunButton" class="primary" onclick="runSubtitles()">Add Swedish subtitles</button>
+        <button id="subtitleCancelButton" class="danger hidden" onclick="cancelSubtitleJob()">Cancel</button>
+        <button id="subtitleClearWorkButton" onclick="clearSubtitleWork()">Clear work files</button>
+      </div>
+    </div>
+    <div id="subtitleProgress" class="small" style="margin-top:10px"></div>
+    <div id="subtitleMessage"></div>
+    <div id="subtitleStats" class="companion-stats"></div>
+  </div>
+  <div class="card">
+    <div class="companion-settings" style="border-top:none;margin-top:0;padding-top:0">
+      <div class="row">
+        <label for="subtitleBatchSize">Batch size</label>
+        <input id="subtitleBatchSize" type="number" min="1" max="1000" style="max-width:90px">
+        <label for="subtitleInterval" style="margin-left:12px">Request delay ms</label>
+        <input id="subtitleInterval" type="number" min="0" max="60000" style="max-width:90px">
+        <label for="subtitleCandidates" style="margin-left:12px">Candidates per movie</label>
+        <input id="subtitleCandidates" type="number" min="1" max="20" style="max-width:90px">
+        <button onclick="saveSubtitleSettings()">Save settings</button>
+        <span id="subtitleSettingsNote" class="small"></span>
+      </div>
+    </div>
+    <div class="hardlink-controls" style="margin-top:12px">
+      <input class="hardlink-search" id="subtitleSearchInput" type="text" placeholder="Search movies, drives and paths" aria-label="Search subtitles" autocomplete="off" oninput="setSubtitleSearch(this.value)">
+      <button id="subtitleSearchClear" type="button" onclick="clearSubtitleSearch()">Clear</button>
+    </div>
+    <div class="hardlink-filter-row" id="subtitleFilters">
+      <button data-filter="all" onclick="setSubtitleFilter('all')">All</button>
+      <button data-filter="pending" onclick="setSubtitleFilter('pending')">Needs subtitles</button>
+      <button data-filter="added" onclick="setSubtitleFilter('added')">Added</button>
+      <button data-filter="needs_review" onclick="setSubtitleFilter('needs_review')">Needs review</button>
+      <button data-filter="no_match" onclick="setSubtitleFilter('no_match')">No match</button>
+      <button data-filter="no_reference" onclick="setSubtitleFilter('no_reference')">No reference</button>
+      <button data-filter="has_swedish" onclick="setSubtitleFilter('has_swedish')">Has Swedish</button>
+      <button data-filter="failed" onclick="setSubtitleFilter('failed')">Failed</button>
+      <button data-filter="skipped" onclick="setSubtitleFilter('skipped')">Skipped</button>
+    </div>
+  </div>
+  <div id="subtitleDetail" class="card hidden"></div>
+  <div id="subtitleList" class="hardlink-list"></div>
+  <div id="subtitlePagination" class="pagination"></div>
+</div>
 </div>
 
 </main>
@@ -418,7 +471,166 @@ async function login(){
     await postJSON("/api/login",{username:user,password:pass});
     showView("route",false);
     $("uploadCard").classList.remove("hidden");
-    loadStatus();loadHistory();refresh();
+    // ---- subtitles ----
+let subtitleData=null;
+let subtitleFilter="pending";
+let subtitleSearchTerm="";
+let subtitlePage=0;
+let subtitlePoll=null;
+let openSubtitle="";
+
+function subtitleStatusLabel(item){
+  const labels={pending:"needs subtitles",has_swedish:"has Swedish",processing:"processing",downloading:"downloading",syncing:"syncing",added:"added",added_review:"added (review)",needs_review:"needs review",no_match:"no match",no_reference:"no reference",failed:"failed",skipped:"skipped"};
+  return labels[item.status]||item.status||"pending";
+}
+function subtitleStatusClass(item){
+  if(item.status==="added"||item.status==="has_swedish")return "ok";
+  if(item.status==="failed"||item.status==="no_reference")return "err";
+  if(item.status==="needs_review"||item.status==="added_review"||item.status==="processing"||item.status==="downloading"||item.status==="syncing")return "warn";
+  return "";
+}
+function subtitleReferenceText(item){
+  if(item.reference_kind==="external")return "external "+(item.reference_lang||"unknown")+" subtitle";
+  if(item.reference_kind==="embedded")return "embedded "+((item.reference_lang||"unknown"))+" stream #"+item.reference_stream;
+  return "not chosen yet";
+}
+function subtitleMetricsText(metrics){
+  if(!metrics)return "";
+  const pct=Math.round((metrics.within_2s||0)*100);
+  return pct+"% within 2s · p90 "+(metrics.p90||0).toFixed(2)+"s · gaps "+(metrics.start_gap_minutes||0).toFixed(1)+"/"+(metrics.end_gap_minutes||0).toFixed(1)+"m · overrun "+(metrics.overrun_minutes||0).toFixed(1)+"m · score "+(metrics.score||0).toFixed(0);
+}
+function subtitleRow(item){
+  const actions=[];
+  if(item.status!=="added"&&item.status!=="has_swedish"&&item.status!=="skipped"){
+    if(item.status==="pending")actions.push('<button class="primary" data-id="'+esc(item.id)+'" onclick="runSubtitleItem(this.dataset.id,this)">Run</button>');
+    else actions.push('<button data-id="'+esc(item.id)+'" onclick="runSubtitleItem(this.dataset.id,this)">Run again</button>');
+  }
+  if(item.status==="needs_review"||item.status==="failed"||item.status==="no_match"||item.status==="added_review"){
+    actions.push('<button data-id="'+esc(item.id)+'" onclick="retrySubtitleItem(this.dataset.id,this)">Retry with more candidates</button>');
+  }
+  if(item.status!=="skipped"&&item.status!=="added"&&item.status!=="has_swedish"){
+    actions.push('<button data-id="'+esc(item.id)+'" onclick="skipSubtitleItem(this.dataset.id,this)">Skip</button>');
+  }
+  actions.push('<button data-id="'+esc(item.id)+'" onclick="openSubtitleItem(this.dataset.id)">Details</button>');
+  const langs=(item.existing_sub_languages||[]);
+  const voice=item.swedish_sources&&item.swedish_sources.length?" · Swedish: "+esc(item.swedish_sources.join(", ")):"";
+  const error=item.error?'<div class="hardlink-reason">'+esc(item.error)+"</div>":"";
+  const output=item.output_path?'<div class="small mono">'+esc(item.output_path)+"</div>":"";
+  const metrics=item.metrics?'<div class="small">'+esc(subtitleMetricsText(item.metrics))+"</div>":"";
+  return '<article class="hardlink-card"><div class="hardlink-card-head"><div class="hardlink-heading"><div class="hardlink-title-line"><span class="hardlink-type">'+esc(item.folder_name)+'</span></div><div class="hardlink-meta">'+esc(item.drive_id)+" · "+esc(item.title||"")+(item.year?" ("+item.year+")":"")+" · "+esc(subtitleReferenceText(item))+"</div><div class="small mono">"+esc(item.video_path)+"</div><div class="small">Languages: "+esc(langs.length?langs.join(", "):"none detected")+voice+"</div>"+output+metrics+'</div><div class="hardlink-card-actions"><span class="badge '+subtitleStatusClass(item)+'">'+esc(subtitleStatusLabel(item))+'</span>'+actions.join("")+'</div></div>'+error+'</article>';
+}
+async function loadSubtitles(openId){
+  if(openId!==undefined)openSubtitle=openId||"";
+  try{
+    const query=openSubtitle?("?open="+encodeURIComponent(openSubtitle)):"";
+    subtitleData=await api("/api/subtitles"+query);
+    renderSubtitles();
+    clearTimeout(subtitlePoll);
+    if(subtitleData.batch&&subtitleData.batch.running)subtitlePoll=setTimeout(()=>loadSubtitles(),2500);
+  }catch(e){$("subtitleMessage").innerHTML='<div class="errbox">'+esc(e.message)+"</div>"}
+}
+function renderSubtitles(){
+  if(!subtitleData)return;
+  const settings=subtitleData.settings||{};
+  if(document.activeElement!==$("subtitleBatchSize"))$("subtitleBatchSize").value=settings.run_batch_size||20;
+  if(document.activeElement!==$("subtitleInterval"))$("subtitleInterval").value=settings.request_interval_ms||400;
+  if(document.activeElement!==$("subtitleCandidates"))$("subtitleCandidates").value=settings.max_candidates||5;
+  $("subtitleSettingsNote").textContent="alass split penalty "+settings.alass_split_penalty+" · quota reserve "+settings.quota_reserve;
+  const stats=subtitleData.stats||{};
+  $("subtitleStats").innerHTML=[
+    [stats.total,"Remote movies"],[stats.pending,"Needs subtitles"],[stats.added,"Added"],[stats.needs_review,"Needs review"],[stats.no_match,"No match"],[stats.no_reference,"No reference"],[stats.has_swedish,"Has Swedish"],[stats.failed,"Failed"],[stats.skipped,"Skipped"]
+  ].map(x=>'<div class="companion-stat"><strong>'+x[0]+"</strong><span>"+x[1]+"</span></div>").join("");
+  const quota=subtitleData.quota||{};
+  const quotaText=quota.known?("OpenSubtitles downloads left: "+quota.remaining+(quota.reset_at?(" (resets "+esc(quota.reset_at)+")"):"")):"OpenSubtitles quota: not checked yet";
+  const b=subtitleData.batch||{};
+  const progress=b.running?((b.kind==="scan"?"Scanning":"Processing")+" "+b.done+" / "+b.total+(b.current?" — "+esc(b.current):"")):(b.canceled?"Last job canceled after "+b.done+" / "+b.total:(b.error||quotaText));
+  $("subtitleProgress").textContent=progress;
+  $("subtitleRunButton").disabled=!!b.running;
+  $("subtitleScanButton").disabled=!!b.running;
+  $("subtitleCancelButton").classList.toggle("hidden",!b.running);
+  const message=[];
+  if(subtitleData.state_error)message.push('<div class="errbox">'+esc(subtitleData.state_error)+"</div>");
+  else if(subtitleData.feature_error)message.push('<div class="small">Feature lookup: '+esc(subtitleData.feature_error)+"</div>");
+  $("subtitleMessage").innerHTML=message.join("");
+  document.querySelectorAll("#subtitleFilters button").forEach(btn=>btn.classList.toggle("active",btn.dataset.filter===subtitleFilter));
+  const searchInput=$("subtitleSearchInput");
+  if(document.activeElement!==searchInput)searchInput.value=subtitleSearchTerm;
+  const term=subtitleSearchTerm.trim().toLowerCase();
+  $("subtitleSearchClear").disabled=!term;
+  const items=subtitleData.items||[];
+  const matchStatus=item=>subtitleFilter==="all"?true:(subtitleFilter==="added"?(item.status==="added"||item.status==="added_review"):item.status===subtitleFilter);
+  const filtered=items.filter(item=>matchStatus(item)&&(!term||(item.video_path+" "+item.folder_name+" "+item.title+" "+item.drive_id).toLowerCase().includes(term)));
+  const pageSize=20,pages=Math.max(1,Math.ceil(filtered.length/pageSize));
+  subtitlePage=Math.min(subtitlePage,pages-1);
+  const page=filtered.slice(subtitlePage*pageSize,(subtitlePage+1)*pageSize);
+  $("subtitleList").innerHTML=page.length?page.map(subtitleRow).join(""):'<div class="small" style="margin-top:12px">No movies in this filter. Scan the remote movie libraries first.</div>';
+  $("subtitlePagination").innerHTML=filtered.length?'<button '+(subtitlePage===0?"disabled":"")+' onclick="subtitlePage--;renderSubtitles()">Previous</button><span class="small">Page '+(subtitlePage+1)+" of "+pages+" · "+filtered.length+' movies</span><button '+(subtitlePage>=pages-1?"disabled":"")+' onclick="subtitlePage++;renderSubtitles()">Next</button>':"";
+  renderSubtitleDetail();
+}
+function renderSubtitleDetail(){
+  const box=$("subtitleDetail");
+  const item=subtitleData&&subtitleData.open_item;
+  if(!item){box.classList.add("hidden");box.innerHTML="";return}
+  box.classList.remove("hidden");
+  const attempts=(subtitleData.attempts||[]).slice().reverse().map(a=>'<div class="small">'+esc(a.at||"")+" · "+esc(a.status)+" · file "+a.file_id+(a.release?" · "+esc(a.release):"")+(a.metrics?" · "+esc(subtitleMetricsText(a.metrics)):"")+(a.detail?"<div class="mono">"+esc(a.detail)+"</div>":"")+"</div>").join("");
+  const candidates=(subtitleData.candidates||[]).slice(0,10).map(c=>'<div class="small">#'+c.rank+" · score "+c.score.toFixed(0)+" · "+esc(c.category||"")+(c.safe?" · safe":" · unsafe")+" · "+esc(c.release||"")+(c.reasons&&c.reasons.length?"<div class="mono">"+esc(c.reasons.join("; "))+"</div>":"")+"</div>").join("");
+  box.innerHTML='<div class="companion-toolbar"><div><h2 style="margin-bottom:4px">'+esc(item.folder_name)+"</h2><div class="small mono">"+esc(item.video_path)+'</div></div><div class="actions" style="margin-top:0"><button onclick="closeSubtitleItem()">Close</button></div></div>'+
+    '<div class="small">Status: '+esc(subtitleStatusLabel(item))+" · reference: "+esc(subtitleReferenceText(item))+'</div>'+
+    (item.output_path?'<div class="small mono">Output: '+esc(item.output_path)+"</div>":"")+
+    (item.metrics?'<div class="small">'+esc(subtitleMetricsText(item.metrics))+"</div>":"")+
+    (item.work_dir?'<div class="small mono">Work: '+esc(item.work_dir)+"</div>":"")+
+    (item.error?'<div class="errbox">'+esc(item.error)+"</div>":"")+
+    '<h3 style="margin-top:14px">Attempts</h3>'+(attempts||'<div class="small">No attempts yet.</div>')+
+    '<h3 style="margin-top:14px">Candidates</h3>'+(candidates||'<div class="small">No cached candidates yet.</div>');
+}
+function openSubtitleItem(id){subtitlePage=Math.min(subtitlePage,subtitlePage);loadSubtitles(id)}
+function closeSubtitleItem(){openSubtitle="";loadSubtitles("")}
+function setSubtitleFilter(filter){subtitleFilter=filter;subtitlePage=0;renderSubtitles()}
+function setSubtitleSearch(value){subtitleSearchTerm=value;subtitlePage=0;renderSubtitles()}
+function clearSubtitleSearch(){subtitleSearchTerm="";subtitlePage=0;renderSubtitles();$("subtitleSearchInput").focus()}
+async function scanSubtitles(){
+  const button=$("subtitleScanButton");
+  button.disabled=true;button.innerHTML='<span class="approval-spinner" aria-hidden="true"></span>Scanning…';
+  try{subtitleData=await postJSON("/api/subtitles/scan",{});renderSubtitles();loadSubtitles()}
+  catch(e){alert(e.message)}
+  finally{if(button.isConnected){button.disabled=false;button.textContent="Scan remote movies"}}
+}
+async function runSubtitles(){
+  try{await postJSON("/api/subtitles/run",{});loadSubtitles()}
+  catch(e){alert(e.message)}
+}
+async function cancelSubtitleJob(){
+  try{await postJSON("/api/subtitles/run/cancel",{});loadSubtitles()}
+  catch(e){alert(e.message)}
+}
+async function clearSubtitleWork(){
+  if(!confirm("Delete the downloaded and aligned work files under the work directory? Movies and installed subtitles are not touched."))return;
+  try{const response=await postJSON("/api/subtitles/work/clear",{});subtitleData=response.view||subtitleData;renderSubtitles();alert("Removed "+response.removed+" work folder(s).")}
+  catch(e){alert(e.message)}
+}
+async function saveSubtitleSettings(){
+  const body={run_batch_size:Number($("subtitleBatchSize").value),request_interval_ms:Number($("subtitleInterval").value),max_candidates:Number($("subtitleCandidates").value)};
+  try{subtitleData=await patchJSON("/api/subtitles/settings",body);renderSubtitles()}
+  catch(e){alert(e.message)}
+}
+async function runSubtitleItem(id,button){
+  button.disabled=true;button.innerHTML='<span class="approval-spinner" aria-hidden="true"></span>Running…';
+  try{await postJSON("/api/subtitles/"+encodeURIComponent(id)+"/run",{});loadSubtitles(id)}
+  catch(e){alert(e.message)}
+  finally{if(button.isConnected){button.disabled=false;button.textContent="Run"}}
+}
+async function retrySubtitleItem(id,button){
+  button.disabled=true;button.innerHTML='<span class="approval-spinner" aria-hidden="true"></span>Retrying…';
+  try{await postJSON("/api/subtitles/"+encodeURIComponent(id)+"/retry",{});loadSubtitles(id)}
+  catch(e){alert(e.message)}
+  finally{if(button.isConnected){button.disabled=false;button.textContent="Retry with more candidates"}}
+}
+async function skipSubtitleItem(id,button){
+  button.disabled=true;
+  try{const response=await postJSON("/api/subtitles/"+encodeURIComponent(id)+"/skip",{});subtitleData=response;renderSubtitles()}
+  catch(e){alert(e.message);button.disabled=false}
+}
+loadStatus();loadHistory();refresh();
   }catch(e){
     $("loginErr").textContent=e.message;
     $("loginErr").classList.remove("hidden");
@@ -477,8 +689,11 @@ function showView(view,load=true,type){
   $("movieCompanionTab").classList.toggle("primary",view==="companions"&&companionType==="movie");
   $("tvCompanionTab").classList.toggle("primary",view==="companions"&&companionType==="tv");
   $("hardlinksTab").classList.toggle("primary",view==="hardlinks");
+  $("subtitlesView").classList.toggle("hidden",view!=="subtitles");
+  $("subtitlesTab").classList.toggle("primary",view==="subtitles");
   if(view==="companions"&&load)loadCompanions();
   if(view==="hardlinks"&&load)loadHardlinks();
+  if(view==="subtitles"&&load)loadSubtitles();
 }
 
 // ---- status ----

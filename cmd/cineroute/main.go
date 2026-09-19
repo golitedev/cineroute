@@ -7,7 +7,9 @@ import (
 	"log/slog"
 	"net/http"
 	"os"
+	"os/exec"
 	"os/signal"
+	"strings"
 	"syscall"
 	"time"
 
@@ -42,6 +44,19 @@ func main() {
 	}
 	if cfg.Companion.Enabled && cfg.Prowlarr.APIKey == "" {
 		slog.Warn("1080p companion search is enabled but Prowlarr is not configured")
+	}
+	if cfg.Subtitles.Enabled {
+		if cfg.Subtitles.OpenSubtitles.APIKey == "" {
+			slog.Warn("subtitles are enabled but OpenSubtitles is not configured; set subtitles.opensubtitles.api_key or CINEROUTE_OS_API_KEY")
+		}
+		for _, tool := range []string{cfg.Subtitles.FFmpegPath, cfg.Subtitles.FFprobePath, cfg.Subtitles.AlassPath} {
+			if strings.TrimSpace(tool) == "" {
+				continue
+			}
+			if _, err := exec.LookPath(tool); err != nil {
+				slog.Warn("subtitle tool not found", "tool", tool, "err", err)
+			}
+		}
 	}
 
 	qb, err := qbittorrent.New(cfg.QBittorrent.URL, cfg.QBittorrent.Username, cfg.QBittorrent.Password, 20*time.Second)

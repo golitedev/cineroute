@@ -4,3 +4,7 @@
 compose.example.yaml
 config.example.yaml
 **/*_test.go
+.tmp-cargo-home
+.tmp-alass-target
+.tmp-go-cache
+third_party/alass/target

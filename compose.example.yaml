@@ -20,12 +20,19 @@ services:
       CINEROUTE_PROWLARR_URL: ${CINEROUTE_PROWLARR_URL:-http://prowlarr:9696}
       CINEROUTE_PROWLARR_API_KEY: ${CINEROUTE_PROWLARR_API_KEY:-}
       CINEROUTE_PROWLARR_INDEXER: ${CINEROUTE_PROWLARR_INDEXER:-LAT-Team}
+      # OpenSubtitles.com credentials for the Subtitles page:
+      CINEROUTE_OS_API_KEY: ${CINEROUTE_OS_API_KEY:-}
+      CINEROUTE_OS_USERNAME: ${CINEROUTE_OS_USERNAME:-}
+      CINEROUTE_OS_PASSWORD: ${CINEROUTE_OS_PASSWORD:-}
       CINEROUTE_AUTH_PASSWORD: ${CINEROUTE_AUTH_PASSWORD:-}
     volumes:
       # Config lives on the SSD:
       - /volume2/docker/cineroute/config.yaml:/config/config.yaml:ro
-      # Companion state (must be writable by UID 1001 / GID 10):
+      # Companion and subtitle state (must be writable by UID 1001 / GID 10):
       - /volume2/docker/cineroute/data:/data
+      # Subtitle work files (reference, downloaded, aligned). Disposable; keep
+      # it on a fast path so /tmp does not fill the container's writable layer.
+      - /volume2/docker/cineroute/tmp:/tmp
       # Mount each disk once; qBittorrent must use the same /hddN paths.
       - /volume1/hdd1:/hdd1
       - /volume3/hdd2:/hdd2

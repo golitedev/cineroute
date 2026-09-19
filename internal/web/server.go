@@ -25,6 +25,7 @@ import (
 	"cineroute/internal/library"
 	"cineroute/internal/prowlarr"
 	"cineroute/internal/qbittorrent"
+	"cineroute/internal/subtitles"
 	"cineroute/internal/tmdb"
 	"cineroute/internal/torrentmeta"
 )
@@ -129,6 +130,7 @@ type Server struct {
 	companions   *companion.Manager
 	tvCompanions *companion.Manager
 	hardlinks    *companion.HardlinkManager
+	subtitles    *subtitles.Manager
 	allocMu      sync.Mutex
 	page         *template.Template
 
@@ -163,6 +165,7 @@ func New(cfg *config.Config, qb *qbittorrent.Client, tmdbClient *tmdb.Client, pr
 		companions:   companion.NewManager(cfg, scan, prowlarrClient),
 		tvCompanions: companion.NewTVManager(cfg, scan, prowlarrClient),
 		hardlinks:    companion.NewHardlinkManager(scan),
+		subtitles:    subtitles.NewManager(subtitleRuntimeConfig(cfg), scan),
 		intakes:      map[string]*Intake{},
 	}
 	s.page = template.Must(template.New("index.html").ParseFS(assetsFS, "templates/index.html"))
@@ -219,6 +222,17 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("POST /api/hardlinks/scan", s.scanHardlinks)
 	mux.HandleFunc("DELETE /api/hardlinks/{id}", s.removeHardlink)
 	mux.HandleFunc("POST /api/hardlinks/{id}/relink", s.relinkHardlink)
+	mux.HandleFunc("GET /api/subtitles", s.listSubtitles)
+	mux.HandleFunc("PATCH /api/subtitles/settings", s.updateSubtitleSettings)
+	mux.HandleFunc("POST /api/subtitles/scan", s.scanSubtitles)
+	mux.HandleFunc("POST /api/subtitles/scan/cancel", s.cancelSubtitleJob)
+	mux.HandleFunc("POST /api/subtitles/run", s.runSubtitles)
+	mux.HandleFunc("POST /api/subtitles/run/cancel", s.cancelSubtitleJob)
+	mux.HandleFunc("POST /api/subtitles/work/clear", s.clearSubtitleWork)
+	mux.HandleFunc("POST /api/subtitles/{id}/run", s.runSubtitleItem)
+	mux.HandleFunc("POST /api/subtitles/{id}/retry", s.retrySubtitleItem)
+	mux.HandleFunc("POST /api/subtitles/{id}/skip", s.skipSubtitleItem)
+	mux.HandleFunc("POST /api/subtitles/{id}/reset", s.resetSubtitleItem)
 	return s.auth(mux)
 }
 

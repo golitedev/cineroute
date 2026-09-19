@@ -4,3 +4,7 @@
 *.test
 /dist/
 screenshots/
+third_party/alass/target/
+/.tmp-cargo-home/
+/.tmp-alass-target/
+/.tmp-go-cache/

@@ -304,6 +304,66 @@ func (s *Scan) findRemote(canonical string, rootOf func(Drive) (string, bool)) [
 	})
 }
 
+// RemoteMovieRoot returns the configured remote movie root for a drive, falling
+// back to the conventional /mN -> /mrN alias when only that one is mounted. It
+// is exported so the subtitle scanner resolves remote roots exactly like the
+// companion and hardlink workflows do.
+func RemoteMovieRoot(d Drive) (string, bool) {
+	if d.MovieRemoteRoot != "" {
+		return d.MovieRemoteRoot, true
+	}
+	return conventionalRemoteRoot(d.MovieRoot, "m", "mr")
+}
+
+// RemoteTVRoot is the TV equivalent of RemoteMovieRoot.
+func RemoteTVRoot(d Drive) (string, bool) {
+	if d.TVRemoteRoot != "" {
+		return d.TVRemoteRoot, true
+	}
+	return conventionalRemoteRoot(d.TVRoot, "t", "tr")
+}
+
+// VideoExtensions are the container extensions CineRoute treats as video files
+// when scanning a library folder.
+var VideoExtensions = map[string]bool{
+	".mkv":  true,
+	".mp4":  true,
+	".m4v":  true,
+	".avi":  true,
+	".webm": true,
+}
+
+// WalkVideoFiles returns the relative paths of every video file below root. It
+// reads metadata only and never follows nested directory symlinks.
+func WalkVideoFiles(root string) ([]string, error) {
+	var videos []string
+	var walk func(string, string) error
+	walk = func(path, relative string) error {
+		entries, err := os.ReadDir(path)
+		if err != nil {
+			return err
+		}
+		for _, entry := range entries {
+			relativePath := filepath.Join(relative, entry.Name())
+			if entry.IsDir() {
+				if err := walk(filepath.Join(path, entry.Name()), relativePath); err != nil {
+					return err
+				}
+				continue
+			}
+			if VideoExtensions[strings.ToLower(filepath.Ext(entry.Name()))] {
+				videos = append(videos, relativePath)
+			}
+		}
+		return nil
+	}
+	if err := walk(root, ""); err != nil {
+		return nil, err
+	}
+	sort.Strings(videos)
+	return videos, nil
+}
+
 var canonicalMovieRe = regexp.MustCompile(`^(.*?)\s*\((\d{4})\)$`)
 
 // ParseMovieFolder parses the final four-digit year suffix of a canonical
