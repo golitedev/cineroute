@@ -67,6 +67,7 @@ Secrets can also come from environment variables:
 | Prowlarr URL / API key / indexer | `CINEROUTE_PROWLARR_URL` / `CINEROUTE_PROWLARR_API_KEY` / `CINEROUTE_PROWLARR_INDEXER` |
 | OpenSubtitles API key / user / password (Subtitles page) | `CINEROUTE_OS_API_KEY` / `CINEROUTE_OS_USERNAME` / `CINEROUTE_OS_PASSWORD` |
 | Enable or disable the Subtitles page | `CINEROUTE_SUBTITLES_ENABLED` |
+| Log level (`debug`, `info`, `warn`, `error`; default `info`) | `CINEROUTE_LOG_LEVEL` |
 | Web UI username (login form and basic auth, default `cineroute`) | `CINEROUTE_AUTH_USERNAME` |
 | Web UI password (login form with a 90-day session cookie; basic auth is the fallback) | `CINEROUTE_AUTH_PASSWORD` |
 | Listen address | `CINEROUTE_LISTEN` |
@@ -315,6 +316,13 @@ removes a movie from the work queue and it stays skipped across rescans until
 you press **Reset**. Each movie shows its detected languages, external subtitle
 files, embedded streams, the chosen reference, the OpenSubtitles candidate, the
 timing metrics and the full attempt history.
+
+Every step is logged: the resolved subtitle configuration at startup, each
+scan (roots, folders, videos, queued movies, probe failures), each movie's
+chosen reference, OpenSubtitles searches and quota, downloads, the alass run,
+the timing metrics and the accept/reject decision, and every HTTP request the
+browser makes. Set `CINEROUTE_LOG_LEVEL=debug` (or pass `-log-level debug`) to
+add per-request OpenSubtitles and per-file probe details.
 
 Set the credentials with `subtitles.opensubtitles.*` or
 `CINEROUTE_OS_API_KEY` / `CINEROUTE_OS_USERNAME` / `CINEROUTE_OS_PASSWORD`.

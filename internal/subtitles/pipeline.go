@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"sort"
@@ -57,6 +58,7 @@ func (m *Manager) processItem(ctx context.Context, item *Item, opts runOptions) 
 	if swedish, sources := hasSwedishSubtitle(target, external, item.EmbeddedSubStreams); swedish {
 		item.HasSwedish = true
 		item.SwedishSources = sources
+		slog.Info("subtitles: movie already has Swedish subtitles", "id", item.ID, "video", item.VideoPath, "sources", strings.Join(sources, ", "))
 		if opts.previousStatus == StatusAdded || opts.previousStatus == StatusAddedReview {
 			return opts.previousStatus, nil
 		}
@@ -66,6 +68,7 @@ func (m *Manager) processItem(ctx context.Context, item *Item, opts runOptions) 
 	// An existing final subtitle means the work is already done.
 	finalPath := m.outputPath(item)
 	if IsValidSRTFile(finalPath) {
+		slog.Info("subtitles: subtitle already installed", "id", item.ID, "path", finalPath)
 		item.OutputPath = finalPath
 		if info, err := os.Stat(finalPath); err == nil {
 			item.OutputBytes = info.Size()
@@ -75,8 +78,18 @@ func (m *Manager) processItem(ctx context.Context, item *Item, opts runOptions) 
 
 	choice := ChooseReference(item, external, m.cfg.ReferenceLanguages)
 	if choice == nil {
+		slog.Warn("subtitles: no usable reference subtitle",
+			"id", item.ID, "video", item.VideoPath,
+			"external_subtitles", len(item.ExternalSubtitles),
+			"embedded_streams", len(item.EmbeddedSubStreams))
 		return StatusNoReference, errors.New("no text subtitle or embedded text stream can be used as a reference; only image-based subtitles were found")
 	}
+	slog.Info("subtitles: reference chosen",
+		"id", item.ID,
+		"kind", choice.Kind,
+		"language", choice.Lang,
+		"stream", choice.Stream,
+		"path", choice.Path)
 	item.ReferenceKind = choice.Kind
 	item.ReferenceLang = choice.Lang
 	item.ReferenceStream = choice.Stream
@@ -98,8 +111,10 @@ func (m *Manager) processItem(ctx context.Context, item *Item, opts runOptions) 
 		return StatusNoReference, fmt.Errorf("reference subtitle is not usable: %w", err)
 	}
 	if len(referenceCues) < m.cfg.MinReferenceCues {
+		slog.Warn("subtitles: reference too small", "id", item.ID, "cues", len(referenceCues), "minimum", m.cfg.MinReferenceCues)
 		return StatusNoReference, fmt.Errorf("reference subtitle has only %d cue(s); too small to align against", len(referenceCues))
 	}
+	slog.Info("subtitles: reference ready", "id", item.ID, "cues", len(referenceCues), "path", referencePath)
 
 	m.setStage(item, "search", StatusProcessing)
 	candidates, err := m.collectCandidates(ctx, item, referenceCues, opts)
@@ -107,8 +122,16 @@ func (m *Manager) processItem(ctx context.Context, item *Item, opts runOptions) 
 		return StatusFailed, err
 	}
 	if len(candidates) == 0 {
+		slog.Warn("subtitles: no safe candidate found", "id", item.ID, "video", item.VideoPath)
 		return StatusNoMatch, errors.New("no safe Swedish subtitle candidate was found")
 	}
+	slog.Info("subtitles: candidates audited", "id", item.ID, "safe", len(candidates))
+	slog.Debug("subtitles: top candidate",
+		"id", item.ID,
+		"file_id", candidates[0].FileID,
+		"release", candidates[0].Release,
+		"score", fmt.Sprintf("%.1f", candidates[0].Score),
+		"category", candidates[0].Category)
 
 	if opts.refreshQuota {
 		m.refreshQuota(ctx)
@@ -137,16 +160,25 @@ func (m *Manager) processItem(ctx context.Context, item *Item, opts runOptions) 
 		}
 		attempted++
 		item.Attempts++
+		slog.Info("subtitles: trying candidate",
+			"id", item.ID,
+			"attempt", attempted,
+			"file_id", candidate.FileID,
+			"release", candidate.Release,
+			"score", fmt.Sprintf("%.1f", candidate.Score),
+			"category", candidate.Category)
 
 		rawPath := filepath.Join(workDir, strconv.Itoa(candidate.FileID)+".raw.srt")
 		if !IsValidSRTFile(rawPath) {
 			if err := m.downloadCandidate(ctx, candidate, rawPath); err != nil {
+				slog.Warn("subtitles: download failed", "id", item.ID, "file_id", candidate.FileID, "err", err)
 				m.recordAttempt(item, candidate, "download_error", nil, err.Error())
 				if opensubtitles.IsHardStop(err) {
 					return StatusPending, err
 				}
 				continue
 			}
+			slog.Info("subtitles: downloaded candidate subtitle", "id", item.ID, "file_id", candidate.FileID, "path", rawPath)
 		}
 		if bestFallback == nil {
 			fallback := candidate
@@ -194,7 +226,29 @@ func (m *Manager) processItem(ctx context.Context, item *Item, opts runOptions) 
 		}
 		metrics.CoarseIssues = CoarseIssues(referenceCues, mustCueTimes(rawPath), outputCues, report)
 
+		attrs := []any{
+			"id", item.ID,
+			"file_id", candidate.FileID,
+			"cues", metrics.Cues,
+			"within_2s", fmt.Sprintf("%.0f%%", metrics.Within2*100),
+			"p90_s", fmt.Sprintf("%.2f", metrics.P90),
+			"start_gap_min", fmt.Sprintf("%.1f", metrics.StartGap),
+			"end_gap_min", fmt.Sprintf("%.1f", metrics.EndGap),
+			"zero_cues", metrics.ZeroStartCues,
+			"overrun_min", fmt.Sprintf("%.1f", metrics.Overrun),
+			"score", fmt.Sprintf("%.0f", metrics.Score),
+			"alass_blocks", metrics.AlassBlocks,
+			"alass_fps", metrics.AlassFPS,
+			"acceptable", metrics.Acceptable,
+		}
+		if len(metrics.CoarseIssues) > 0 {
+			attrs = append(attrs, "issues", strings.Join(metrics.CoarseIssues, "; "))
+		}
+		slog.Info("subtitles: alignment metrics", attrs...)
+
 		if !metrics.Acceptable {
+			slog.Warn("subtitles: candidate rejected by the timing gate",
+				"id", item.ID, "file_id", candidate.FileID, "release", candidate.Release)
 			m.recordAttempt(item, candidate, "rejected_timing", &metrics, report.Detail)
 			continue
 		}
@@ -206,6 +260,12 @@ func (m *Manager) processItem(ctx context.Context, item *Item, opts runOptions) 
 		if err := m.installSubtitle(item, alignedText, &metrics, candidate, report); err != nil {
 			return StatusFailed, err
 		}
+		slog.Info("subtitles: installed Swedish subtitle",
+			"id", item.ID,
+			"video", item.VideoPath,
+			"output", item.OutputPath,
+			"file_id", candidate.FileID,
+			"release", candidate.Release)
 		return StatusAdded, nil
 	}
 
@@ -220,10 +280,14 @@ func (m *Manager) processItem(ctx context.Context, item *Item, opts runOptions) 
 			if err := m.installSubtitle(item, text, metrics, *bestFallback, AlassReport{}); err != nil {
 				return StatusFailed, err
 			}
+			slog.Warn("subtitles: installed without alignment (allow_unaligned_fallback)",
+				"id", item.ID, "video", item.VideoPath, "output", item.OutputPath)
 			item.Error = "installed without a passing alass alignment because the reference is unusable"
 			return StatusAddedReview, nil
 		}
 	}
+	slog.Warn("subtitles: no candidate passed the timing gate",
+		"id", item.ID, "video", item.VideoPath, "attempts", attempted)
 	return StatusNeedsReview, fmt.Errorf("no candidate passed the timing gate after %d attempt(s)", attempted)
 }
 
@@ -354,16 +418,20 @@ func (m *Manager) countSafeCandidates(item *Item, merged map[int]opensubtitles.I
 func (m *Manager) runSearchQuery(ctx context.Context, item *Item, kind string, query opensubtitles.SearchQuery, merged map[int]opensubtitles.Item) error {
 	cacheKey := cacheKeyFor(kind, query)
 	if record, ok := m.searchFor(item.ID, kind); ok && record.Query == cacheKey && (record.Status == "ok" || record.Status == "no_results") {
+		slog.Debug("subtitles: search cache hit", "id", item.ID, "kind", kind, "results", record.ResultCount)
 		return nil
 	}
 	if !m.osClient.Configured() {
 		return errors.New("opensubtitles is not configured (set subtitles.opensubtitles.api_key or CINEROUTE_OS_API_KEY)")
 	}
+	slog.Info("subtitles: OpenSubtitles search", "id", item.ID, "kind", kind, "query", cacheKey)
 	response, err := m.osClient.Search(ctx, query)
 	if err != nil {
+		slog.Warn("subtitles: OpenSubtitles search failed", "id", item.ID, "kind", kind, "err", err)
 		m.recordSearch(item.ID, kind, cacheKey, "error", 0, err.Error())
 		return err
 	}
+	slog.Info("subtitles: OpenSubtitles search results", "id", item.ID, "kind", kind, "results", len(response.Data))
 	for _, result := range response.Data {
 		file, ok := bestFile(m.reference(item), result.Attributes.Files)
 		if !ok {

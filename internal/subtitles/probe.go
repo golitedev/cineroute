@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"log/slog"
 	"os/exec"
 	"strconv"
 	"strings"
@@ -97,18 +98,20 @@ func (p ExecProber) Probe(ctx context.Context, path string) (MediaInfo, error) {
 	probeCtx, cancel := context.WithTimeout(ctx, p.probeTimeout())
 	defer cancel()
 	cmd := exec.CommandContext(probeCtx, p.ffprobe(),
-		"-v", "error", "-nostdin", "-print_format", "json",
+		"-v", "error", "-print_format", "json",
 		"-show_streams", "-select_streams", "s", "-show_format", path)
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout = &stdout
 	cmd.Stderr = &stderr
 	if err := cmd.Run(); err != nil {
+		slog.Warn("subtitles: ffprobe failed", "video", path, "err", firstNonEmpty(stderr.String(), err.Error()))
 		return MediaInfo{}, fmt.Errorf("ffprobe failed: %s", firstNonEmpty(stderr.String(), err.Error()))
 	}
 	var parsed ffprobeOutput
 	if err := json.Unmarshal(stdout.Bytes(), &parsed); err != nil {
 		return MediaInfo{}, fmt.Errorf("decode ffprobe output: %w", err)
 	}
+	slog.Debug("subtitles: ffprobe", "video", path, "streams", len(parsed.Streams))
 	info := MediaInfo{}
 	for _, stream := range parsed.Streams {
 		codec := strings.ToLower(strings.TrimSpace(stream.CodecName))
@@ -137,7 +140,9 @@ func (p ExecProber) ExtractSubtitle(ctx context.Context, path string, streamInde
 		"-map", fmt.Sprintf("0:%d", streamIndex), "-c:s", "srt", outputPath)
 	var stderr bytes.Buffer
 	cmd.Stderr = &stderr
+	slog.Info("subtitles: extracting embedded subtitle stream", "video", path, "stream", streamIndex, "output", outputPath)
 	if err := cmd.Run(); err != nil {
+		slog.Warn("subtitles: subtitle extraction failed", "video", path, "stream", streamIndex, "err", firstNonEmpty(stderr.String(), err.Error()))
 		return fmt.Errorf("ffmpeg subtitle extraction failed: %s", firstNonEmpty(stderr.String(), err.Error()))
 	}
 	return nil
@@ -153,7 +158,9 @@ func (p ExecProber) ConvertToSRT(ctx context.Context, inputPath, outputPath stri
 		"-v", "error", "-nostdin", "-y", "-i", inputPath, "-f", "srt", outputPath)
 	var stderr bytes.Buffer
 	cmd.Stderr = &stderr
+	slog.Info("subtitles: normalizing reference subtitle", "input", inputPath, "output", outputPath)
 	if err := cmd.Run(); err != nil {
+		slog.Warn("subtitles: reference normalization failed", "input", inputPath, "err", firstNonEmpty(stderr.String(), err.Error()))
 		return fmt.Errorf("ffmpeg subtitle normalization failed: %s", firstNonEmpty(stderr.String(), err.Error()))
 	}
 	return nil

@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log/slog"
 	"net/http"
 	"net/url"
 	"regexp"
@@ -169,6 +170,11 @@ func (c *Client) loginToken(ctx context.Context) (string, error) {
 		}
 	}
 	c.mu.Unlock()
+	slog.Info("opensubtitles: logged in",
+		"host", strings.TrimPrefix(strings.TrimSuffix(c.baseURL, "/api/v1"), "https://"),
+		"level", response.User.Level,
+		"vip", response.User.VIP,
+		"allowed_downloads", response.User.AllowedDownloads.Int())
 	return response.Token, nil
 }
 
@@ -222,11 +228,14 @@ func (c *Client) doJSON(ctx context.Context, method, endpoint string, query url.
 	if token != "" {
 		request.Header.Set("Authorization", "Bearer "+token)
 	}
+	started := time.Now()
 	response, err := c.httpc.Do(request)
 	c.markCall()
 	if err != nil {
+		slog.Warn("opensubtitles: request failed", "method", method, "path", endpoint, "err", err)
 		return fmt.Errorf("opensubtitles request failed: %w", err)
 	}
+	slog.Debug("opensubtitles: request", "method", method, "path", endpoint, "status", response.StatusCode, "duration_ms", time.Since(started).Milliseconds())
 	defer response.Body.Close()
 	data, err := io.ReadAll(io.LimitReader(response.Body, maxJSONBytes+1))
 	if err != nil {
@@ -236,7 +245,9 @@ func (c *Client) doJSON(ctx context.Context, method, endpoint string, query url.
 		return errors.New("opensubtitles response exceeds the size limit")
 	}
 	if response.StatusCode < 200 || response.StatusCode >= 300 {
-		return classifyHTTPError(response.StatusCode, data)
+		classified := classifyHTTPError(response.StatusCode, data)
+		slog.Warn("opensubtitles: request rejected", "method", method, "path", endpoint, "status", response.StatusCode, "err", classified)
+		return classified
 	}
 	if out == nil {
 		return nil
@@ -438,6 +449,11 @@ func (c *Client) Download(ctx context.Context, fileID int) (DownloadResponse, er
 	if strings.TrimSpace(response.Link) == "" {
 		return DownloadResponse{}, errors.New("opensubtitles download endpoint returned no link")
 	}
+	slog.Info("opensubtitles: download link issued",
+		"file_id", fileID,
+		"file_name", response.FileName,
+		"remaining", response.Remaining.Int(),
+		"reset_time", response.ResetTime)
 	return response, nil
 }
 
@@ -482,5 +498,6 @@ func (c *Client) DownloadBytes(ctx context.Context, link string) ([]byte, error)
 	if len(data) == 0 {
 		return nil, errors.New("opensubtitles returned an empty subtitle file")
 	}
+	slog.Debug("opensubtitles: subtitle file downloaded", "host", parsed.Hostname(), "bytes", len(data))
 	return data, nil
 }

@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"sort"
@@ -165,12 +166,14 @@ func newManager(cfg Config, lib *library.Scan, st *store, prober Prober, syncer 
 		featureCanon: map[string]string{},
 	}
 	if !cfg.Enabled {
+		slog.Info("subtitles: subsystem disabled")
 		return m
 	}
 	if st == nil {
 		opened, err := openStore(cfg.StatePath)
 		if err != nil {
 			m.stateErr = err
+			slog.Error("subtitles: cannot open the queue database", "state_path", cfg.StatePath, "err", err)
 			return m
 		}
 		m.store = opened
@@ -178,16 +181,19 @@ func newManager(cfg Config, lib *library.Scan, st *store, prober Prober, syncer 
 	items, err := m.store.loadItems()
 	if err != nil {
 		m.stateErr = err
+		slog.Error("subtitles: cannot load the queue", "state_path", cfg.StatePath, "err", err)
 		return m
 	}
 	searches, err := m.store.loadSearches()
 	if err != nil {
 		m.stateErr = err
+		slog.Error("subtitles: cannot load cached searches", "state_path", cfg.StatePath, "err", err)
 		return m
 	}
 	settings, err := m.store.loadSettings()
 	if err != nil {
 		m.stateErr = err
+		slog.Error("subtitles: cannot load settings", "state_path", cfg.StatePath, "err", err)
 		return m
 	}
 	m.applySettings(settings)
@@ -206,7 +212,22 @@ func newManager(cfg Config, lib *library.Scan, st *store, prober Prober, syncer 
 	if changed {
 		_ = m.store.saveItems(m.items)
 	}
-	m.pruneWorkDirs()
+	pruned := m.pruneWorkDirs()
+	roots := RemoteMovieRoots(m.lib.Drives())
+	slog.Info("subtitles: subsystem ready",
+		"state_path", cfg.StatePath,
+		"work_dir", cfg.WorkDir,
+		"target_language", cfg.TargetLanguage,
+		"reference_languages", strings.Join(cfg.ReferenceLanguages, ","),
+		"movies", len(m.items),
+		"remote_roots", len(roots),
+		"opensubtitles_configured", m.osClient != nil && m.osClient.Configured(),
+		"ffmpeg", cfg.FFmpegPath,
+		"alass", cfg.AlassPath,
+		"pruned_work_dirs", pruned)
+	for _, root := range roots {
+		slog.Debug("subtitles: remote root", "drive", root.DriveID, "path", root.Path)
+	}
 	return m
 }
 
@@ -457,9 +478,11 @@ func (m *Manager) StartScan() error {
 	m.batch = BatchStatus{Running: true, Kind: "scan"}
 	m.batchCancel = cancel
 	m.mu.Unlock()
+	slog.Info("subtitles: scan started")
 	go func() {
 		defer m.finishJob()
 		if err := m.Scan(ctx); err != nil && !errors.Is(err, context.Canceled) {
+			slog.Error("subtitles: scan failed", "err", err)
 			m.setBatchError(err.Error())
 		}
 	}()
@@ -474,8 +497,10 @@ func (m *Manager) CancelScan() error {
 		return errors.New("no subtitle job is running")
 	}
 	cancel := m.batchCancel
+	kind := m.batch.Kind
 	m.batch.Canceled = true
 	m.mu.Unlock()
+	slog.Info("subtitles: canceling job", "kind", kind)
 	cancel()
 	return nil
 }
@@ -508,17 +533,23 @@ func (m *Manager) Scan(ctx context.Context) error {
 		folderPath string
 		relative   string
 	}
+	scanStart := time.Now()
 	var videos []videoRef
 	scannedRoots := map[string]bool{}
-	for _, root := range RemoteMovieRoots(m.lib.Drives()) {
+	roots := RemoteMovieRoots(m.lib.Drives())
+	slog.Info("subtitles: scanning remote movie roots", "roots", len(roots))
+	for _, root := range roots {
 		entries, err := os.ReadDir(root.Path)
 		if err != nil {
 			if os.IsNotExist(err) {
+				slog.Warn("subtitles: remote root does not exist", "drive", root.DriveID, "root", root.Path)
 				continue
 			}
+			slog.Error("subtitles: cannot read remote root", "drive", root.DriveID, "root", root.Path, "err", err)
 			return fmt.Errorf("read remote movie root %q: %w", root.Path, err)
 		}
 		scannedRoots[root.Path] = true
+		rootFolders, rootVideos := 0, 0
 		for _, entry := range entries {
 			if !entry.IsDir() {
 				continue
@@ -526,8 +557,11 @@ func (m *Manager) Scan(ctx context.Context) error {
 			folderPath := filepath.Join(root.Path, entry.Name())
 			files, err := library.WalkVideoFiles(folderPath)
 			if err != nil {
+				slog.Warn("subtitles: cannot read movie folder", "folder", folderPath, "err", err)
 				continue
 			}
+			rootFolders++
+			rootVideos += len(files)
 			for _, relative := range files {
 				videos = append(videos, videoRef{
 					driveID: root.DriveID, root: root.Path, folderName: entry.Name(),
@@ -535,10 +569,12 @@ func (m *Manager) Scan(ctx context.Context) error {
 				})
 			}
 		}
+		slog.Info("subtitles: root scanned", "drive", root.DriveID, "root", root.Path, "folders", rootFolders, "videos", rootVideos)
 	}
 	m.mu.Lock()
 	m.batch.Total = len(videos)
 	m.mu.Unlock()
+	slog.Info("subtitles: video files found", "videos", len(videos))
 
 	probed := 0
 	var updated []*Item
@@ -557,6 +593,7 @@ func (m *Manager) Scan(ctx context.Context) error {
 			continue
 		}
 		if skipVideoFile(filepath.Base(videoPath), info.Size(), m.cfg.MinVideoBytes, m.cfg.SkipSampleFiles) {
+			slog.Debug("subtitles: skipping small or sample video", "video", videoPath, "bytes", info.Size())
 			continue
 		}
 		existing := m.itemByID(subtitleItemID(video.driveID, filepath.Join(video.folderName, video.relative)))
@@ -578,15 +615,29 @@ func (m *Manager) Scan(ctx context.Context) error {
 			probed++
 			probedMedia, probeErr := m.prober.Probe(ctx, videoPath)
 			if probeErr != nil {
+				slog.Warn("subtitles: probe failed", "video", videoPath, "err", probeErr)
 				if existing != nil {
 					media = MediaInfo{Streams: existing.EmbeddedSubStreams, DurationMS: existing.DurationMS}
 				}
 			} else {
+				slog.Debug("subtitles: probed", "video", videoPath, "streams", len(probedMedia.Streams), "duration_ms", probedMedia.DurationMS)
 				media = probedMedia
 			}
 		}
 
 		item := applyScanResult(existing, video.driveID, video.root, video.folderName, videoPath, info, media, external, m.cfg.TargetLanguage, now)
+		if existing == nil || existing.Status != item.Status || existing.HasExternalSubtitle != item.HasExternalSubtitle {
+			slog.Info("subtitles: queued movie",
+				"id", item.ID,
+				"video", item.VideoPath,
+				"title", item.Title,
+				"year", item.Year,
+				"status", item.Status,
+				"has_swedish", item.HasSwedish,
+				"has_external_subtitle", item.HasExternalSubtitle,
+				"external_subtitles", len(item.ExternalSubtitles),
+				"embedded_streams", len(item.EmbeddedSubStreams))
+		}
 		seen[item.ID] = true
 		updated = append(updated, item)
 		m.mu.Lock()
@@ -619,8 +670,22 @@ func (m *Manager) Scan(ctx context.Context) error {
 		_ = m.store.deleteItem(item.ID)
 	}
 	if err := m.store.saveItems(updated); err != nil {
+		slog.Error("subtitles: cannot save the queue", "err", err)
 		return err
 	}
+	queued := 0
+	for _, item := range updated {
+		if stillNeedsWork(item) {
+			queued++
+		}
+	}
+	slog.Info("subtitles: scan finished",
+		"videos", len(videos),
+		"items", len(updated),
+		"needs_subtitles", queued,
+		"probed", probed,
+		"removed", len(removed),
+		"duration_ms", time.Since(scanStart).Milliseconds())
 	return nil
 }
 
@@ -655,12 +720,14 @@ func (m *Manager) StartRun() error {
 	}
 	if len(ids) == 0 {
 		m.mu.Unlock()
+		slog.Info("subtitles: nothing to process", "reason", "no movies need Swedish subtitles")
 		return nil
 	}
 	ctx, cancel := context.WithCancel(context.Background())
 	m.batch = BatchStatus{Running: true, Kind: "run", Total: len(ids)}
 	m.batchCancel = cancel
 	m.mu.Unlock()
+	slog.Info("subtitles: batch started", "movies", len(ids), "batch_size", batchSize)
 	go func() {
 		defer m.finishJob()
 		m.runBatch(ctx, ids, runOptions{refreshQuota: true})
@@ -675,10 +742,12 @@ func (m *Manager) runBatch(ctx context.Context, ids []string, opts runOptions) {
 	runID, _ := m.store.startRun("run", len(ids))
 	done := 0
 	var runErr string
+	added, failed := 0, 0
 	defer func() {
 		if runID != 0 {
 			_ = m.store.finishRun(runID, done, runErr)
 		}
+		slog.Info("subtitles: batch finished", "processed", done, "total", len(ids), "added", added, "failed", failed, "error", runErr)
 	}()
 	for index, id := range ids {
 		if ctx.Err() != nil {
@@ -690,9 +759,16 @@ func (m *Manager) runBatch(ctx context.Context, ids []string, opts runOptions) {
 		}
 		item := m.itemByID(id)
 		if item == nil {
+			slog.Warn("subtitles: queued movie disappeared", "id", id)
 			continue
 		}
-		_, err := m.processAndPersist(ctx, item, opts)
+		status, err := m.processAndPersist(ctx, item, opts)
+		if status == StatusAdded || status == StatusAddedReview {
+			added++
+		}
+		if err != nil {
+			failed++
+		}
 		done = index + 1
 		m.mu.Lock()
 		m.batch.Done = done
@@ -702,11 +778,13 @@ func (m *Manager) runBatch(ctx context.Context, ids []string, opts runOptions) {
 			continue
 		}
 		if errors.Is(err, errQuotaStop) {
+			slog.Warn("subtitles: stopping batch at the download quota reserve", "reserve", m.cfg.QuotaReserve)
 			m.setBatchError("OpenSubtitles download quota reserve reached; run again later")
 			runErr = "quota reserve reached"
 			return
 		}
 		if opensubtitles.IsHardStop(err) {
+			slog.Warn("subtitles: stopping batch after a hard OpenSubtitles error", "err", err)
 			m.setBatchError(err.Error())
 			runErr = err.Error()
 			return
@@ -744,6 +822,7 @@ func (m *Manager) RunOne(id string, refresh bool) error {
 	m.batch = BatchStatus{Running: true, Kind: "run", Total: 1}
 	m.batchCancel = cancel
 	m.mu.Unlock()
+	slog.Info("subtitles: single movie started", "id", id, "video", item.VideoPath, "refresh", refresh)
 	go func() {
 		defer m.finishJob()
 		opts := runOptions{refreshQuota: true, refreshSearch: refresh}
@@ -780,12 +859,41 @@ func (m *Manager) processAndPersist(ctx context.Context, item *Item, opts runOpt
 	opts.previousStatus = item.Status
 	m.mu.RUnlock()
 
+	started := time.Now()
+	slog.Info("subtitles: processing movie",
+		"id", working.ID,
+		"video", working.VideoPath,
+		"title", working.Title,
+		"year", working.Year,
+		"previous_status", opts.previousStatus)
+
 	working.Status = StatusProcessing
 	status, err := m.processItem(ctx, &working, opts)
 	working.Status = status
 	working.Error = errorText(err)
 	working.Step = ""
 	working.UpdatedAt = time.Now()
+
+	attrs := []any{
+		"id", working.ID,
+		"video", working.VideoPath,
+		"status", status,
+		"duration_ms", time.Since(started).Milliseconds(),
+	}
+	if working.ReferenceKind != "" {
+		attrs = append(attrs, "reference", working.ReferenceKind+"/"+working.ReferenceLang)
+	}
+	if working.OutputPath != "" {
+		attrs = append(attrs, "output", working.OutputPath)
+	}
+	if working.Metrics != nil {
+		attrs = append(attrs, "within_2s", fmt.Sprintf("%.0f%%", working.Metrics.Within2*100), "p90_s", fmt.Sprintf("%.2f", working.Metrics.P90))
+	}
+	if err != nil {
+		slog.Warn("subtitles: movie finished", append(attrs, "err", err)...)
+	} else {
+		slog.Info("subtitles: movie finished", attrs...)
+	}
 
 	m.mu.Lock()
 	*item = working
@@ -817,6 +925,7 @@ func (m *Manager) Skip(id string) error {
 	}
 	m.setItemStatus(item, StatusSkipped)
 	m.setItemError(item, "")
+	slog.Info("subtitles: movie skipped", "id", id, "video", item.VideoPath)
 	return m.store.saveItem(item)
 }
 
@@ -839,6 +948,7 @@ func (m *Manager) Reset(id string) error {
 	m.setItemError(item, "")
 	m.setItemMetrics(item, nil)
 	m.setItemOutput(item, "", 0)
+	slog.Info("subtitles: movie reset", "id", id, "video", item.VideoPath)
 	return m.store.saveItem(item)
 }
 
@@ -886,6 +996,7 @@ func (m *Manager) ClearWork() (int, error) {
 		}
 		removed++
 	}
+	slog.Info("subtitles: work files cleared", "work_dir", m.cfg.WorkDir, "removed", removed)
 	return removed, nil
 }
 
@@ -906,6 +1017,7 @@ func (m *Manager) refreshQuota(ctx context.Context) {
 	m.mu.Lock()
 	m.quota = QuotaView{Known: known, Remaining: remaining, Allowed: allowed, ResetAt: info.ResetTimeUtc}
 	m.mu.Unlock()
+	slog.Info("subtitles: OpenSubtitles quota", "remaining", remaining, "allowed", allowed, "reset_at", info.ResetTimeUtc, "known", known)
 }
 
 func (m *Manager) updateQuotaFromDownload(response opensubtitles.DownloadResponse) {
@@ -1025,16 +1137,17 @@ func (m *Manager) sortItemsLocked() {
 
 // pruneWorkDirs removes per-item scratch directories older than the retention
 // window so the mounted /tmp never grows without bound.
-func (m *Manager) pruneWorkDirs() {
+func (m *Manager) pruneWorkDirs() int {
 	days := m.cfg.WorkRetentionDays
 	if days <= 0 {
-		return
+		return 0
 	}
 	entries, err := os.ReadDir(m.cfg.WorkDir)
 	if err != nil {
-		return
+		return 0
 	}
 	cutoff := time.Now().AddDate(0, 0, -days)
+	removed := 0
 	for _, entry := range entries {
 		info, err := entry.Info()
 		if err != nil || !info.IsDir() {
@@ -1043,8 +1156,11 @@ func (m *Manager) pruneWorkDirs() {
 		if info.ModTime().After(cutoff) {
 			continue
 		}
-		_ = os.RemoveAll(filepath.Join(m.cfg.WorkDir, entry.Name()))
+		if err := os.RemoveAll(filepath.Join(m.cfg.WorkDir, entry.Name())); err == nil {
+			removed++
+		}
 	}
+	return removed
 }
 
 // UpdateSettings applies and persists a settings patch.
@@ -1095,6 +1211,13 @@ func (m *Manager) UpdateSettings(patch SettingsView) error {
 	m.mu.Lock()
 	m.applySettings(values)
 	m.mu.Unlock()
+	slog.Info("subtitles: settings updated",
+		"run_batch_size", patch.RunBatchSize,
+		"max_candidates", patch.MaxCandidates,
+		"request_interval_ms", patch.RequestIntervalMS,
+		"quota_reserve", patch.QuotaReserve,
+		"remove_promo_cues", patch.RemovePromoCues,
+		"allow_unaligned_fallback", patch.AllowUnalignedFallback)
 	return nil
 }
 

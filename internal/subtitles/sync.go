@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"fmt"
+	"log/slog"
 	"os/exec"
 	"regexp"
 	"strconv"
@@ -156,12 +157,22 @@ func (ExecSyncer) Sync(ctx context.Context, referencePath, inputPath, outputPath
 	var combined bytes.Buffer
 	cmd.Stdout = &combined
 	cmd.Stderr = &combined
+	started := time.Now()
+	slog.Info("subtitles: running alass",
+		"binary", binary,
+		"reference", referencePath,
+		"input", inputPath,
+		"output", outputPath,
+		"no_split", opts.NoSplit,
+		"split_penalty", opts.SplitPenalty)
 	runErr := cmd.Run()
 	report := ParseAlassOutput(combined.String())
+	slog.Debug("subtitles: alass finished", "duration_ms", time.Since(started).Milliseconds(), "report", report.Detail)
 	if runCtx.Err() == context.DeadlineExceeded {
 		return SyncResult{Report: report}, fmt.Errorf("alass timed out after %s", timeout)
 	}
 	if runErr != nil {
+		slog.Warn("subtitles: alass failed", "input", inputPath, "report", report.Detail, "err", runErr)
 		return SyncResult{Report: report}, fmt.Errorf("alass failed: %s", firstNonEmpty(report.Detail, runErr.Error()))
 	}
 	return SyncResult{Report: report}, nil

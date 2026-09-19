@@ -12,6 +12,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"html/template"
+	"log/slog"
 	"net/http"
 	"sort"
 	"strconv"
@@ -233,7 +234,56 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("POST /api/subtitles/{id}/retry", s.retrySubtitleItem)
 	mux.HandleFunc("POST /api/subtitles/{id}/skip", s.skipSubtitleItem)
 	mux.HandleFunc("POST /api/subtitles/{id}/reset", s.resetSubtitleItem)
-	return s.auth(mux)
+	return s.logRequests(s.auth(mux))
+}
+
+// statusRecorder captures the response status and size for the request log.
+type statusRecorder struct {
+	http.ResponseWriter
+	status int
+	bytes  int
+}
+
+func (r *statusRecorder) WriteHeader(code int) {
+	r.status = code
+	r.ResponseWriter.WriteHeader(code)
+}
+
+func (r *statusRecorder) Write(data []byte) (int, error) {
+	written, err := r.ResponseWriter.Write(data)
+	r.bytes += written
+	return written, err
+}
+
+// logRequests writes one line per request (method, path, status, size and
+// duration) so the server log shows what the browser actually asked for. Health
+// checks and the static logo assets are skipped to keep the log readable.
+func (s *Server) logRequests(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/health", "/favicon.png", "/favicon.svg", "/logo.svg":
+			next.ServeHTTP(w, r)
+			return
+		}
+		start := time.Now()
+		recorder := &statusRecorder{ResponseWriter: w, status: http.StatusOK}
+		next.ServeHTTP(recorder, r)
+		attrs := []any{
+			"method", r.Method,
+			"path", r.URL.Path,
+			"status", recorder.status,
+			"bytes", recorder.bytes,
+			"duration_ms", time.Since(start).Milliseconds(),
+		}
+		if query := r.URL.RawQuery; query != "" {
+			attrs = append(attrs, "query", query)
+		}
+		if recorder.status >= 400 {
+			slog.Warn("http request", attrs...)
+			return
+		}
+		slog.Info("http request", attrs...)
+	})
 }
 
 // serveAsset serves an embedded static file (logo images) with a cache

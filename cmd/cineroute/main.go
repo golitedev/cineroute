@@ -22,8 +22,15 @@ import (
 
 func main() {
 	var cfgPath string
+	var logLevel string
 	flag.StringVar(&cfgPath, "config", "", "path to config file (default: $CINEROUTE_CONFIG or ./config.yaml)")
+	flag.StringVar(&logLevel, "log-level", "", "log level: debug, info, warn or error (default: $CINEROUTE_LOG_LEVEL or info)")
 	flag.Parse()
+
+	if logLevel == "" {
+		logLevel = os.Getenv("CINEROUTE_LOG_LEVEL")
+	}
+	applyLogLevel(logLevel)
 
 	if cfgPath == "" {
 		cfgPath = os.Getenv("CINEROUTE_CONFIG")
@@ -31,6 +38,7 @@ func main() {
 	if cfgPath == "" {
 		cfgPath = "config.yaml"
 	}
+	slog.Info("cineroute starting", "config", cfgPath, "log_level", effectiveLogLevel())
 	cfg, err := config.Load(cfgPath)
 	if err != nil {
 		slog.Error("configuration", "err", err)
@@ -95,4 +103,42 @@ func main() {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 	_ = httpSrv.Shutdown(ctx)
+}
+
+// applyLogLevel sets the level of the default slog logger, which keeps the
+// standard `2026/01/02 15:04:05 INFO message key=value` format while making
+// debug logging available for troubleshooting.
+func applyLogLevel(level string) {
+	switch strings.ToLower(strings.TrimSpace(level)) {
+	case "", "info":
+		slog.SetLogLoggerLevel(slog.LevelInfo)
+	case "debug":
+		slog.SetLogLoggerLevel(slog.LevelDebug)
+	case "warn", "warning":
+		slog.SetLogLoggerLevel(slog.LevelWarn)
+	case "error":
+		slog.SetLogLoggerLevel(slog.LevelError)
+	default:
+		slog.SetLogLoggerLevel(slog.LevelInfo)
+		slog.Warn("unknown log level, using info", "level", level)
+	}
+}
+
+// effectiveLogLevel reports the level in effect, for the startup log line. It
+// returns the most verbose level the default logger accepts.
+func effectiveLogLevel() string {
+	for _, candidate := range []struct {
+		name  string
+		level slog.Level
+	}{
+		{"debug", slog.LevelDebug},
+		{"info", slog.LevelInfo},
+		{"warn", slog.LevelWarn},
+		{"error", slog.LevelError},
+	} {
+		if slog.Default().Enabled(context.Background(), candidate.level) {
+			return candidate.name
+		}
+	}
+	return "off"
 }
