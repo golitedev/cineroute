@@ -668,3 +668,47 @@ func TestWorkDirectoryIsValidated(t *testing.T) {
 		t.Errorf("work directory error = %q", view.WorkDirError)
 	}
 }
+
+// TestLiveStageIsVisibleDuringProcessing checks that a movie being worked on is
+// observable while it runs: embedded extraction can take minutes, and the page
+// polls the item list rather than just the batch counters.
+func TestLiveStageIsVisibleDuringProcessing(t *testing.T) {
+	h := newTestHarness(t)
+	video := h.addRemoteMovie(t, "Long Extract (2017)", "Long.Extract.2017.1080p.mkv")
+	h.configureEmbeddedEnglish(video)
+	candidate := swedishCandidate()
+	candidate.Attributes.FeatureDetails.MovieName = "Long Extract"
+	candidate.Attributes.FeatureDetails.Year = opensubtitles.Intish(2017)
+	candidate.Attributes.Files = []opensubtitles.File{{FileID: opensubtitles.Intish(903), FileName: "Long.Extract.2017.1080p.sv.srt"}}
+	h.os.items = []opensubtitles.Item{candidate}
+
+	if err := h.manager.Scan(context.Background()); err != nil {
+		t.Fatalf("Scan: %v", err)
+	}
+	item := h.liveItem(t, h.manager.View("").Items[0].ID)
+
+	var observed []string
+	h.manager.SetStageHandler(func(staged *Item, stage, status string) {
+		live := h.manager.itemByID(staged.ID)
+		if live == nil {
+			return
+		}
+		observed = append(observed, live.Status+"/"+live.Step)
+	})
+
+	if _, err := h.manager.processAndPersist(context.Background(), item, runOptions{}); err != nil {
+		t.Fatalf("process: %v", err)
+	}
+	if len(observed) == 0 {
+		t.Fatal("no stage events were reported")
+	}
+	foundReference := false
+	for _, entry := range observed {
+		if strings.HasPrefix(entry, StatusProcessing+"/reference") {
+			foundReference = true
+		}
+	}
+	if !foundReference {
+		t.Fatalf("the live item never showed the reference stage: %v", observed)
+	}
+}

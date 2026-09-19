@@ -443,7 +443,10 @@ func (m *Manager) View(openID string) View {
 			}
 		}
 		switch item.Status {
-		case StatusPending:
+		case StatusPending, StatusProcessing, StatusDownloading, StatusSyncing:
+			// A movie being processed has not been given a subtitle yet, so it still
+			// counts as "needs subtitles"; the counter must not flicker while a
+			// batch runs.
 			view.Stats.Pending++
 		case StatusHasSwedish:
 			view.Stats.HasSwedish++
@@ -460,6 +463,9 @@ func (m *Manager) View(openID string) View {
 		case StatusSkipped:
 			view.Stats.Skipped++
 		default:
+			view.Stats.Processing++
+		}
+		if isTransientStatus(item.Status) {
 			view.Stats.Processing++
 		}
 	}

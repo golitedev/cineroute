@@ -807,12 +807,19 @@ func mustCueTimes(path string) []TimeSpan {
 }
 
 func (m *Manager) setStage(item *Item, stage, status string) {
-	// item is the pipeline's private copy, so these writes are race-free; the
-	// shared batch progress is protected by the manager lock.
+	// item is the pipeline's private copy, so these writes are race-free. The
+	// live item is updated under the lock as well: a movie can spend minutes
+	// extracting an embedded reference, and the list must show that it is being
+	// worked on rather than still looking pending.
 	item.Step = stage
 	item.Status = status
 	m.mu.Lock()
 	m.batch.Stage = stage
+	if live, ok := m.byID[item.ID]; ok && live != item {
+		live.Status = status
+		live.Step = stage
+		live.UpdatedAt = time.Now()
+	}
 	m.mu.Unlock()
 	if m.onStage != nil {
 		m.onStage(item, stage, status)

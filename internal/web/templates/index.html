@@ -156,6 +156,9 @@ input[type=number]{width:90px}
 .hardlink-mirror-label{font-size:11px;letter-spacing:.05em;text-transform:uppercase;color:var(--dim);margin-right:4px}
 .hardlink-list{display:grid;gap:12px}
 .hardlink-card{background:var(--panel);border:1px solid var(--border);border-radius:10px;padding:15px 16px;margin:0;position:relative}
+.hardlink-card.running{border-color:#7a6a20}
+.run-progress{height:6px;background:#12151b;border:1px solid var(--border);border-radius:4px;overflow:hidden;margin-top:8px;max-width:520px}
+.run-progress span{display:block;height:100%;background:var(--accent);transition:width .3s ease}
 .hardlink-card.needs-relink{border-color:#715a20}
 .hardlink-card.partial{border-color:#634d22}
 .hardlink-card.orphaned{border-color:#71312f}
@@ -1280,11 +1283,13 @@ function subtitleRow(item){
   const error=item.error?'<div class="hardlink-reason">'+esc(item.error)+'</div>':"";
   const output=item.output_path?'<div class="small mono">'+esc(item.output_path)+'</div>':"";
   const metrics=item.metrics?'<div class="small">'+esc(subtitleMetricsText(item.metrics))+'</div>':"";
-  let html='<article class="hardlink-card"><div class="hardlink-card-head"><div class="hardlink-heading">';
+  const running=item.status==="processing"||item.status==="downloading"||item.status==="syncing";
+  let html='<article class="hardlink-card'+(running?" running":"")+'"><div class="hardlink-card-head"><div class="hardlink-heading">';
   html+='<div class="hardlink-title-line"><span class="hardlink-type">'+esc(item.folder_name)+'</span></div>';
   html+='<div class="hardlink-meta">'+esc(item.drive_id)+' · '+esc(item.title||"")+(item.year?" ("+item.year+")":"")+' · '+esc(subtitleReferenceText(item))+'</div>';
   html+='<div class="small mono">'+esc(item.video_path)+'</div>';
   html+='<div class="small">Languages: '+esc(langs.length?langs.join(", "):"none detected")+voice+'</div>';
+  if(running)html+='<div class="small"><span class="approval-spinner" aria-hidden="true"></span>'+esc(item.step?item.step+"…":"working…")+'</div>';
   html+='<div class="small">'+esc(subtitleExternalText(item))+'</div>';
   if(!item.probed)html+='<div class="small">not analyzed yet - running this movie or rescanning will read its subtitle streams</div>';
   html+=output+metrics+'</div><div class="hardlink-card-actions"><span class="badge '+subtitleStatusClass(item)+'">'+esc(subtitleStatusLabel(item))+'</span>'+actions.join("")+'</div></div>'+error+'</article>';
@@ -1314,8 +1319,17 @@ function renderSubtitles(){
   const quota=subtitleData.quota||{};
   const quotaText=quota.known?("OpenSubtitles downloads left: "+quota.remaining+(quota.reset_at?(" (resets "+esc(quota.reset_at)+")"):"")):"OpenSubtitles quota: not checked yet";
   const b=subtitleData.batch||{};
-  const progress=b.running?((b.kind==="scan"?"Scanning":"Processing")+" "+b.done+" / "+b.total+(b.stage?" · "+esc(b.stage):"")+(b.current?" — "+esc(b.current):"")):(b.canceled?"Last job canceled after "+b.done+" / "+b.total:(b.error||quotaText));
-  $("subtitleProgress").textContent=progress;
+  if(b.running){
+    const label=(b.kind==="scan"?"Scanning":"Processing")+" "+b.done+" / "+b.total;
+    const percent=b.total?Math.round(b.done*100/b.total):0;
+    let html='<span class="approval-spinner" aria-hidden="true"></span>'+esc(label);
+    if(b.stage)html+=" · "+esc(b.stage);
+    if(b.current)html+='<div class="small mono">'+esc(b.current)+"</div>";
+    html+='<div class="run-progress" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="'+percent+'"><span style="width:'+percent+'%"></span></div>';
+    $("subtitleProgress").innerHTML=html;
+  } else {
+    $("subtitleProgress").textContent=b.canceled?"Last job canceled after "+b.done+" / "+b.total:(b.error||quotaText);
+  }
   $("subtitleRunButton").disabled=!!b.running;
   $("subtitleScanButton").disabled=!!b.running;
   $("subtitleCancelButton").classList.toggle("hidden",!b.running);
@@ -1334,6 +1348,7 @@ function renderSubtitles(){
   const matchStatus=item=>{
     if(subtitleFilter==="all")return true;
     if(subtitleFilter==="added")return item.status==="added"||item.status==="added_review";
+    if(subtitleFilter==="pending")return item.status==="pending"||item.status==="processing"||item.status==="downloading"||item.status==="syncing";
     if(subtitleFilter==="no_external")return !item.has_external_subtitle&&!done(item);
     if(subtitleFilter==="not_analyzed")return !item.probed&&!done(item);
     if(subtitleFilter==="has_external")return !!item.has_external_subtitle&&!done(item);
