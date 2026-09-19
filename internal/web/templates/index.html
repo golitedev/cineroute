@@ -473,200 +473,7 @@ async function login(){
     await postJSON("/api/login",{username:user,password:pass});
     showView("route",false);
     $("uploadCard").classList.remove("hidden");
-    // ---- subtitles ----
-let subtitleData=null;
-let subtitleFilter="pending";
-let subtitleSearchTerm="";
-let subtitlePage=0;
-let subtitlePoll=null;
-let openSubtitle="";
-
-function subtitleStatusLabel(item){
-  const labels={pending:"needs subtitles",has_swedish:"has Swedish",processing:"processing",downloading:"downloading",syncing:"syncing",added:"added",added_review:"added (review)",needs_review:"needs review",no_match:"no match",no_reference:"no reference",failed:"failed",skipped:"skipped"};
-  return labels[item.status]||item.status||"pending";
-}
-function subtitleStatusClass(item){
-  if(item.status==="added"||item.status==="has_swedish")return "ok";
-  if(item.status==="failed"||item.status==="no_reference")return "err";
-  if(item.status==="needs_review"||item.status==="added_review"||item.status==="processing"||item.status==="downloading"||item.status==="syncing")return "warn";
-  return "";
-}
-function subtitleReferenceText(item){
-  if(item.reference_kind==="external")return "external "+(item.reference_lang||"unknown")+" subtitle";
-  if(item.reference_kind==="embedded")return "embedded "+((item.reference_lang||"unknown"))+" stream #"+item.reference_stream;
-  return "not chosen yet";
-}
-function subtitleExternalText(item){
-  const subs=item.external_subtitles||[];
-  const usable=subs.filter(sub=>sub.usable);
-  if(usable.length)return "external SRT: "+usable.map(sub=>sub.file_name).join(", ");
-  if(subs.length)return "only unusable external subs ("+subs.map(sub=>sub.file_name).join(", ")+")";
-  return "no external SRT - reference extracted from the video";
-}
-function subtitleMetricsText(metrics){
-  if(!metrics)return "";
-  const pct=Math.round((metrics.within_2s||0)*100);
-  return pct+"% within 2s · p90 "+(metrics.p90||0).toFixed(2)+"s · gaps "+(metrics.start_gap_minutes||0).toFixed(1)+"/"+(metrics.end_gap_minutes||0).toFixed(1)+"m · overrun "+(metrics.overrun_minutes||0).toFixed(1)+"m · score "+(metrics.score||0).toFixed(0);
-}
-function subtitleRow(item){
-  const actions=[];
-  if(item.status!=="added"&&item.status!=="has_swedish"&&item.status!=="skipped"){
-    if(item.status==="pending")actions.push('<button class="primary" data-id="'+esc(item.id)+'" onclick="runSubtitleItem(this.dataset.id,this)">Run</button>');
-    else actions.push('<button data-id="'+esc(item.id)+'" onclick="runSubtitleItem(this.dataset.id,this)">Run again</button>');
-  }
-  if(item.status==="needs_review"||item.status==="failed"||item.status==="no_match"||item.status==="added_review"){
-    actions.push('<button data-id="'+esc(item.id)+'" onclick="retrySubtitleItem(this.dataset.id,this)">Retry with more candidates</button>');
-  }
-  if(item.status!=="skipped"&&item.status!=="added"&&item.status!=="has_swedish"){
-    actions.push('<button data-id="'+esc(item.id)+'" onclick="skipSubtitleItem(this.dataset.id,this)">Skip</button>');
-  }
-  actions.push('<button data-id="'+esc(item.id)+'" onclick="openSubtitleItem(this.dataset.id)">Details</button>');
-  const langs=item.existing_sub_languages||[];
-  const voice=item.swedish_sources&&item.swedish_sources.length?' · Swedish: '+esc(item.swedish_sources.join(", ")):"";
-  const error=item.error?'<div class="hardlink-reason">'+esc(item.error)+'</div>':"";
-  const output=item.output_path?'<div class="small mono">'+esc(item.output_path)+'</div>':"";
-  const metrics=item.metrics?'<div class="small">'+esc(subtitleMetricsText(item.metrics))+'</div>':"";
-  let html='<article class="hardlink-card"><div class="hardlink-card-head"><div class="hardlink-heading">';
-  html+='<div class="hardlink-title-line"><span class="hardlink-type">'+esc(item.folder_name)+'</span></div>';
-  html+='<div class="hardlink-meta">'+esc(item.drive_id)+' · '+esc(item.title||"")+(item.year?" ("+item.year+")":"")+' · '+esc(subtitleReferenceText(item))+'</div>';
-  html+='<div class="small mono">'+esc(item.video_path)+'</div>';
-  html+='<div class="small">Languages: '+esc(langs.length?langs.join(", "):"none detected")+voice+'</div>';
-  html+='<div class="small">'+esc(subtitleExternalText(item))+'</div>';
-  html+=output+metrics+'</div><div class="hardlink-card-actions"><span class="badge '+subtitleStatusClass(item)+'">'+esc(subtitleStatusLabel(item))+'</span>'+actions.join("")+'</div></div>'+error+'</article>';
-  return html;
-}
-async function loadSubtitles(openId){
-  if(openId!==undefined)openSubtitle=openId||"";
-  try{
-    const query=openSubtitle?("?open="+encodeURIComponent(openSubtitle)):"";
-    subtitleData=await api("/api/subtitles"+query);
-    renderSubtitles();
-    clearTimeout(subtitlePoll);
-    if(subtitleData.batch&&subtitleData.batch.running)subtitlePoll=setTimeout(()=>loadSubtitles(),2500);
-  }catch(e){$("subtitleMessage").innerHTML='<div class="errbox">'+esc(e.message)+"</div>"}
-}
-function renderSubtitles(){
-  if(!subtitleData)return;
-  const settings=subtitleData.settings||{};
-  if(document.activeElement!==$("subtitleBatchSize"))$("subtitleBatchSize").value=settings.run_batch_size||20;
-  if(document.activeElement!==$("subtitleInterval"))$("subtitleInterval").value=settings.request_interval_ms||400;
-  if(document.activeElement!==$("subtitleCandidates"))$("subtitleCandidates").value=settings.max_candidates||5;
-  $("subtitleSettingsNote").textContent="alass split penalty "+settings.alass_split_penalty+" · quota reserve "+settings.quota_reserve;
-  const stats=subtitleData.stats||{};
-  $("subtitleStats").innerHTML=[
-    [stats.total,"Remote movies"],[stats.pending,"Needs subtitles"],[stats.no_external_subtitle,"No external SRT"],[stats.with_external_subtitle,"Has external SRT"],[stats.added,"Added"],[stats.needs_review,"Needs review"],[stats.no_match,"No match"],[stats.no_reference,"No reference"],[stats.has_swedish,"Has Swedish"],[stats.failed,"Failed"],[stats.skipped,"Skipped"]
-  ].map(x=>'<div class="companion-stat"><strong>'+x[0]+"</strong><span>"+x[1]+"</span></div>").join("");
-  const quota=subtitleData.quota||{};
-  const quotaText=quota.known?("OpenSubtitles downloads left: "+quota.remaining+(quota.reset_at?(" (resets "+esc(quota.reset_at)+")"):"")):"OpenSubtitles quota: not checked yet";
-  const b=subtitleData.batch||{};
-  const progress=b.running?((b.kind==="scan"?"Scanning":"Processing")+" "+b.done+" / "+b.total+(b.current?" — "+esc(b.current):"")):(b.canceled?"Last job canceled after "+b.done+" / "+b.total:(b.error||quotaText));
-  $("subtitleProgress").textContent=progress;
-  $("subtitleRunButton").disabled=!!b.running;
-  $("subtitleScanButton").disabled=!!b.running;
-  $("subtitleCancelButton").classList.toggle("hidden",!b.running);
-  const message=[];
-  if(subtitleData.state_error)message.push('<div class="errbox">'+esc(subtitleData.state_error)+"</div>");
-  else if(subtitleData.feature_error)message.push('<div class="small">Feature lookup: '+esc(subtitleData.feature_error)+"</div>");
-  $("subtitleMessage").innerHTML=message.join("");
-  document.querySelectorAll("#subtitleFilters button").forEach(btn=>btn.classList.toggle("active",btn.dataset.filter===subtitleFilter));
-  const searchInput=$("subtitleSearchInput");
-  if(document.activeElement!==searchInput)searchInput.value=subtitleSearchTerm;
-  const term=subtitleSearchTerm.trim().toLowerCase();
-  $("subtitleSearchClear").disabled=!term;
-  const items=subtitleData.items||[];
-  const done=item=>item.status==="added"||item.status==="added_review"||item.status==="has_swedish";
-  const matchStatus=item=>{
-    if(subtitleFilter==="all")return true;
-    if(subtitleFilter==="added")return item.status==="added"||item.status==="added_review";
-    if(subtitleFilter==="no_external")return !item.has_external_subtitle&&!done(item);
-    if(subtitleFilter==="has_external")return !!item.has_external_subtitle&&!done(item);
-    return item.status===subtitleFilter;
-  };
-  const filtered=items.filter(item=>matchStatus(item)&&(!term||(item.video_path+" "+item.folder_name+" "+item.title+" "+item.drive_id).toLowerCase().includes(term)));
-  const pageSize=20,pages=Math.max(1,Math.ceil(filtered.length/pageSize));
-  subtitlePage=Math.min(subtitlePage,pages-1);
-  const page=filtered.slice(subtitlePage*pageSize,(subtitlePage+1)*pageSize);
-  $("subtitleList").innerHTML=page.length?page.map(subtitleRow).join(""):'<div class="small" style="margin-top:12px">No movies in this filter. Scan the remote movie libraries first.</div>';
-  $("subtitlePagination").innerHTML=filtered.length?'<button '+(subtitlePage===0?"disabled":"")+' onclick="subtitlePage--;renderSubtitles()">Previous</button><span class="small">Page '+(subtitlePage+1)+" of "+pages+" · "+filtered.length+' movies</span><button '+(subtitlePage>=pages-1?"disabled":"")+' onclick="subtitlePage++;renderSubtitles()">Next</button>':"";
-  renderSubtitleDetail();
-}
-function renderSubtitleDetail(){
-  const box=$("subtitleDetail");
-  const item=subtitleData&&subtitleData.open_item;
-  if(!item){box.classList.add("hidden");box.innerHTML="";return}
-  box.classList.remove("hidden");
-  const attempts=(subtitleData.attempts||[]).slice().reverse().map(a=>{
-    let line=esc(a.at||"")+' · '+esc(a.status)+' · file '+a.file_id+(a.release?' · '+esc(a.release):"")+(a.metrics?' · '+esc(subtitleMetricsText(a.metrics)):"");
-    if(a.detail)line+='<div class="mono">'+esc(a.detail)+'</div>';
-    return '<div class="small">'+line+'</div>';
-  }).join("");
-  const candidates=(subtitleData.candidates||[]).slice(0,10).map(c=>{
-    let line='#'+c.rank+' · score '+Number(c.score||0).toFixed(0)+' · '+esc(c.category||"")+(c.safe?" · safe":" · unsafe")+' · '+esc(c.release||"");
-    if(c.reasons&&c.reasons.length)line+='<div class="mono">'+esc(c.reasons.join("; "))+'</div>';
-    return '<div class="small">'+line+'</div>';
-  }).join("");
-  let html='<div class="companion-toolbar"><div><h2 style="margin-bottom:4px">'+esc(item.folder_name)+'</h2><div class="small mono">'+esc(item.video_path)+'</div></div><div class="actions" style="margin-top:0"><button onclick="closeSubtitleItem()">Close</button></div></div>';
-  html+='<div class="small">Status: '+esc(subtitleStatusLabel(item))+' · reference: '+esc(subtitleReferenceText(item))+'</div>';
-  if(item.output_path)html+='<div class="small mono">Output: '+esc(item.output_path)+'</div>';
-  if(item.metrics)html+='<div class="small">'+esc(subtitleMetricsText(item.metrics))+'</div>';
-  if(item.work_dir)html+='<div class="small mono">Work: '+esc(item.work_dir)+'</div>';
-  const external=(item.external_subtitles||[]).map(sub=>esc(sub.file_name)+(sub.language?" ("+esc(sub.language)+")":"")+(sub.usable?"":" [unusable]")).join(", ");
-  if(external)html+='<div class="small">External subtitle files: '+external+'</div>';
-  const embedded=(item.embedded_sub_streams||[]).map(stream=>"#"+stream.index+" "+esc(stream.codec)+(stream.language?" ("+esc(stream.language)+")":"")+(stream.usable?"":" [image]")).join(", ");
-  if(embedded)html+='<div class="small">Embedded subtitle streams: '+embedded+'</div>';
-  if(item.error)html+='<div class="errbox">'+esc(item.error)+'</div>';
-  html+='<h3 style="margin-top:14px">Attempts</h3>'+(attempts||'<div class="small">No attempts yet.</div>');
-  html+='<h3 style="margin-top:14px">Candidates</h3>'+(candidates||'<div class="small">No cached candidates yet.</div>');
-  box.innerHTML=html;
-}
-function openSubtitleItem(id){subtitlePage=Math.min(subtitlePage,subtitlePage);loadSubtitles(id)}
-function closeSubtitleItem(){openSubtitle="";loadSubtitles("")}
-function setSubtitleFilter(filter){subtitleFilter=filter;subtitlePage=0;renderSubtitles()}
-function setSubtitleSearch(value){subtitleSearchTerm=value;subtitlePage=0;renderSubtitles()}
-function clearSubtitleSearch(){subtitleSearchTerm="";subtitlePage=0;renderSubtitles();$("subtitleSearchInput").focus()}
-async function scanSubtitles(){
-  const button=$("subtitleScanButton");
-  button.disabled=true;button.innerHTML='<span class="approval-spinner" aria-hidden="true"></span>Scanning…';
-  try{subtitleData=await postJSON("/api/subtitles/scan",{});renderSubtitles();loadSubtitles()}
-  catch(e){alert(e.message)}
-  finally{if(button.isConnected){button.disabled=false;button.textContent="Scan remote movies"}}
-}
-async function runSubtitles(){
-  try{await postJSON("/api/subtitles/run",{});loadSubtitles()}
-  catch(e){alert(e.message)}
-}
-async function cancelSubtitleJob(){
-  try{await postJSON("/api/subtitles/run/cancel",{});loadSubtitles()}
-  catch(e){alert(e.message)}
-}
-async function clearSubtitleWork(){
-  if(!confirm("Delete the downloaded and aligned work files under the work directory? Movies and installed subtitles are not touched."))return;
-  try{const response=await postJSON("/api/subtitles/work/clear",{});subtitleData=response.view||subtitleData;renderSubtitles();alert("Removed "+response.removed+" work folder(s).")}
-  catch(e){alert(e.message)}
-}
-async function saveSubtitleSettings(){
-  const body={run_batch_size:Number($("subtitleBatchSize").value),request_interval_ms:Number($("subtitleInterval").value),max_candidates:Number($("subtitleCandidates").value)};
-  try{subtitleData=await patchJSON("/api/subtitles/settings",body);renderSubtitles()}
-  catch(e){alert(e.message)}
-}
-async function runSubtitleItem(id,button){
-  button.disabled=true;button.innerHTML='<span class="approval-spinner" aria-hidden="true"></span>Running…';
-  try{await postJSON("/api/subtitles/"+encodeURIComponent(id)+"/run",{});loadSubtitles(id)}
-  catch(e){alert(e.message)}
-  finally{if(button.isConnected){button.disabled=false;button.textContent="Run"}}
-}
-async function retrySubtitleItem(id,button){
-  button.disabled=true;button.innerHTML='<span class="approval-spinner" aria-hidden="true"></span>Retrying…';
-  try{await postJSON("/api/subtitles/"+encodeURIComponent(id)+"/retry",{});loadSubtitles(id)}
-  catch(e){alert(e.message)}
-  finally{if(button.isConnected){button.disabled=false;button.textContent="Retry with more candidates"}}
-}
-async function skipSubtitleItem(id,button){
-  button.disabled=true;
-  try{const response=await postJSON("/api/subtitles/"+encodeURIComponent(id)+"/skip",{});subtitleData=response;renderSubtitles()}
-  catch(e){alert(e.message);button.disabled=false}
-}
-loadStatus();loadHistory();refresh();
+    loadStatus();loadHistory();refresh();
   }catch(e){
     $("loginErr").textContent=e.message;
     $("loginErr").classList.remove("hidden");
@@ -1419,6 +1226,199 @@ async function loadHistory(){
   }catch(e){}
 }
 
+// ---- subtitles ----
+let subtitleData=null;
+let subtitleFilter="pending";
+let subtitleSearchTerm="";
+let subtitlePage=0;
+let subtitlePoll=null;
+let openSubtitle="";
+
+function subtitleStatusLabel(item){
+  const labels={pending:"needs subtitles",has_swedish:"has Swedish",processing:"processing",downloading:"downloading",syncing:"syncing",added:"added",added_review:"added (review)",needs_review:"needs review",no_match:"no match",no_reference:"no reference",failed:"failed",skipped:"skipped"};
+  return labels[item.status]||item.status||"pending";
+}
+function subtitleStatusClass(item){
+  if(item.status==="added"||item.status==="has_swedish")return "ok";
+  if(item.status==="failed"||item.status==="no_reference")return "err";
+  if(item.status==="needs_review"||item.status==="added_review"||item.status==="processing"||item.status==="downloading"||item.status==="syncing")return "warn";
+  return "";
+}
+function subtitleReferenceText(item){
+  if(item.reference_kind==="external")return "external "+(item.reference_lang||"unknown")+" subtitle";
+  if(item.reference_kind==="embedded")return "embedded "+((item.reference_lang||"unknown"))+" stream #"+item.reference_stream;
+  return "not chosen yet";
+}
+function subtitleExternalText(item){
+  const subs=item.external_subtitles||[];
+  const usable=subs.filter(sub=>sub.usable);
+  if(usable.length)return "external SRT: "+usable.map(sub=>sub.file_name).join(", ");
+  if(subs.length)return "only unusable external subs ("+subs.map(sub=>sub.file_name).join(", ")+")";
+  return "no external SRT - reference extracted from the video";
+}
+function subtitleMetricsText(metrics){
+  if(!metrics)return "";
+  const pct=Math.round((metrics.within_2s||0)*100);
+  return pct+"% within 2s · p90 "+(metrics.p90||0).toFixed(2)+"s · gaps "+(metrics.start_gap_minutes||0).toFixed(1)+"/"+(metrics.end_gap_minutes||0).toFixed(1)+"m · overrun "+(metrics.overrun_minutes||0).toFixed(1)+"m · score "+(metrics.score||0).toFixed(0);
+}
+function subtitleRow(item){
+  const actions=[];
+  if(item.status!=="added"&&item.status!=="has_swedish"&&item.status!=="skipped"){
+    if(item.status==="pending")actions.push('<button class="primary" data-id="'+esc(item.id)+'" onclick="runSubtitleItem(this.dataset.id,this)">Run</button>');
+    else actions.push('<button data-id="'+esc(item.id)+'" onclick="runSubtitleItem(this.dataset.id,this)">Run again</button>');
+  }
+  if(item.status==="needs_review"||item.status==="failed"||item.status==="no_match"||item.status==="added_review"){
+    actions.push('<button data-id="'+esc(item.id)+'" onclick="retrySubtitleItem(this.dataset.id,this)">Retry with more candidates</button>');
+  }
+  if(item.status!=="skipped"&&item.status!=="added"&&item.status!=="has_swedish"){
+    actions.push('<button data-id="'+esc(item.id)+'" onclick="skipSubtitleItem(this.dataset.id,this)">Skip</button>');
+  }
+  actions.push('<button data-id="'+esc(item.id)+'" onclick="openSubtitleItem(this.dataset.id)">Details</button>');
+  const langs=item.existing_sub_languages||[];
+  const voice=item.swedish_sources&&item.swedish_sources.length?' · Swedish: '+esc(item.swedish_sources.join(", ")):"";
+  const error=item.error?'<div class="hardlink-reason">'+esc(item.error)+'</div>':"";
+  const output=item.output_path?'<div class="small mono">'+esc(item.output_path)+'</div>':"";
+  const metrics=item.metrics?'<div class="small">'+esc(subtitleMetricsText(item.metrics))+'</div>':"";
+  let html='<article class="hardlink-card"><div class="hardlink-card-head"><div class="hardlink-heading">';
+  html+='<div class="hardlink-title-line"><span class="hardlink-type">'+esc(item.folder_name)+'</span></div>';
+  html+='<div class="hardlink-meta">'+esc(item.drive_id)+' · '+esc(item.title||"")+(item.year?" ("+item.year+")":"")+' · '+esc(subtitleReferenceText(item))+'</div>';
+  html+='<div class="small mono">'+esc(item.video_path)+'</div>';
+  html+='<div class="small">Languages: '+esc(langs.length?langs.join(", "):"none detected")+voice+'</div>';
+  html+='<div class="small">'+esc(subtitleExternalText(item))+'</div>';
+  html+=output+metrics+'</div><div class="hardlink-card-actions"><span class="badge '+subtitleStatusClass(item)+'">'+esc(subtitleStatusLabel(item))+'</span>'+actions.join("")+'</div></div>'+error+'</article>';
+  return html;
+}
+async function loadSubtitles(openId){
+  if(openId!==undefined)openSubtitle=openId||"";
+  try{
+    const query=openSubtitle?("?open="+encodeURIComponent(openSubtitle)):"";
+    subtitleData=await api("/api/subtitles"+query);
+    renderSubtitles();
+    clearTimeout(subtitlePoll);
+    if(subtitleData.batch&&subtitleData.batch.running)subtitlePoll=setTimeout(()=>loadSubtitles(),2500);
+  }catch(e){$("subtitleMessage").innerHTML='<div class="errbox">'+esc(e.message)+"</div>"}
+}
+function renderSubtitles(){
+  if(!subtitleData)return;
+  const settings=subtitleData.settings||{};
+  if(document.activeElement!==$("subtitleBatchSize"))$("subtitleBatchSize").value=settings.run_batch_size||20;
+  if(document.activeElement!==$("subtitleInterval"))$("subtitleInterval").value=settings.request_interval_ms||400;
+  if(document.activeElement!==$("subtitleCandidates"))$("subtitleCandidates").value=settings.max_candidates||5;
+  $("subtitleSettingsNote").textContent="alass split penalty "+settings.alass_split_penalty+" · quota reserve "+settings.quota_reserve;
+  const stats=subtitleData.stats||{};
+  $("subtitleStats").innerHTML=[
+    [stats.total,"Remote movies"],[stats.pending,"Needs subtitles"],[stats.no_external_subtitle,"No external SRT"],[stats.with_external_subtitle,"Has external SRT"],[stats.added,"Added"],[stats.needs_review,"Needs review"],[stats.no_match,"No match"],[stats.no_reference,"No reference"],[stats.has_swedish,"Has Swedish"],[stats.failed,"Failed"],[stats.skipped,"Skipped"]
+  ].map(x=>'<div class="companion-stat"><strong>'+x[0]+"</strong><span>"+x[1]+"</span></div>").join("");
+  const quota=subtitleData.quota||{};
+  const quotaText=quota.known?("OpenSubtitles downloads left: "+quota.remaining+(quota.reset_at?(" (resets "+esc(quota.reset_at)+")"):"")):"OpenSubtitles quota: not checked yet";
+  const b=subtitleData.batch||{};
+  const progress=b.running?((b.kind==="scan"?"Scanning":"Processing")+" "+b.done+" / "+b.total+(b.current?" — "+esc(b.current):"")):(b.canceled?"Last job canceled after "+b.done+" / "+b.total:(b.error||quotaText));
+  $("subtitleProgress").textContent=progress;
+  $("subtitleRunButton").disabled=!!b.running;
+  $("subtitleScanButton").disabled=!!b.running;
+  $("subtitleCancelButton").classList.toggle("hidden",!b.running);
+  const message=[];
+  if(subtitleData.state_error)message.push('<div class="errbox">'+esc(subtitleData.state_error)+"</div>");
+  else if(subtitleData.feature_error)message.push('<div class="small">Feature lookup: '+esc(subtitleData.feature_error)+"</div>");
+  $("subtitleMessage").innerHTML=message.join("");
+  document.querySelectorAll("#subtitleFilters button").forEach(btn=>btn.classList.toggle("active",btn.dataset.filter===subtitleFilter));
+  const searchInput=$("subtitleSearchInput");
+  if(document.activeElement!==searchInput)searchInput.value=subtitleSearchTerm;
+  const term=subtitleSearchTerm.trim().toLowerCase();
+  $("subtitleSearchClear").disabled=!term;
+  const items=subtitleData.items||[];
+  const done=item=>item.status==="added"||item.status==="added_review"||item.status==="has_swedish";
+  const matchStatus=item=>{
+    if(subtitleFilter==="all")return true;
+    if(subtitleFilter==="added")return item.status==="added"||item.status==="added_review";
+    if(subtitleFilter==="no_external")return !item.has_external_subtitle&&!done(item);
+    if(subtitleFilter==="has_external")return !!item.has_external_subtitle&&!done(item);
+    return item.status===subtitleFilter;
+  };
+  const filtered=items.filter(item=>matchStatus(item)&&(!term||(item.video_path+" "+item.folder_name+" "+item.title+" "+item.drive_id).toLowerCase().includes(term)));
+  const pageSize=20,pages=Math.max(1,Math.ceil(filtered.length/pageSize));
+  subtitlePage=Math.min(subtitlePage,pages-1);
+  const page=filtered.slice(subtitlePage*pageSize,(subtitlePage+1)*pageSize);
+  $("subtitleList").innerHTML=page.length?page.map(subtitleRow).join(""):'<div class="small" style="margin-top:12px">No movies in this filter. Scan the remote movie libraries first.</div>';
+  $("subtitlePagination").innerHTML=filtered.length?'<button '+(subtitlePage===0?"disabled":"")+' onclick="subtitlePage--;renderSubtitles()">Previous</button><span class="small">Page '+(subtitlePage+1)+" of "+pages+" · "+filtered.length+' movies</span><button '+(subtitlePage>=pages-1?"disabled":"")+' onclick="subtitlePage++;renderSubtitles()">Next</button>':"";
+  renderSubtitleDetail();
+}
+function renderSubtitleDetail(){
+  const box=$("subtitleDetail");
+  const item=subtitleData&&subtitleData.open_item;
+  if(!item){box.classList.add("hidden");box.innerHTML="";return}
+  box.classList.remove("hidden");
+  const attempts=(subtitleData.attempts||[]).slice().reverse().map(a=>{
+    let line=esc(a.at||"")+' · '+esc(a.status)+' · file '+a.file_id+(a.release?' · '+esc(a.release):"")+(a.metrics?' · '+esc(subtitleMetricsText(a.metrics)):"");
+    if(a.detail)line+='<div class="mono">'+esc(a.detail)+'</div>';
+    return '<div class="small">'+line+'</div>';
+  }).join("");
+  const candidates=(subtitleData.candidates||[]).slice(0,10).map(c=>{
+    let line='#'+c.rank+' · score '+Number(c.score||0).toFixed(0)+' · '+esc(c.category||"")+(c.safe?" · safe":" · unsafe")+' · '+esc(c.release||"");
+    if(c.reasons&&c.reasons.length)line+='<div class="mono">'+esc(c.reasons.join("; "))+'</div>';
+    return '<div class="small">'+line+'</div>';
+  }).join("");
+  let html='<div class="companion-toolbar"><div><h2 style="margin-bottom:4px">'+esc(item.folder_name)+'</h2><div class="small mono">'+esc(item.video_path)+'</div></div><div class="actions" style="margin-top:0"><button onclick="closeSubtitleItem()">Close</button></div></div>';
+  html+='<div class="small">Status: '+esc(subtitleStatusLabel(item))+' · reference: '+esc(subtitleReferenceText(item))+'</div>';
+  if(item.output_path)html+='<div class="small mono">Output: '+esc(item.output_path)+'</div>';
+  if(item.metrics)html+='<div class="small">'+esc(subtitleMetricsText(item.metrics))+'</div>';
+  if(item.work_dir)html+='<div class="small mono">Work: '+esc(item.work_dir)+'</div>';
+  const external=(item.external_subtitles||[]).map(sub=>esc(sub.file_name)+(sub.language?" ("+esc(sub.language)+")":"")+(sub.usable?"":" [unusable]")).join(", ");
+  if(external)html+='<div class="small">External subtitle files: '+external+'</div>';
+  const embedded=(item.embedded_sub_streams||[]).map(stream=>"#"+stream.index+" "+esc(stream.codec)+(stream.language?" ("+esc(stream.language)+")":"")+(stream.usable?"":" [image]")).join(", ");
+  if(embedded)html+='<div class="small">Embedded subtitle streams: '+embedded+'</div>';
+  if(item.error)html+='<div class="errbox">'+esc(item.error)+'</div>';
+  html+='<h3 style="margin-top:14px">Attempts</h3>'+(attempts||'<div class="small">No attempts yet.</div>');
+  html+='<h3 style="margin-top:14px">Candidates</h3>'+(candidates||'<div class="small">No cached candidates yet.</div>');
+  box.innerHTML=html;
+}
+function openSubtitleItem(id){subtitlePage=Math.min(subtitlePage,subtitlePage);loadSubtitles(id)}
+function closeSubtitleItem(){openSubtitle="";loadSubtitles("")}
+function setSubtitleFilter(filter){subtitleFilter=filter;subtitlePage=0;renderSubtitles()}
+function setSubtitleSearch(value){subtitleSearchTerm=value;subtitlePage=0;renderSubtitles()}
+function clearSubtitleSearch(){subtitleSearchTerm="";subtitlePage=0;renderSubtitles();$("subtitleSearchInput").focus()}
+async function scanSubtitles(){
+  const button=$("subtitleScanButton");
+  button.disabled=true;button.innerHTML='<span class="approval-spinner" aria-hidden="true"></span>Scanning…';
+  try{subtitleData=await postJSON("/api/subtitles/scan",{});renderSubtitles();loadSubtitles()}
+  catch(e){alert(e.message)}
+  finally{if(button.isConnected){button.disabled=false;button.textContent="Scan remote movies"}}
+}
+async function runSubtitles(){
+  try{await postJSON("/api/subtitles/run",{});loadSubtitles()}
+  catch(e){alert(e.message)}
+}
+async function cancelSubtitleJob(){
+  try{await postJSON("/api/subtitles/run/cancel",{});loadSubtitles()}
+  catch(e){alert(e.message)}
+}
+async function clearSubtitleWork(){
+  if(!confirm("Delete the downloaded and aligned work files under the work directory? Movies and installed subtitles are not touched."))return;
+  try{const response=await postJSON("/api/subtitles/work/clear",{});subtitleData=response.view||subtitleData;renderSubtitles();alert("Removed "+response.removed+" work folder(s).")}
+  catch(e){alert(e.message)}
+}
+async function saveSubtitleSettings(){
+  const body={run_batch_size:Number($("subtitleBatchSize").value),request_interval_ms:Number($("subtitleInterval").value),max_candidates:Number($("subtitleCandidates").value)};
+  try{subtitleData=await patchJSON("/api/subtitles/settings",body);renderSubtitles()}
+  catch(e){alert(e.message)}
+}
+async function runSubtitleItem(id,button){
+  button.disabled=true;button.innerHTML='<span class="approval-spinner" aria-hidden="true"></span>Running…';
+  try{await postJSON("/api/subtitles/"+encodeURIComponent(id)+"/run",{});loadSubtitles(id)}
+  catch(e){alert(e.message)}
+  finally{if(button.isConnected){button.disabled=false;button.textContent="Run"}}
+}
+async function retrySubtitleItem(id,button){
+  button.disabled=true;button.innerHTML='<span class="approval-spinner" aria-hidden="true"></span>Retrying…';
+  try{await postJSON("/api/subtitles/"+encodeURIComponent(id)+"/retry",{});loadSubtitles(id)}
+  catch(e){alert(e.message)}
+  finally{if(button.isConnected){button.disabled=false;button.textContent="Retry with more candidates"}}
+}
+async function skipSubtitleItem(id,button){
+  button.disabled=true;
+  try{const response=await postJSON("/api/subtitles/"+encodeURIComponent(id)+"/skip",{});subtitleData=response;renderSubtitles()}
+  catch(e){alert(e.message);button.disabled=false}
+}
 loadStatus();loadHistory();refresh();
 setInterval(loadStatus,30000);
 </script>
