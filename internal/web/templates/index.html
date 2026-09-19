@@ -385,6 +385,7 @@ input[type=number]{width:90px}
       <button data-filter="needs_review" onclick="setSubtitleFilter('needs_review')">Needs review</button>
       <button data-filter="no_match" onclick="setSubtitleFilter('no_match')">No match</button>
       <button data-filter="no_external" onclick="setSubtitleFilter('no_external')">No external SRT</button>
+      <button data-filter="not_analyzed" onclick="setSubtitleFilter('not_analyzed')">Not analyzed</button>
       <button data-filter="has_external" onclick="setSubtitleFilter('has_external')">Has external SRT</button>
       <button data-filter="no_reference" onclick="setSubtitleFilter('no_reference')">No reference</button>
       <button data-filter="has_swedish" onclick="setSubtitleFilter('has_swedish')">Has Swedish</button>
@@ -1285,6 +1286,7 @@ function subtitleRow(item){
   html+='<div class="small mono">'+esc(item.video_path)+'</div>';
   html+='<div class="small">Languages: '+esc(langs.length?langs.join(", "):"none detected")+voice+'</div>';
   html+='<div class="small">'+esc(subtitleExternalText(item))+'</div>';
+  if(!item.probed)html+='<div class="small">not analyzed yet - running this movie or rescanning will read its subtitle streams</div>';
   html+=output+metrics+'</div><div class="hardlink-card-actions"><span class="badge '+subtitleStatusClass(item)+'">'+esc(subtitleStatusLabel(item))+'</span>'+actions.join("")+'</div></div>'+error+'</article>';
   return html;
 }
@@ -1307,7 +1309,7 @@ function renderSubtitles(){
   $("subtitleSettingsNote").textContent="alass split penalty "+settings.alass_split_penalty+" · quota reserve "+settings.quota_reserve;
   const stats=subtitleData.stats||{};
   $("subtitleStats").innerHTML=[
-    [stats.total,"Remote movies"],[stats.pending,"Needs subtitles"],[stats.no_external_subtitle,"No external SRT"],[stats.with_external_subtitle,"Has external SRT"],[stats.added,"Added"],[stats.needs_review,"Needs review"],[stats.no_match,"No match"],[stats.no_reference,"No reference"],[stats.has_swedish,"Has Swedish"],[stats.failed,"Failed"],[stats.skipped,"Skipped"]
+    [stats.total,"Remote movies"],[stats.pending,"Needs subtitles"],[stats.no_external_subtitle,"No external SRT"],[stats.with_external_subtitle,"Has external SRT"],[stats.not_analyzed,"Not analyzed"],[stats.added,"Added"],[stats.needs_review,"Needs review"],[stats.no_match,"No match"],[stats.no_reference,"No reference"],[stats.has_swedish,"Has Swedish"],[stats.failed,"Failed"],[stats.skipped,"Skipped"]
   ].map(x=>'<div class="companion-stat"><strong>'+x[0]+"</strong><span>"+x[1]+"</span></div>").join("");
   const quota=subtitleData.quota||{};
   const quotaText=quota.known?("OpenSubtitles downloads left: "+quota.remaining+(quota.reset_at?(" (resets "+esc(quota.reset_at)+")"):"")):"OpenSubtitles quota: not checked yet";
@@ -1332,6 +1334,7 @@ function renderSubtitles(){
     if(subtitleFilter==="all")return true;
     if(subtitleFilter==="added")return item.status==="added"||item.status==="added_review";
     if(subtitleFilter==="no_external")return !item.has_external_subtitle&&!done(item);
+    if(subtitleFilter==="not_analyzed")return !item.probed&&!done(item);
     if(subtitleFilter==="has_external")return !!item.has_external_subtitle&&!done(item);
     return item.status===subtitleFilter;
   };

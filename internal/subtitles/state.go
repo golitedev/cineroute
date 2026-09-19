@@ -85,6 +85,10 @@ type Item struct {
 	Step   string `json:"step,omitempty"`
 	Error  string `json:"error,omitempty"`
 
+	// Probed reports whether the video's subtitle streams have been read. A movie
+	// whose scan ran past the probe budget is queued but not analyzed yet, which
+	// is different from a movie with no subtitle streams at all.
+	Probed               bool                  `json:"probed"`
 	ExistingSubLanguages []string              `json:"existing_sub_languages,omitempty"`
 	ExternalSubtitles    []ExternalSubtitleRef `json:"external_subtitles,omitempty"`
 	EmbeddedSubStreams   []EmbeddedSubtitle    `json:"embedded_sub_streams,omitempty"`
@@ -168,6 +172,9 @@ type Stats struct {
 	// WithExternalSubtitle counts movies still needing subtitles that do have an
 	// external text subtitle to use as the reference.
 	WithExternalSubtitle int `json:"with_external_subtitle"`
+	// NotAnalyzed counts movies still needing subtitles whose subtitle streams
+	// have not been read yet (a scan stopped at the probe budget).
+	NotAnalyzed int `json:"not_analyzed"`
 }
 
 // Canceled produces a cancel error without importing context everywhere.

@@ -16,17 +16,31 @@ import (
 type fakeProber struct {
 	streams   map[string]MediaInfo
 	reference string
+	// byIndex overrides the extracted reference per embedded stream index, so a
+	// test can model a forced/signs-only track next to a full one.
+	byIndex   map[int]string
+	extracted []int
 }
 
 func (f *fakeProber) Probe(_ context.Context, path string) (MediaInfo, error) {
 	if info, ok := f.streams[path]; ok {
+		info.Probed = true
 		return info, nil
 	}
-	return MediaInfo{}, nil
+	// A successfully probed video with no subtitle streams is still "analyzed";
+	// only a failed or skipped probe leaves Probed false.
+	return MediaInfo{Probed: true}, nil
 }
 
-func (f *fakeProber) ExtractSubtitle(_ context.Context, _ string, _ int, outputPath string) error {
-	return os.WriteFile(outputPath, []byte(f.reference), 0o644)
+func (f *fakeProber) ExtractSubtitle(_ context.Context, _ string, index int, outputPath string) error {
+	f.extracted = append(f.extracted, index)
+	content := f.reference
+	if f.byIndex != nil {
+		if override, ok := f.byIndex[index]; ok {
+			content = override
+		}
+	}
+	return os.WriteFile(outputPath, []byte(content), 0o644)
 }
 
 func (f *fakeProber) ConvertToSRT(_ context.Context, inputPath, outputPath string) error {
@@ -167,6 +181,17 @@ func (h *testHarness) addRemoteMovie(t *testing.T, folder, name string) string {
 	return path
 }
 
+// liveItem returns the manager's own item, not the trimmed list snapshot from
+// View(), which omits the embedded stream list on purpose.
+func (h *testHarness) liveItem(t *testing.T, id string) *Item {
+	t.Helper()
+	item := h.manager.itemByID(id)
+	if item == nil {
+		t.Fatalf("item %s is not in the queue", id)
+	}
+	return item
+}
+
 func (h *testHarness) configureEmbeddedEnglish(videoPath string) {
 	h.prober.streams[videoPath] = MediaInfo{
 		DurationMS: 6_000_000,
@@ -201,7 +226,7 @@ func TestScanAndInstallSwedishSubtitle(t *testing.T) {
 	if len(view.Items) != 1 {
 		t.Fatalf("scan produced %d items, want 1", len(view.Items))
 	}
-	item := view.Items[0]
+	item := h.liveItem(t, view.Items[0].ID)
 	if item.Status != StatusPending || item.Title != "Movie" || item.Year != 2019 {
 		t.Fatalf("unexpected item: %+v", item)
 	}
@@ -257,7 +282,7 @@ func TestPipelineUsesExternalSpanishReference(t *testing.T) {
 	if err := h.manager.Scan(context.Background()); err != nil {
 		t.Fatalf("Scan: %v", err)
 	}
-	item := h.manager.View("").Items[0]
+	item := h.liveItem(t, h.manager.View("").Items[0].ID)
 	if _, err := h.manager.processAndPersist(context.Background(), item, runOptions{}); err != nil {
 		t.Fatalf("process: %v", err)
 	}
@@ -278,7 +303,7 @@ func TestPipelineReportsNoReferenceForImageSubtitles(t *testing.T) {
 	if err := h.manager.Scan(context.Background()); err != nil {
 		t.Fatalf("Scan: %v", err)
 	}
-	item := h.manager.View("").Items[0]
+	item := h.liveItem(t, h.manager.View("").Items[0].ID)
 	if _, err := h.manager.processAndPersist(context.Background(), item, runOptions{}); err == nil {
 		t.Fatal("expected an error for image-only subtitles")
 	}
@@ -305,7 +330,7 @@ func TestPipelineStopsAtQuotaReserve(t *testing.T) {
 	if err := h.manager.Scan(context.Background()); err != nil {
 		t.Fatalf("Scan: %v", err)
 	}
-	item := h.manager.View("").Items[0]
+	item := h.liveItem(t, h.manager.View("").Items[0].ID)
 	_, err := h.manager.processAndPersist(context.Background(), item, runOptions{refreshQuota: true})
 	if !errors.Is(err, errQuotaStop) {
 		t.Fatalf("err = %v, want errQuotaStop", err)
@@ -328,7 +353,7 @@ func TestPipelineSkipsExistingSwedishSubtitle(t *testing.T) {
 	if err := h.manager.Scan(context.Background()); err != nil {
 		t.Fatalf("Scan: %v", err)
 	}
-	item := h.manager.View("").Items[0]
+	item := h.liveItem(t, h.manager.View("").Items[0].ID)
 	if item.Status != StatusHasSwedish || !item.HasSwedish {
 		t.Fatalf("item = %+v", item)
 	}
@@ -472,7 +497,11 @@ func TestScanReportsExternalSubtitleAvailability(t *testing.T) {
 	if embedded.HasExternalSubtitle || len(embedded.ExternalSubtitles) != 0 {
 		t.Fatalf("embedded-only movie = %+v", embedded)
 	}
-	if len(embedded.EmbeddedSubStreams) == 0 {
+	if !embedded.Probed {
+		t.Fatal("the embedded-only movie should be analyzed after the scan")
+	}
+	// The list snapshot omits the stream list; the live item carries it.
+	if live := h.liveItem(t, embedded.ID); len(live.EmbeddedSubStreams) == 0 {
 		t.Fatal("embedded subtitle streams were not recorded")
 	}
 
@@ -498,5 +527,110 @@ func TestScanReportsExternalSubtitleAvailability(t *testing.T) {
 	}
 	if got := h.manager.itemByID(embedded.ID); got == nil || got.Status != StatusSkipped {
 		t.Fatalf("skipped status after rescan = %+v", got)
+	}
+}
+
+// TestPipelineProbesUnanalyzedMovieOnDemand covers the scan probe budget: a
+// movie the scan never analyzed must be probed when it is processed, instead of
+// reporting no_reference from missing data.
+func TestPipelineProbesUnanalyzedMovieOnDemand(t *testing.T) {
+	h := newTestHarness(t)
+	h.manager.cfg.ScanBatchSize = 1
+
+	first := h.addRemoteMovie(t, "Analyzed (2019)", "Analyzed.2019.1080p.mkv")
+	h.configureEmbeddedEnglish(first)
+	second := h.addRemoteMovie(t, "Pending Probe (2020)", "Pending.Probe.2020.1080p.mkv")
+	h.configureEmbeddedEnglish(second)
+
+	if err := h.manager.Scan(context.Background()); err != nil {
+		t.Fatalf("Scan: %v", err)
+	}
+	view := h.manager.View("")
+	if len(view.Items) != 2 {
+		t.Fatalf("scan produced %d items, want 2", len(view.Items))
+	}
+	analyzed := map[string]bool{}
+	for _, item := range view.Items {
+		analyzed[item.VideoName] = item.Probed
+	}
+	if !analyzed["Analyzed.2019.1080p.mkv"] {
+		t.Fatal("the first movie should have been probed during the scan")
+	}
+	if analyzed["Pending.Probe.2020.1080p.mkv"] {
+		t.Skip("probe budget did not leave a movie unanalyzed on this filesystem order")
+	}
+	if view.Stats.NotAnalyzed != 1 {
+		t.Fatalf("stats = %+v, want one not-analyzed movie", view.Stats)
+	}
+
+	// Processing the unanalyzed movie probes it and finds the embedded stream.
+	var pending *Item
+	for _, item := range view.Items {
+		if item.VideoName == "Pending.Probe.2020.1080p.mkv" {
+			pending = item
+		}
+	}
+	candidate := swedishCandidate()
+	candidate.Attributes.FeatureDetails.MovieName = "Pending Probe"
+	candidate.Attributes.FeatureDetails.Year = opensubtitles.Intish(2020)
+	candidate.Attributes.Files = []opensubtitles.File{{FileID: opensubtitles.Intish(901), FileName: "Pending.Probe.2020.1080p.sv.srt"}}
+	h.os.items = []opensubtitles.Item{candidate}
+
+	if _, err := h.manager.processAndPersist(context.Background(), pending, runOptions{}); err != nil {
+		t.Fatalf("process: %v", err)
+	}
+	if pending.Status != StatusAdded {
+		t.Fatalf("status = %s (%s), want added", pending.Status, pending.Error)
+	}
+	if pending.ReferenceKind != "embedded" || pending.ReferenceLang != "en" {
+		t.Fatalf("reference = %s/%s, want embedded/en", pending.ReferenceKind, pending.ReferenceLang)
+	}
+	if !pending.Probed {
+		t.Error("the movie should be marked analyzed after the on-demand probe")
+	}
+}
+
+// TestPipelineTriesFurtherReferenceStreams covers a forced/signs-only embedded
+// track: the pipeline must reject it and fall through to the next usable stream
+// instead of reporting no_reference for the whole movie.
+func TestPipelineTriesFurtherReferenceStreams(t *testing.T) {
+	h := newTestHarness(t)
+	h.manager.cfg.MinReferenceCues = 2
+
+	video := h.addRemoteMovie(t, "Signs Then Full (2018)", "Signs.Then.Full.2018.1080p.mkv")
+	h.prober.streams[video] = MediaInfo{
+		DurationMS: 6_000_000,
+		Streams: []EmbeddedSubtitle{
+			{Index: 2, Codec: "subrip", Language: "en", Forced: true, Usable: true},
+			{Index: 3, Codec: "subrip", Language: "es", Usable: true},
+		},
+	}
+	// The forced English track extracts to a single sign cue, the Spanish track is
+	// a full subtitle.
+	h.prober.byIndex = map[int]string{
+		2: "1\n00:00:01,000 --> 00:00:02,000\n[signs]\n",
+		3: referenceSRT,
+	}
+	candidate := swedishCandidate()
+	candidate.Attributes.FeatureDetails.MovieName = "Signs Then Full"
+	candidate.Attributes.FeatureDetails.Year = opensubtitles.Intish(2018)
+	candidate.Attributes.Files = []opensubtitles.File{{FileID: opensubtitles.Intish(902), FileName: "Signs.Then.Full.2018.1080p.sv.srt"}}
+	h.os.items = []opensubtitles.Item{candidate}
+
+	if err := h.manager.Scan(context.Background()); err != nil {
+		t.Fatalf("Scan: %v", err)
+	}
+	item := h.liveItem(t, h.manager.View("").Items[0].ID)
+	if _, err := h.manager.processAndPersist(context.Background(), item, runOptions{}); err != nil {
+		t.Fatalf("process: %v", err)
+	}
+	if item.Status != StatusAdded {
+		t.Fatalf("status = %s (%s), want added", item.Status, item.Error)
+	}
+	if item.ReferenceStream != 3 || item.ReferenceLang != "es" {
+		t.Fatalf("reference = stream %d/%s, want the Spanish stream 3", item.ReferenceStream, item.ReferenceLang)
+	}
+	if len(h.prober.extracted) != 2 {
+		t.Fatalf("expected both streams to be tried, extracted=%v", h.prober.extracted)
 	}
 }

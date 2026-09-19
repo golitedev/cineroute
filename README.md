@@ -310,6 +310,15 @@ the reference must be extracted from an embedded stream — the **No external
 SRT** / **Has external SRT** filters and the header counters split those two
 groups.
 
+The scan analyzes each video's subtitle streams and caches the result by
+path+size+mtime, so later scans are quick. With the default
+`scan_batch_size: 0` every video is analyzed in the first scan; if you cap it,
+movies that were not reached yet are marked **Not analyzed** and are probed on
+demand when you run them, so an incomplete scan never produces a false "no
+reference". When a movie is processed, every usable reference is tried in order
+(external `en`/`es` files, then embedded streams, forced/signs-only tracks
+last), so one unusable track does not abandon the movie.
+
 **Add Swedish subtitles** processes the next batch; every row can also be run,
 retried with more candidates (up to 20), skipped or reset on its own. **Skip**
 removes a movie from the work queue and it stays skipped across rescans until

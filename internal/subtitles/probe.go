@@ -17,6 +17,9 @@ import (
 type MediaInfo struct {
 	Streams    []EmbeddedSubtitle
 	DurationMS int64
+	// Probed is true when the video was actually read, even if it contains no
+	// subtitle streams at all.
+	Probed bool
 }
 
 // Prober probes video files and extracts or normalizes subtitle files.
@@ -125,6 +128,7 @@ func (p ExecProber) Probe(ctx context.Context, path string) (MediaInfo, error) {
 			Usable:   !imageSubtitleCodecs[codec],
 		})
 	}
+	info.Probed = true
 	if duration, err := strconv.ParseFloat(strings.TrimSpace(parsed.Format.Duration), 64); err == nil && duration > 0 {
 		info.DurationMS = int64(duration * 1000)
 	}

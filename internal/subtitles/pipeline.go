@@ -55,6 +55,24 @@ func (m *Manager) processItem(ctx context.Context, item *Item, opts runOptions) 
 	if err != nil {
 		return StatusFailed, fmt.Errorf("read movie folder: %w", err)
 	}
+
+	// A scan only probes up to scan_batch_size videos per run, so a movie can be
+	// queued without ever being analyzed. Probe it here instead of reporting
+	// "no reference" from missing data.
+	if !item.Probed {
+		m.setStage(item, "probe", StatusProcessing)
+		slog.Info("subtitles: probing movie on demand", "id", item.ID, "video", item.VideoPath)
+		info, probeErr := m.prober.Probe(ctx, item.VideoPath)
+		if probeErr != nil {
+			return StatusFailed, fmt.Errorf("probe video: %w", probeErr)
+		}
+		item.EmbeddedSubStreams = info.Streams
+		item.DurationMS = info.DurationMS
+		item.Probed = true
+		item.ExistingSubLanguages = mergeLanguages(external, info.Streams)
+		slog.Info("subtitles: movie analyzed", "id", item.ID, "embedded_streams", len(info.Streams), "duration_ms", info.DurationMS)
+	}
+
 	if swedish, sources := hasSwedishSubtitle(target, external, item.EmbeddedSubStreams); swedish {
 		item.HasSwedish = true
 		item.SwedishSources = sources
@@ -76,45 +94,70 @@ func (m *Manager) processItem(ctx context.Context, item *Item, opts runOptions) 
 		return StatusHasSwedish, nil
 	}
 
-	choice := ChooseReference(item, external, m.cfg.ReferenceLanguages)
-	if choice == nil {
-		slog.Warn("subtitles: no usable reference subtitle",
-			"id", item.ID, "video", item.VideoPath,
-			"external_subtitles", len(item.ExternalSubtitles),
-			"embedded_streams", len(item.EmbeddedSubStreams))
-		return StatusNoReference, errors.New("no text subtitle or embedded text stream can be used as a reference; only image-based subtitles were found")
-	}
-	slog.Info("subtitles: reference chosen",
-		"id", item.ID,
-		"kind", choice.Kind,
-		"language", choice.Lang,
-		"stream", choice.Stream,
-		"path", choice.Path)
-	item.ReferenceKind = choice.Kind
-	item.ReferenceLang = choice.Lang
-	item.ReferenceStream = choice.Stream
-	item.ReferencePath = choice.Path
-
 	workDir := m.itemWorkDir(item.ID)
 	if err := os.MkdirAll(workDir, 0o755); err != nil {
 		return StatusFailed, fmt.Errorf("create work directory: %w", err)
 	}
 	item.WorkDir = workDir
-
-	m.setStage(item, "reference", StatusProcessing)
 	referencePath := filepath.Join(workDir, "reference.srt")
-	if err := m.materializeReference(ctx, item, choice, referencePath); err != nil {
-		return StatusNoReference, err
+
+	choices := RankReferences(item, external, m.cfg.ReferenceLanguages)
+	if len(choices) == 0 {
+		slog.Warn("subtitles: no usable reference subtitle",
+			"id", item.ID, "video", item.VideoPath,
+			"probed", item.Probed,
+			"external_subtitles", len(item.ExternalSubtitles),
+			"embedded_streams", len(item.EmbeddedSubStreams))
+		return StatusNoReference, errors.New("no text subtitle or embedded text stream can be used as a reference; only image-based subtitles were found")
 	}
-	referenceCues, err := CueTimesFile(referencePath)
-	if err != nil {
-		return StatusNoReference, fmt.Errorf("reference subtitle is not usable: %w", err)
+
+	// Walk every reference candidate: a forced/signs-only track or an empty
+	// extraction must not abandon a movie that has another usable stream.
+	var referenceCues []TimeSpan
+	var referenceErr error
+	for index := range choices {
+		choice := choices[index]
+		m.setStage(item, "reference", StatusProcessing)
+		slog.Info("subtitles: trying reference",
+			"id", item.ID,
+			"candidate", index+1,
+			"of", len(choices),
+			"kind", choice.Kind,
+			"language", choice.Lang,
+			"stream", choice.Stream,
+			"path", choice.Path)
+		_ = os.Remove(referencePath)
+		if err := m.materializeReference(ctx, item, &choice, referencePath); err != nil {
+			slog.Warn("subtitles: reference unusable", "id", item.ID, "kind", choice.Kind, "stream", choice.Stream, "err", err)
+			referenceErr = err
+			continue
+		}
+		cues, err := CueTimesFile(referencePath)
+		if err != nil {
+			slog.Warn("subtitles: reference unreadable", "id", item.ID, "kind", choice.Kind, "stream", choice.Stream, "err", err)
+			referenceErr = fmt.Errorf("reference subtitle is not usable: %w", err)
+			continue
+		}
+		if len(cues) < m.cfg.MinReferenceCues {
+			slog.Warn("subtitles: reference too small", "id", item.ID, "kind", choice.Kind, "stream", choice.Stream, "cues", len(cues), "minimum", m.cfg.MinReferenceCues)
+			referenceErr = fmt.Errorf("reference subtitle has only %d cue(s); too small to align against", len(cues))
+			continue
+		}
+		referenceCues = cues
+		item.ReferenceKind = choice.Kind
+		item.ReferenceLang = choice.Lang
+		item.ReferenceStream = choice.Stream
+		item.ReferencePath = choice.Path
+		slog.Info("subtitles: reference ready",
+			"id", item.ID, "kind", choice.Kind, "language", choice.Lang, "stream", choice.Stream, "cues", len(cues), "path", referencePath)
+		break
 	}
-	if len(referenceCues) < m.cfg.MinReferenceCues {
-		slog.Warn("subtitles: reference too small", "id", item.ID, "cues", len(referenceCues), "minimum", m.cfg.MinReferenceCues)
-		return StatusNoReference, fmt.Errorf("reference subtitle has only %d cue(s); too small to align against", len(referenceCues))
+	if item.ReferenceKind == "" {
+		if referenceErr == nil {
+			referenceErr = errors.New("no usable reference subtitle")
+		}
+		return StatusNoReference, referenceErr
 	}
-	slog.Info("subtitles: reference ready", "id", item.ID, "cues", len(referenceCues), "path", referencePath)
 
 	m.setStage(item, "search", StatusProcessing)
 	candidates, err := m.collectCandidates(ctx, item, referenceCues, opts)

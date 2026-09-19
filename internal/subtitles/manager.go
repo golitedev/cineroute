@@ -415,13 +415,20 @@ func (m *Manager) View(openID string) View {
 		FeatureError:       m.lastFeatureErr,
 	}
 	for _, item := range m.items {
-		view.Items = append(view.Items, copyItem(item))
+		snapshot := copyItem(item)
+		// The embedded stream list can be large (720 movies x several streams) and
+		// the list view never renders it; it is included for the open item below.
+		snapshot.EmbeddedSubStreams = nil
+		view.Items = append(view.Items, snapshot)
 		view.Stats.Total++
 		if stillNeedsWork(item) {
 			if item.HasExternalSubtitle {
 				view.Stats.WithExternalSubtitle++
 			} else {
 				view.Stats.NoExternalSubtitle++
+			}
+			if !item.Probed {
+				view.Stats.NotAnalyzed++
 			}
 		}
 		switch item.Status {
@@ -577,6 +584,7 @@ func (m *Manager) Scan(ctx context.Context) error {
 	slog.Info("subtitles: video files found", "videos", len(videos))
 
 	probed := 0
+	budgetReached := false
 	var updated []*Item
 	seen := map[string]bool{}
 	now := time.Now()
@@ -604,12 +612,14 @@ func (m *Manager) Scan(ctx context.Context) error {
 			existing.VideoMtime == info.ModTime().Unix() && existing.EmbeddedSubStreams != nil
 		switch {
 		case reuse:
-			media = MediaInfo{Streams: existing.EmbeddedSubStreams, DurationMS: existing.DurationMS}
+			media = MediaInfo{Streams: existing.EmbeddedSubStreams, DurationMS: existing.DurationMS, Probed: existing.Probed}
 		case m.cfg.ScanBatchSize > 0 && probed >= m.cfg.ScanBatchSize:
 			// Probe budget for this run is exhausted; keep whatever we already
-			// know and finish this file on a later scan.
+			// know. Movies that were never probed stay marked "not analyzed" and
+			// are probed on demand when they are actually processed.
+			budgetReached = true
 			if existing != nil {
-				media = MediaInfo{Streams: existing.EmbeddedSubStreams, DurationMS: existing.DurationMS}
+				media = MediaInfo{Streams: existing.EmbeddedSubStreams, DurationMS: existing.DurationMS, Probed: existing.Probed}
 			}
 		default:
 			probed++
@@ -673,16 +683,25 @@ func (m *Manager) Scan(ctx context.Context) error {
 		slog.Error("subtitles: cannot save the queue", "err", err)
 		return err
 	}
-	queued := 0
+	queued, notAnalyzed := 0, 0
 	for _, item := range updated {
-		if stillNeedsWork(item) {
-			queued++
+		if !stillNeedsWork(item) {
+			continue
 		}
+		queued++
+		if !item.Probed {
+			notAnalyzed++
+		}
+	}
+	if budgetReached {
+		slog.Warn("subtitles: probe budget reached, some movies are not analyzed yet",
+			"scan_batch_size", m.cfg.ScanBatchSize, "not_analyzed", notAnalyzed)
 	}
 	slog.Info("subtitles: scan finished",
 		"videos", len(videos),
 		"items", len(updated),
 		"needs_subtitles", queued,
+		"not_analyzed", notAnalyzed,
 		"probed", probed,
 		"removed", len(removed),
 		"duration_ms", time.Since(scanStart).Milliseconds())

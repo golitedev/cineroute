@@ -27,7 +27,9 @@ func TestProberWithRealBinaries(t *testing.T) {
 
 	dir := t.TempDir()
 	subtitlePath := filepath.Join(dir, "ref.srt")
-	if err := os.WriteFile(subtitlePath, []byte(referenceSRT), 0o644); err != nil {
+	// Cues inside the generated video's duration, so the muxed stream keeps them.
+	fixtureSRT := "1\n00:00:00,200 --> 00:00:01,000\nHello\n\n2\n00:00:01,200 --> 00:00:01,900\nWorld\n\n"
+	if err := os.WriteFile(subtitlePath, []byte(fixtureSRT), 0o644); err != nil {
 		t.Fatalf("write subtitle fixture: %v", err)
 	}
 	videoPath := filepath.Join(dir, "Sample.2019.1080p.WEB-DL.mkv")
@@ -35,7 +37,7 @@ func TestProberWithRealBinaries(t *testing.T) {
 	// A tiny real video with one embedded SubRip stream tagged "eng".
 	build := exec.Command(ffmpeg,
 		"-v", "error", "-y",
-		"-f", "lavfi", "-i", "testsrc=duration=2:size=128x72:rate=5",
+		"-f", "lavfi", "-i", "testsrc=duration=3:size=128x72:rate=5",
 		"-f", "srt", "-i", subtitlePath,
 		"-map", "0:v", "-map", "1:0",
 		"-c:v", "mpeg4", "-c:s", "srt",

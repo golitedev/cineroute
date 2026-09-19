@@ -63,8 +63,10 @@ subtitles:
   ffmpeg_path: "ffmpeg"
   ffprobe_path: "ffprobe"
   alass_path: "alass"
-  # Files probed per scan run (0 = no cap). Probed results are cached.
-  scan_batch_size: 200
+  # Videos analyzed per scan run (0 = no cap, the default). Probed results are
+  # cached by path+size+mtime, and any movie that was not analyzed yet is probed
+  # on demand when it is processed.
+  scan_batch_size: 0
   # Movies processed per "Add Swedish subtitles" run.
   run_batch_size: 20
   # Delay between OpenSubtitles API calls (searches do not use download quota).

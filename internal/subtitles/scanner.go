@@ -120,29 +120,60 @@ func languageFromSuffixParts(parts []string) string {
 	return ""
 }
 
-// ChooseReference picks the timing reference with the precedence the manual
-// workflow used: per preferred language, an external subtitle first, then an
-// embedded stream; then any external subtitle; then any usable embedded stream.
-func ChooseReference(item *Item, external []externalSubtitle, referenceLanguages []string) *referenceChoice {
+// RankReferences returns every usable timing reference for a movie in the order
+// the manual workflow preferred them: per preferred language an external
+// subtitle first and then an embedded stream, then any external subtitle, then
+// the remaining embedded streams with non-forced tracks ahead of forced ones.
+// The pipeline walks the list so one unusable stream (a forced/signs-only track,
+// an empty extract) does not abandon the whole movie.
+func RankReferences(item *Item, external []externalSubtitle, referenceLanguages []string) []referenceChoice {
+	var out []referenceChoice
+	seen := map[string]bool{}
+	add := func(choice referenceChoice) {
+		key := choice.Kind + "|" + choice.Lang + "|" + itoa(choice.Stream) + "|" + choice.Path
+		if seen[key] {
+			return
+		}
+		seen[key] = true
+		out = append(out, choice)
+	}
 	for _, lang := range referenceLanguages {
 		for _, sub := range external {
 			if sub.Usable && sub.Language == lang {
-				return &referenceChoice{Kind: "external", Lang: lang, Stream: -1, Path: sub.Path}
+				add(referenceChoice{Kind: "external", Lang: lang, Stream: -1, Path: sub.Path})
 			}
 		}
 		if stream, ok := bestEmbeddedStream(item.EmbeddedSubStreams, lang); ok {
-			return &referenceChoice{Kind: "embedded", Lang: stream.Language, Stream: stream.Index}
+			add(referenceChoice{Kind: "embedded", Lang: stream.Language, Stream: stream.Index})
 		}
 	}
 	for _, sub := range external {
 		if sub.Usable {
-			return &referenceChoice{Kind: "external", Lang: sub.Language, Stream: -1, Path: sub.Path}
+			add(referenceChoice{Kind: "external", Lang: sub.Language, Stream: -1, Path: sub.Path})
 		}
 	}
-	if stream, ok := bestEmbeddedStream(item.EmbeddedSubStreams, ""); ok {
-		return &referenceChoice{Kind: "embedded", Lang: stream.Language, Stream: stream.Index}
+	for _, stream := range item.EmbeddedSubStreams {
+		if stream.Usable && !stream.Forced {
+			add(referenceChoice{Kind: "embedded", Lang: stream.Language, Stream: stream.Index})
+		}
 	}
-	return nil
+	for _, stream := range item.EmbeddedSubStreams {
+		if stream.Usable && stream.Forced {
+			add(referenceChoice{Kind: "embedded", Lang: stream.Language, Stream: stream.Index})
+		}
+	}
+	return out
+}
+
+// ChooseReference returns the first ranked reference, or nil when the movie has
+// no usable reference at all.
+func ChooseReference(item *Item, external []externalSubtitle, referenceLanguages []string) *referenceChoice {
+	choices := RankReferences(item, external, referenceLanguages)
+	if len(choices) == 0 {
+		return nil
+	}
+	first := choices[0]
+	return &first
 }
 
 // bestEmbeddedStream returns the first usable embedded stream for a language,
@@ -241,18 +272,7 @@ func applyScanResult(existing *Item, driveID, root, folderName, videoPath string
 			hasExternal = true
 		}
 	}
-	languages := make([]string, 0, len(external))
-	for _, sub := range external {
-		if sub.Language != "" {
-			languages = append(languages, sub.Language)
-		}
-	}
-	for _, stream := range media.Streams {
-		if stream.Language != "" {
-			languages = append(languages, stream.Language)
-		}
-	}
-	languages = dedupeStrings(languages)
+	languages := mergeLanguages(external, media.Streams)
 
 	item := &Item{
 		ID:                   subtitleItemID(driveID, relative),
@@ -268,6 +288,7 @@ func applyScanResult(existing *Item, driveID, root, folderName, videoPath string
 		Title:                title,
 		Year:                 year,
 		Status:               StatusPending,
+		Probed:               media.Probed,
 		ExistingSubLanguages: languages,
 		ExternalSubtitles:    externalRefs,
 		EmbeddedSubStreams:   media.Streams,
@@ -362,4 +383,21 @@ func skipVideoFile(name string, size, minBytes int64, skipSamples bool) bool {
 		}
 	}
 	return false
+}
+
+// mergeLanguages lists every subtitle language visible for a video, from external
+// files and from embedded streams.
+func mergeLanguages(external []externalSubtitle, streams []EmbeddedSubtitle) []string {
+	languages := make([]string, 0, len(external)+len(streams))
+	for _, sub := range external {
+		if sub.Language != "" {
+			languages = append(languages, sub.Language)
+		}
+	}
+	for _, stream := range streams {
+		if stream.Language != "" {
+			languages = append(languages, stream.Language)
+		}
+	}
+	return dedupeStrings(languages)
 }

@@ -159,7 +159,7 @@ func Default() *Config {
 			FFmpegPath:            "ffmpeg",
 			FFprobePath:           "ffprobe",
 			AlassPath:             "alass",
-			ScanBatchSize:         200,
+			ScanBatchSize:         0,
 			RunBatchSize:          20,
 			RequestIntervalMS:     400,
 			QuotaReserve:          5,
