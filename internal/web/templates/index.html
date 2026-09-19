@@ -354,8 +354,8 @@ input[type=number]{width:90px}
         <div id="subtitleDescription" class="small">Finds a Swedish subtitle for every movie in the remote movie libraries, syncs it with alass and writes it as &lt;video&gt;.sv.srt next to the movie.</div>
       </div>
       <div class="actions" style="margin-top:0">
+        <button id="subtitleRunButton" class="primary" onclick="runSubtitles()" title="Processes the next batch of movies that need Swedish subtitles">Add Swedish subtitles</button>
         <button id="subtitleScanButton" onclick="scanSubtitles()">Scan remote movies</button>
-        <button id="subtitleRunButton" class="primary" onclick="runSubtitles()">Add Swedish subtitles</button>
         <button id="subtitleCancelButton" class="danger hidden" onclick="cancelSubtitleJob()">Cancel</button>
         <button id="subtitleClearWorkButton" onclick="clearSubtitleWork()">Clear work files</button>
       </div>
@@ -1316,6 +1316,9 @@ function renderSubtitles(){
   $("subtitleStats").innerHTML=[
     [stats.total,"Remote movies"],[stats.pending,"Needs subtitles"],[stats.no_external_subtitle,"No external SRT"],[stats.with_external_subtitle,"Has external SRT"],[stats.not_analyzed,"Not analyzed"],[stats.added,"Added"],[stats.needs_review,"Needs review"],[stats.no_match,"No match"],[stats.no_reference,"No reference"],[stats.has_swedish,"Has Swedish"],[stats.failed,"Failed"],[stats.skipped,"Skipped"]
   ].map(x=>'<div class="companion-stat"><strong>'+x[0]+"</strong><span>"+x[1]+"</span></div>").join("");
+  const batchSize=settings.run_batch_size||20;
+  const pending=stats.pending||0;
+  const nextBatch=Math.min(batchSize,pending);
   const quota=subtitleData.quota||{};
   const quotaText=quota.known?("OpenSubtitles downloads left: "+quota.remaining+(quota.reset_at?(" (resets "+esc(quota.reset_at)+")"):"")):"OpenSubtitles quota: not checked yet";
   const b=subtitleData.batch||{};
@@ -1328,9 +1331,15 @@ function renderSubtitles(){
     html+='<div class="run-progress" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="'+percent+'"><span style="width:'+percent+'%"></span></div>';
     $("subtitleProgress").innerHTML=html;
   } else {
-    $("subtitleProgress").textContent=b.canceled?"Last job canceled after "+b.done+" / "+b.total:(b.error||quotaText);
+    const idle=quotaText+(pending?(" · next batch: "+nextBatch+" of "+pending+" movies"):" · nothing queued");
+    $("subtitleProgress").textContent=b.canceled?"Last job canceled after "+b.done+" / "+b.total:(b.error||idle);
   }
-  $("subtitleRunButton").disabled=!!b.running;
+  // The batch button names what it will do: it processes the next batch of
+  // movies that still need a Swedish subtitle.
+  const runButton=$("subtitleRunButton");
+  runButton.disabled=!!b.running||pending===0;
+  runButton.textContent=b.running?"Running…":(pending?("Add Swedish subtitles — next "+nextBatch):"Nothing to process");
+  runButton.title=pending?("Processes the next "+nextBatch+" of "+pending+" movies that need Swedish subtitles"):"No movie needs a Swedish subtitle right now";
   $("subtitleScanButton").disabled=!!b.running;
   $("subtitleCancelButton").classList.toggle("hidden",!b.running);
   const message=[];
