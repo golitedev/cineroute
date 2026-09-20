@@ -821,7 +821,7 @@ function renderCompanions(){
   renderCompanionDetail();
 }
 function companionSearchText(m){
-  return [m.id,m.title,m.folder_name,m.drive_id,m.path,m.remote_path,m.existing_copy,m.remote_copy,m.year,m.status,companionStatus(m),m.error,m.jellyfin_warning,...(m.existing_files||[]),...(m.remote_files||[])].filter(value=>value!==undefined&&value!==null).join(" ").toLowerCase();
+  return [m.id,m.title,m.folder_name,m.drive_id,m.path,m.remote_path,m.existing_copy,m.remote_copy,m.year,m.status,companionStatus(m),m.error,...(m.existing_files||[]),...(m.remote_files||[])].filter(value=>value!==undefined&&value!==null).join(" ").toLowerCase();
 }
 // companionCopyStatus shows where a title actually lives. The label is always
 // "main · remote" and only the side that holds a video file is highlighted: the
@@ -835,9 +835,8 @@ function companionCopyStatus(m){
   return tag("main","main")+" · "+tag("remote","remote");
 }
 function companionRow(m){
-  const warn=m.jellyfin_warning?'<div class="small">'+esc(m.jellyfin_warning)+"</div>":"";
   const copies=companionCopyStatus(m);
-  return `<div class="companion-row"><div><div class="title">${esc(m.folder_name||m.title)}</div><div class="meta">${esc(m.drive_id)} · ${copies}${m.year?" · "+m.year:""}</div>${warn}</div><span class="badge ${companionStatusClass(m)} status">${esc(companionStatus(m))}</span><button data-id="${esc(m.id)}" onclick="openCompanionMovie(this.dataset.id)">Open</button></div>`;
+  return `<div class="companion-row"><div><div class="title">${esc(m.folder_name||m.title)}</div><div class="meta">${esc(m.drive_id)} · ${copies}${m.year?" · "+m.year:""}</div></div><span class="badge ${companionStatusClass(m)} status">${esc(companionStatus(m))}</span><button data-id="${esc(m.id)}" onclick="openCompanionMovie(this.dataset.id)">Open</button></div>`;
 }
 function setCompanionFilter(filter){companionFilter=filter;companionPage=0;renderCompanions()}
 function setCompanionSearch(value){companionSearchTerm=value;companionPage=0;renderCompanions()}

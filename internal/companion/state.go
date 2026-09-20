@@ -58,7 +58,6 @@ type Movie struct {
 	RemoteFiles       []string         `json:"remote_files,omitempty"`
 	RemoteFileSizes   map[string]int64 `json:"remote_file_sizes,omitempty"`
 	TVApprovedPacks   []string         `json:"tv_approved_packs,omitempty"`
-	JellyfinWarning   string           `json:"jellyfin_warning,omitempty"`
 	Missing           bool             `json:"missing,omitempty"`
 	CreatedAt         time.Time        `json:"created_at"`
 	UpdatedAt         time.Time        `json:"updated_at"`

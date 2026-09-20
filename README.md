@@ -278,10 +278,9 @@ corresponding companion database. The settings fields accept custom values:
 batch sizes from 1–1000 items and intervals from 1–300 seconds; the preset
 buttons are only shortcuts.
 
-CineRoute preserves original torrent filenames. Jellyfin may not automatically
-group another version when its original filename does not begin with the
-parent `Title (Year)` folder name; the companion scan displays that warning.
-It does not rename seeded files.
+CineRoute preserves original torrent filenames. It does not rename seeded
+files, and it does not flag filenames that Jellyfin may not group as another
+version.
 
 ## Swedish subtitles
 
