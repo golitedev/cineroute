@@ -70,10 +70,21 @@ func TestProberWithRealBinaries(t *testing.T) {
 		t.Errorf("duration was not detected: %d", info.DurationMS)
 	}
 
-	// Extraction must produce a parseable SRT reference.
+	// Extraction must produce a parseable SRT reference, and while it runs the
+	// progress callback must see where ffmpeg got to: the page relies on it to
+	// tell a slow demux from a stuck job.
 	extracted := filepath.Join(dir, "extracted.srt")
-	if err := prober.ExtractSubtitle(ctx, videoPath, stream.Index, extracted); err != nil {
+	var samples []ExtractProgress
+	if err := prober.ExtractSubtitle(ctx, videoPath, stream.Index, extracted, func(sample ExtractProgress) {
+		samples = append(samples, sample)
+	}); err != nil {
 		t.Fatalf("ExtractSubtitle: %v", err)
+	}
+	if len(samples) == 0 {
+		t.Fatal("no extraction progress was reported")
+	}
+	if last := samples[len(samples)-1]; last.PositionMS <= 0 {
+		t.Errorf("last progress sample = %+v, want a position from ffmpeg's progress stream", last)
 	}
 	cues, err := CueTimesFile(extracted)
 	if err != nil {

@@ -1,10 +1,13 @@
 package subtitles
 
 import (
+	"bufio"
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"io"
 	"log/slog"
 	"os/exec"
 	"strconv"
@@ -22,10 +25,22 @@ type MediaInfo struct {
 	Probed bool
 }
 
+// ExtractProgress is one progress sample of an embedded-subtitle extraction.
+// Extracting one stream demuxes the whole container, so PositionMS — the
+// timestamp ffmpeg has read up to — doubles as a measure of how much of the
+// video file is left. The callback may be called from any goroutine and with
+// PositionMS 0 while ffmpeg has not reported a timestamp yet.
+type ExtractProgress struct {
+	PositionMS int64
+	Elapsed    time.Duration
+}
+
 // Prober probes video files and extracts or normalizes subtitle files.
 type Prober interface {
 	Probe(ctx context.Context, path string) (MediaInfo, error)
-	ExtractSubtitle(ctx context.Context, path string, streamIndex int, outputPath string) error
+	// ExtractSubtitle writes one embedded subtitle stream out as SRT. progress
+	// may be nil; when set it receives throttled samples while ffmpeg demuxes.
+	ExtractSubtitle(ctx context.Context, path string, streamIndex int, outputPath string, progress func(ExtractProgress)) error
 	ConvertToSRT(ctx context.Context, inputPath, outputPath string) error
 	Version(ctx context.Context) (string, error)
 }
@@ -136,20 +151,86 @@ func (p ExecProber) Probe(ctx context.Context, path string) (MediaInfo, error) {
 }
 
 // ExtractSubtitle writes one embedded subtitle stream out as SRT.
-func (p ExecProber) ExtractSubtitle(ctx context.Context, path string, streamIndex int, outputPath string) error {
+//
+// The step is I/O bound: ffmpeg has to demux the container from the start of the
+// file because subtitle packets are interleaved with the video, so a large movie
+// on a spinning disk can take minutes. When progress is set, ffmpeg's
+// `-progress` stream is parsed so the caller can show how far the demux has got
+// instead of an opaque spinner.
+func (p ExecProber) ExtractSubtitle(ctx context.Context, path string, streamIndex int, outputPath string, progress func(ExtractProgress)) error {
 	extractCtx, cancel := context.WithTimeout(ctx, p.extractTimeout())
 	defer cancel()
-	cmd := exec.CommandContext(extractCtx, p.ffmpeg(),
-		"-v", "error", "-nostdin", "-y", "-i", path,
-		"-map", fmt.Sprintf("0:%d", streamIndex), "-c:s", "srt", outputPath)
+	args := []string{"-v", "error", "-nostdin", "-y"}
+	if progress != nil {
+		args = append(args, "-progress", "pipe:1", "-nostats")
+	}
+	args = append(args, "-i", path, "-map", fmt.Sprintf("0:%d", streamIndex), "-c:s", "srt", outputPath)
+	cmd := exec.CommandContext(extractCtx, p.ffmpeg(), args...)
 	var stderr bytes.Buffer
 	cmd.Stderr = &stderr
-	slog.Info("subtitles: extracting embedded subtitle stream", "video", path, "stream", streamIndex, "output", outputPath)
-	if err := cmd.Run(); err != nil {
-		slog.Warn("subtitles: subtitle extraction failed", "video", path, "stream", streamIndex, "err", firstNonEmpty(stderr.String(), err.Error()))
-		return fmt.Errorf("ffmpeg subtitle extraction failed: %s", firstNonEmpty(stderr.String(), err.Error()))
+	slog.Info("subtitles: extracting embedded subtitle stream",
+		"video", path, "stream", streamIndex, "output", outputPath, "timeout", p.extractTimeout())
+
+	if progress == nil {
+		if err := cmd.Run(); err != nil {
+			return p.extractFailure(path, streamIndex, extractCtx, stderr.String(), err)
+		}
+		return nil
 	}
+
+	stdout, err := cmd.StdoutPipe()
+	if err != nil {
+		return fmt.Errorf("ffmpeg subtitle extraction failed: %w", err)
+	}
+	started := time.Now()
+	if err := cmd.Start(); err != nil {
+		return p.extractFailure(path, streamIndex, extractCtx, stderr.String(), err)
+	}
+	position := scanExtractProgress(stdout, progress, started)
+	if err := cmd.Wait(); err != nil {
+		return p.extractFailure(path, streamIndex, extractCtx, stderr.String(), err)
+	}
+	progress(ExtractProgress{PositionMS: position, Elapsed: time.Since(started)})
 	return nil
+}
+
+// extractFailure logs one failed extraction and turns a timeout into an error
+// that says so, because "signal: killed" alone reads like a crash instead of a
+// movie that is too slow to demux.
+func (p ExecProber) extractFailure(path string, streamIndex int, ctx context.Context, stderr string, err error) error {
+	slog.Warn("subtitles: subtitle extraction failed",
+		"video", path, "stream", streamIndex, "err", firstNonEmpty(stderr, err.Error()))
+	if errors.Is(ctx.Err(), context.DeadlineExceeded) {
+		return fmt.Errorf("ffmpeg subtitle extraction timed out after %s: %w", p.extractTimeout(), context.DeadlineExceeded)
+	}
+	return fmt.Errorf("ffmpeg subtitle extraction failed: %s", firstNonEmpty(stderr, err.Error()))
+}
+
+// scanExtractProgress reads ffmpeg's `-progress` key=value stream and forwards
+// throttled samples. It returns the last position ffmpeg reported.
+func scanExtractProgress(r io.Reader, progress func(ExtractProgress), started time.Time) int64 {
+	scanner := bufio.NewScanner(r)
+	var position int64
+	var last time.Time
+	for scanner.Scan() {
+		key, value, ok := strings.Cut(strings.TrimSpace(scanner.Text()), "=")
+		if !ok {
+			continue
+		}
+		switch key {
+		// out_time_ms is microseconds as well, despite the name; ffmpeg has
+		// reported it that way for years, so both are accepted.
+		case "out_time_us", "out_time_ms":
+			if micros, err := strconv.ParseInt(strings.TrimSpace(value), 10, 64); err == nil && micros >= 0 {
+				position = micros / 1000
+			}
+		}
+		if time.Since(last) >= extractProgressInterval {
+			last = time.Now()
+			progress(ExtractProgress{PositionMS: position, Elapsed: time.Since(started)})
+		}
+	}
+	return position
 }
 
 // ConvertToSRT normalizes a reference subtitle (for example .ass/.ssa or an
@@ -188,6 +269,9 @@ func (p ExecProber) Version(ctx context.Context) (string, error) {
 const (
 	probeTimeout   = 60 * time.Second
 	extractTimeout = 300 * time.Second
+	// extractProgressInterval throttles the samples taken from ffmpeg's progress
+	// stream so a long extraction does not rewrite the item state constantly.
+	extractProgressInterval = 2 * time.Second
 )
 
 // languageNames maps ffprobe/OpenSubtitles three-letter or alternative codes to

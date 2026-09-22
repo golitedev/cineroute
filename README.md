@@ -341,9 +341,23 @@ key alone works, but a logged-in account has the higher free-tier quota.
 Processing one movie takes seconds when the reference is an external `.srt`,
 but extracting an **embedded** reference means demuxing the whole video file,
 which can take several minutes for a large movie on a spinning disk; the alass
-sync itself is fast. `subtitles.extract_timeout_seconds` (default 900) bounds
-that step, so a batch of 20 large movies can run for a while — go to the page
-to watch the current movie and stage, and cancel if you need to.
+sync itself is fast. While that happens the movie's row shows how far ffmpeg has
+demuxed, for example `reference… · 42% · 0:50:00 of 2:00:00 · 4m 12s in this
+step`, so a slow extraction can be told apart from a stuck job; the percentage
+comes from ffmpeg's own progress stream and the elapsed time from the stage
+start.
+
+`subtitles.extract_timeout_seconds` (default 900) bounds that step, so a batch of
+20 large movies can run for a while. **Cancel** stops the run immediately: the
+movie stays queued as **Needs subtitles** (a canceled run learns nothing about
+it, so it is never filed as **No reference**) and the log records the cancel.
+The next run starts the demux again from the first byte, because a partial
+extraction cannot be resumed — cancelling and restarting a movie that is already
+minutes into its extraction only pays for those minutes twice. If the extraction
+does time out, the movie is reported as **Failed** with an explicit timeout
+message instead of being written off as having no reference, and the remaining
+embedded streams are not tried: they would have to read the same video file
+again, so one timeout does not become four.
 
 The queue lives in `/data/subtitles.db`; every intermediate file
 (`reference.srt`, `<file_id>.raw.srt`, `<file_id>.aligned.srt`) lives under

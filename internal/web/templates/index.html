@@ -1259,6 +1259,27 @@ function subtitleExternalText(item){
   if(subs.length)return "only unusable external subs ("+subs.map(sub=>sub.file_name).join(", ")+")";
   return "no external SRT - reference extracted from the video";
 }
+// subtitleStepDetail spells out how far the running stage has got. Extracting an
+// embedded reference demuxes the whole video file, which takes minutes, so a
+// spinner alone cannot be told apart from a stuck job: the page shows ffmpeg's
+// position when the backend reports one, and the time spent in the stage
+// otherwise (the backend refreshes updated_at whenever a new stage starts).
+function subtitleStepDetail(item){
+  const parts=[];
+  if(item.step_detail)parts.push(item.step_detail);
+  const started=item.updated_at?Date.parse(item.updated_at):0;
+  if(started){
+    const seconds=Math.round((Date.now()-started)/1000);
+    if(seconds>=5&&seconds<86400)parts.push(subtitleElapsedText(seconds)+" in this step");
+  }
+  return parts.length?" · "+parts.join(" · "):"";
+}
+function subtitleElapsedText(seconds){
+  if(seconds<60)return seconds+"s";
+  const minutes=Math.floor(seconds/60);
+  if(minutes<60)return minutes+"m "+(seconds%60)+"s";
+  return Math.floor(minutes/60)+"h "+(minutes%60)+"m";
+}
 function subtitleMetricsText(metrics){
   if(!metrics)return "";
   const pct=Math.round((metrics.within_2s||0)*100);
@@ -1288,7 +1309,7 @@ function subtitleRow(item){
   html+='<div class="hardlink-meta">'+esc(item.drive_id)+' · '+esc(item.title||"")+(item.year?" ("+item.year+")":"")+' · '+esc(subtitleReferenceText(item))+'</div>';
   html+='<div class="small mono">'+esc(item.video_path)+'</div>';
   html+='<div class="small">Languages: '+esc(langs.length?langs.join(", "):"none detected")+voice+'</div>';
-  if(running)html+='<div class="small"><span class="approval-spinner" aria-hidden="true"></span>'+esc(item.step?item.step+"…":"working…")+'</div>';
+  if(running)html+='<div class="small"><span class="approval-spinner" aria-hidden="true"></span>'+esc((item.step?item.step+"…":"working…")+subtitleStepDetail(item))+'</div>';
   html+='<div class="small">'+esc(subtitleExternalText(item))+'</div>';
   if(!item.probed)html+='<div class="small">not analyzed yet - running this movie or rescanning will read its subtitle streams</div>';
   html+=output+metrics+'</div><div class="hardlink-card-actions"><span class="badge '+subtitleStatusClass(item)+'">'+esc(subtitleStatusLabel(item))+'</span>'+actions.join("")+'</div></div>'+error+'</article>';
@@ -1396,6 +1417,7 @@ function renderSubtitleDetail(){
   }).join("");
   let html='<div class="companion-toolbar"><div><h2 style="margin-bottom:4px">'+esc(item.folder_name)+'</h2><div class="small mono">'+esc(item.video_path)+'</div></div><div class="actions" style="margin-top:0"><button onclick="closeSubtitleItem()">Close</button></div></div>';
   html+='<div class="small">Status: '+esc(subtitleStatusLabel(item))+' · reference: '+esc(subtitleReferenceText(item))+'</div>';
+  if(item.step)html+='<div class="small"><span class="approval-spinner" aria-hidden="true"></span>'+esc(item.step+"…"+subtitleStepDetail(item))+'</div>';
   if(item.output_path)html+='<div class="small mono">Output: '+esc(item.output_path)+'</div>';
   if(item.metrics)html+='<div class="small">'+esc(subtitleMetricsText(item.metrics))+'</div>';
   if(item.work_dir)html+='<div class="small mono">Work: '+esc(item.work_dir)+'</div>';

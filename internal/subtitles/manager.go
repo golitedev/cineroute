@@ -911,6 +911,7 @@ func (m *Manager) processAndPersist(ctx context.Context, item *Item, opts runOpt
 	working.Status = status
 	working.Error = errorText(err)
 	working.Step = ""
+	working.StepDetail = ""
 	working.UpdatedAt = time.Now()
 
 	attrs := []any{
@@ -949,6 +950,11 @@ func errorText(err error) string {
 		return ""
 	}
 	if errors.Is(err, errQuotaStop) {
+		return ""
+	}
+	// A canceled run says nothing about the movie, so the card must not carry
+	// "context canceled" as if it were a finding.
+	if errors.Is(err, context.Canceled) {
 		return ""
 	}
 	return err.Error()

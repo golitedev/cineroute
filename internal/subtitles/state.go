@@ -83,7 +83,13 @@ type Item struct {
 	Year   int    `json:"year"`
 	Status string `json:"status"`
 	Step   string `json:"step,omitempty"`
-	Error  string `json:"error,omitempty"`
+	// StepDetail is the short progress line for the current stage, for example
+	// "42% · 0:50:00 of 2:00:00" while an embedded reference is demuxed. An
+	// embedded extraction reads the whole video file, so without it the page can
+	// only show a spinner for several minutes and cannot be told apart from a
+	// stuck job.
+	StepDetail string `json:"step_detail,omitempty"`
+	Error      string `json:"error,omitempty"`
 
 	// Probed reports whether the video's subtitle streams have been read. A movie
 	// whose scan ran past the probe budget is queued but not analyzed yet, which

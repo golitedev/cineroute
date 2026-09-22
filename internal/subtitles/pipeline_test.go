@@ -3,6 +3,7 @@ package subtitles
 import (
 	"context"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -18,8 +19,15 @@ type fakeProber struct {
 	reference string
 	// byIndex overrides the extracted reference per embedded stream index, so a
 	// test can model a forced/signs-only track next to a full one.
-	byIndex   map[int]string
-	extracted []int
+	byIndex map[int]string
+	// extractErr makes the extraction fail for every stream.
+	extractErr error
+	// cancelDuringExtract cancels the run in the middle of the reference stage,
+	// which is what happens when a user presses Cancel while ffmpeg demuxes.
+	cancelDuringExtract context.CancelFunc
+	// afterProgress runs right after a progress sample was published.
+	afterProgress func()
+	extracted     []int
 }
 
 func (f *fakeProber) Probe(_ context.Context, path string) (MediaInfo, error) {
@@ -32,8 +40,25 @@ func (f *fakeProber) Probe(_ context.Context, path string) (MediaInfo, error) {
 	return MediaInfo{Probed: true}, nil
 }
 
-func (f *fakeProber) ExtractSubtitle(_ context.Context, _ string, index int, outputPath string) error {
+func (f *fakeProber) ExtractSubtitle(ctx context.Context, _ string, index int, outputPath string, progress func(ExtractProgress)) error {
 	f.extracted = append(f.extracted, index)
+	if progress != nil {
+		progress(ExtractProgress{PositionMS: 2_500, Elapsed: 2 * time.Second})
+	}
+	if f.afterProgress != nil {
+		f.afterProgress()
+	}
+	if f.cancelDuringExtract != nil {
+		// Model ffmpeg dying with the run: the extraction returns the canceled
+		// context error instead of a reference.
+		f.cancelDuringExtract()
+	}
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	if f.extractErr != nil {
+		return f.extractErr
+	}
 	content := f.reference
 	if f.byIndex != nil {
 		if override, ok := f.byIndex[index]; ok {
@@ -754,6 +779,139 @@ func TestCandidateOrderingIsDeterministic(t *testing.T) {
 		}
 		if candidates[2].FileID != 12 || candidates[2].Category != CategoryFallback {
 			t.Fatalf("the BluRay release should sort last as a fallback: %+v", candidates[2])
+		}
+	}
+}
+
+// TestCancelDuringExtractionStaysPending covers the reported failure mode: the
+// user cancels while ffmpeg is demuxing a movie, and the item is then filed as
+// "no reference" even though the extraction never finished. A canceled run
+// learns nothing about the movie, so it must stay queued and carry no error.
+func TestCancelDuringExtractionStaysPending(t *testing.T) {
+	h := newTestHarness(t)
+	video := h.addRemoteMovie(t, "Canceled (2016)", "Canceled.2016.1080p.mkv")
+	h.prober.streams[video] = MediaInfo{
+		DurationMS: 6_000_000,
+		Streams: []EmbeddedSubtitle{
+			{Index: 2, Codec: "subrip", Language: "en", Usable: true},
+			{Index: 3, Codec: "subrip", Language: "es", Usable: true},
+		},
+	}
+	h.os.items = []opensubtitles.Item{swedishCandidate()}
+
+	if err := h.manager.Scan(context.Background()); err != nil {
+		t.Fatalf("Scan: %v", err)
+	}
+	item := h.liveItem(t, h.manager.View("").Items[0].ID)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	h.prober.cancelDuringExtract = cancel
+	status, err := h.manager.processAndPersist(ctx, item, runOptions{})
+	if !errors.Is(err, context.Canceled) {
+		t.Fatalf("err = %v, want context.Canceled", err)
+	}
+	if status != StatusPending {
+		t.Fatalf("status = %s, want pending so the movie is not filed as no_reference", status)
+	}
+	if item.Error != "" {
+		t.Errorf("item error = %q, want it hidden for a canceled run", item.Error)
+	}
+	if len(h.prober.extracted) != 1 {
+		t.Errorf("extracted = %v, want the candidate loop to stop at the cancel", h.prober.extracted)
+	}
+	view := h.manager.View(item.ID)
+	if view.Stats.NoReference != 0 {
+		t.Errorf("stats = %+v, want no no_reference entry for a canceled run", view.Stats)
+	}
+	if view.OpenItem.StepDetail != "" {
+		t.Errorf("step detail = %q, want it cleared when the run ends", view.OpenItem.StepDetail)
+	}
+}
+
+// TestExtractionProgressReachesThePage checks the progress plumbing end to end:
+// the sample the prober reports must be formatted against the video duration and
+// published on the live item the page polls while the extraction runs.
+func TestExtractionProgressReachesThePage(t *testing.T) {
+	h := newTestHarness(t)
+	video := h.addRemoteMovie(t, "Movie (2019)", "Movie.2019.1080p.WEB-DL.mkv")
+	h.configureEmbeddedEnglish(video)
+	h.os.items = []opensubtitles.Item{swedishCandidate()}
+
+	if err := h.manager.Scan(context.Background()); err != nil {
+		t.Fatalf("Scan: %v", err)
+	}
+	item := h.liveItem(t, h.manager.View("").Items[0].ID)
+
+	var observed []string
+	h.prober.afterProgress = func() {
+		if live := h.manager.itemByID(item.ID); live != nil && live.StepDetail != "" {
+			observed = append(observed, live.StepDetail)
+		}
+	}
+
+	if _, err := h.manager.processAndPersist(context.Background(), item, runOptions{}); err != nil {
+		t.Fatalf("process: %v", err)
+	}
+	// The fake reports 2.5 s of a 100 minute movie: 0%, still useful because the
+	// position shows the demux is moving.
+	if len(observed) == 0 {
+		t.Fatal("the page never saw extraction progress")
+	}
+	want := "0% · 0:02 of 1:40:00"
+	if observed[0] != want {
+		t.Fatalf("progress detail = %q, want %q", observed[0], want)
+	}
+}
+
+// TestExtractionTimeoutStopsAfterTheFirstStream pins the fail-fast behavior: a
+// demux that runs out of time would have to read the whole video again for every
+// remaining stream, so the movie is reported as failed after the first timeout
+// instead of repeating a 15 minute wait per stream.
+func TestExtractionTimeoutStopsAfterTheFirstStream(t *testing.T) {
+	h := newTestHarness(t)
+	video := h.addRemoteMovie(t, "Slow Disk (2014)", "Slow.Disk.2014.1080p.mkv")
+	h.prober.streams[video] = MediaInfo{
+		DurationMS: 7_260_000,
+		Streams: []EmbeddedSubtitle{
+			{Index: 2, Codec: "subrip", Language: "en", Usable: true},
+			{Index: 3, Codec: "subrip", Language: "es", Usable: true},
+			{Index: 4, Codec: "subrip", Language: "en", Usable: true},
+		},
+	}
+	h.prober.extractErr = fmt.Errorf("ffmpeg subtitle extraction timed out after 15m0s: %w", context.DeadlineExceeded)
+	h.os.items = []opensubtitles.Item{swedishCandidate()}
+
+	if err := h.manager.Scan(context.Background()); err != nil {
+		t.Fatalf("Scan: %v", err)
+	}
+	item := h.liveItem(t, h.manager.View("").Items[0].ID)
+	status, err := h.manager.processAndPersist(context.Background(), item, runOptions{})
+	if status != StatusFailed {
+		t.Fatalf("status = %s, want failed for a timed-out extraction", status)
+	}
+	if err == nil || !strings.Contains(err.Error(), "did not finish in time") {
+		t.Fatalf("err = %v, want an explicit timeout message", err)
+	}
+	if len(h.prober.extracted) != 1 {
+		t.Errorf("extracted = %v, want only the first stream to be attempted", h.prober.extracted)
+	}
+}
+
+func TestFormatExtractProgress(t *testing.T) {
+	cases := []struct {
+		name     string
+		sample   ExtractProgress
+		duration int64
+		want     string
+	}{
+		{"percent", ExtractProgress{PositionMS: 3_723_000}, 7_260_000, "51% · 1:02:03 of 2:01:00"},
+		{"position only", ExtractProgress{PositionMS: 62_000}, 0, "1:02 read"},
+		{"elapsed only", ExtractProgress{Elapsed: 200 * time.Second}, 7_260_000, "3m 20s elapsed"},
+		{"clamped", ExtractProgress{PositionMS: 10_000_000}, 7_260_000, "100% · 2:46:40 of 2:01:00"},
+	}
+	for _, tc := range cases {
+		if got := formatExtractProgress(tc.sample, tc.duration); got != tc.want {
+			t.Errorf("%s: got %q, want %q", tc.name, got, tc.want)
 		}
 	}
 }

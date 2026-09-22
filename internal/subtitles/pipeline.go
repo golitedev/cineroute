@@ -64,6 +64,9 @@ func (m *Manager) processItem(ctx context.Context, item *Item, opts runOptions) 
 		slog.Info("subtitles: probing movie on demand", "id", item.ID, "video", item.VideoPath)
 		info, probeErr := m.prober.Probe(ctx, item.VideoPath)
 		if probeErr != nil {
+			if ctxErr := ctx.Err(); ctxErr != nil {
+				return StatusPending, ctxErr
+			}
 			return StatusFailed, fmt.Errorf("probe video: %w", probeErr)
 		}
 		item.EmbeddedSubStreams = info.Streams
@@ -115,7 +118,14 @@ func (m *Manager) processItem(ctx context.Context, item *Item, opts runOptions) 
 	// extraction must not abandon a movie that has another usable stream.
 	var referenceCues []TimeSpan
 	var referenceErr error
+	timedOut := false
 	for index := range choices {
+		// A canceled job must stop immediately: the remaining candidates would
+		// only fail with "context canceled" and their noise hides why the movie
+		// was abandoned.
+		if ctxErr := ctx.Err(); ctxErr != nil {
+			return StatusPending, ctxErr
+		}
 		choice := choices[index]
 		m.setStage(item, "reference", StatusProcessing)
 		slog.Info("subtitles: trying reference",
@@ -128,8 +138,19 @@ func (m *Manager) processItem(ctx context.Context, item *Item, opts runOptions) 
 			"path", choice.Path)
 		_ = os.Remove(referencePath)
 		if err := m.materializeReference(ctx, item, &choice, referencePath); err != nil {
+			if ctxErr := ctx.Err(); ctxErr != nil {
+				return StatusPending, ctxErr
+			}
 			slog.Warn("subtitles: reference unusable", "id", item.ID, "kind", choice.Kind, "stream", choice.Stream, "err", err)
 			referenceErr = err
+			if errors.Is(err, context.DeadlineExceeded) {
+				// The demux ran out of time. Every remaining candidate would have
+				// to read the same video file again, so trying the next embedded
+				// stream would cost another full timeout for the same answer.
+				timedOut = true
+				slog.Warn("subtitles: giving up on the embedded reference after a timeout", "id", item.ID, "stream", choice.Stream)
+				break
+			}
 			continue
 		}
 		cues, err := CueTimesFile(referencePath)
@@ -153,8 +174,17 @@ func (m *Manager) processItem(ctx context.Context, item *Item, opts runOptions) 
 		break
 	}
 	if item.ReferenceKind == "" {
+		if ctxErr := ctx.Err(); ctxErr != nil {
+			return StatusPending, ctxErr
+		}
 		if referenceErr == nil {
 			referenceErr = errors.New("no usable reference subtitle")
+		}
+		if timedOut {
+			// A timed-out demux is not the same as a movie without a reference:
+			// the extraction never finished, so the movie must not be filed as
+			// "no reference" and forgotten.
+			return StatusFailed, fmt.Errorf("embedded subtitle extraction did not finish in time; the video may be on a slow or sleeping disk: %w", referenceErr)
 		}
 		return StatusNoReference, referenceErr
 	}
@@ -162,6 +192,9 @@ func (m *Manager) processItem(ctx context.Context, item *Item, opts runOptions) 
 	m.setStage(item, "search", StatusProcessing)
 	candidates, err := m.collectCandidates(ctx, item, referenceCues, opts)
 	if err != nil {
+		if ctxErr := ctx.Err(); ctxErr != nil {
+			return StatusPending, ctxErr
+		}
 		return StatusFailed, err
 	}
 	if len(candidates) == 0 {
@@ -233,6 +266,9 @@ func (m *Manager) processItem(ctx context.Context, item *Item, opts runOptions) 
 		alignedPath := filepath.Join(workDir, strconv.Itoa(candidate.FileID)+".aligned.srt")
 		report, syncErr := m.runAlass(ctx, referencePath, rawPath, alignedPath)
 		if syncErr != nil {
+			if ctxErr := ctx.Err(); ctxErr != nil {
+				return StatusPending, ctxErr
+			}
 			m.recordAttempt(item, candidate, "alass_error", nil, report.Detail+" "+syncErr.Error())
 			continue
 		}
@@ -314,6 +350,9 @@ func (m *Manager) processItem(ctx context.Context, item *Item, opts runOptions) 
 	}
 
 	// No candidate passed the strict timing gate.
+	if ctxErr := ctx.Err(); ctxErr != nil {
+		return StatusPending, ctxErr
+	}
 	if m.cfg.AllowUnalignedFallback && bestFallback != nil && bestFallback.Safe {
 		rawPath := filepath.Join(workDir, strconv.Itoa(bestFallback.FileID)+".raw.srt")
 		if text, err := readSubtitleText(rawPath); err == nil {
@@ -343,7 +382,12 @@ func (m *Manager) materializeReference(ctx context.Context, item *Item, choice *
 		if choice.Stream < 0 {
 			return errors.New("embedded reference stream index is missing")
 		}
-		if err := m.prober.ExtractSubtitle(ctx, item.VideoPath, choice.Stream, outputPath); err != nil {
+		// An embedded extraction demuxes the whole video file, so the page is
+		// given the position ffmpeg has reached while it works.
+		progress := func(sample ExtractProgress) {
+			m.setStepDetail(item.ID, formatExtractProgress(sample, item.DurationMS))
+		}
+		if err := m.prober.ExtractSubtitle(ctx, item.VideoPath, choice.Stream, outputPath, progress); err != nil {
 			return err
 		}
 	} else {
@@ -834,17 +878,31 @@ func (m *Manager) setStage(item *Item, stage, status string) {
 	// worked on rather than still looking pending.
 	item.Step = stage
 	item.Status = status
+	item.StepDetail = ""
 	m.mu.Lock()
 	m.batch.Stage = stage
 	if live, ok := m.byID[item.ID]; ok && live != item {
 		live.Status = status
 		live.Step = stage
+		// A new stage starts without the previous stage's progress.
+		live.StepDetail = ""
 		live.UpdatedAt = time.Now()
 	}
 	m.mu.Unlock()
 	if m.onStage != nil {
 		m.onStage(item, stage, status)
 	}
+}
+
+// setStepDetail publishes stage progress on the live item. It deliberately
+// leaves UpdatedAt alone: the page reads that field as the time the current
+// stage started, so touching it would reset the elapsed-time display.
+func (m *Manager) setStepDetail(itemID, detail string) {
+	m.mu.Lock()
+	if live, ok := m.byID[itemID]; ok {
+		live.StepDetail = detail
+	}
+	m.mu.Unlock()
 }
 
 func (m *Manager) recordAttempt(item *Item, candidate Candidate, status string, metrics *Metrics, detail string) {
@@ -869,4 +927,51 @@ func truncateDetail(detail string) string {
 		return detail[:2000]
 	}
 	return detail
+}
+
+// formatExtractProgress renders one extraction sample as the short line shown
+// next to the "reference" stage, for example "62% · 1:15:02 of 2:01:00". The
+// video duration comes from the probe, so until it is known only the position
+// or the elapsed time can be reported.
+func formatExtractProgress(sample ExtractProgress, durationMS int64) string {
+	switch {
+	case sample.PositionMS > 0 && durationMS > 0:
+		percent := sample.PositionMS * 100 / durationMS
+		if percent > 100 {
+			percent = 100
+		}
+		return fmt.Sprintf("%d%% · %s of %s", percent, formatClockMS(sample.PositionMS), formatClockMS(durationMS))
+	case sample.PositionMS > 0:
+		return formatClockMS(sample.PositionMS) + " read"
+	default:
+		return formatElapsedMS(sample.Elapsed.Milliseconds()) + " elapsed"
+	}
+}
+
+// formatClockMS renders a millisecond offset as h:mm:ss, or m:ss below an hour.
+func formatClockMS(ms int64) string {
+	if ms < 0 {
+		ms = 0
+	}
+	total := ms / 1000
+	hours := total / 3600
+	minutes := (total / 60) % 60
+	seconds := total % 60
+	if hours > 0 {
+		return fmt.Sprintf("%d:%02d:%02d", hours, minutes, seconds)
+	}
+	return fmt.Sprintf("%d:%02d", minutes, seconds)
+}
+
+// formatElapsedMS renders a wait as "9s", "3m 20s" or "1h 4m".
+func formatElapsedMS(ms int64) string {
+	seconds := ms / 1000
+	if seconds < 60 {
+		return fmt.Sprintf("%ds", seconds)
+	}
+	minutes := seconds / 60
+	if minutes < 60 {
+		return fmt.Sprintf("%dm %ds", minutes, seconds%60)
+	}
+	return fmt.Sprintf("%dh %dm", minutes/60, minutes%60)
 }

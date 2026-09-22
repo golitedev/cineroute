@@ -110,11 +110,13 @@ driver.push("expect($('subtitleList').innerHTML.includes('Hugo'), 'movie row not
 driver.push("subtitleData.batch = { running: true, kind: 'run', total: 20, done: 3, stage: 'reference', current: '/hdd4/movies-remote/The Dark Knight (2008)/The.Dark.Knight.2008.1080p.mkv' };");
 driver.push("subtitleData.items[0].status = 'processing';");
 driver.push("subtitleData.items[0].step = 'reference';");
+driver.push("subtitleData.items[0].step_detail = '42% · 0:50:00 of 2:00:00';");
 driver.push("renderSubtitles();");
 driver.push("expect($('subtitleRunButton').disabled && $('subtitleRunButton').textContent === 'Running…', 'running button state wrong');");
 driver.push("expect($('subtitleProgress').innerHTML.includes('run-progress'), 'progress bar missing');");
 driver.push("expect($('subtitleProgress').innerHTML.includes('Processing 3 / 20'), 'progress text missing');");
 driver.push("expect($('subtitleList').innerHTML.includes('hardlink-card running'), 'running row not highlighted');");
+driver.push("expect($('subtitleList').innerHTML.includes('42% · 0:50:00 of 2:00:00'), 'extraction progress is not shown while a movie is processed');");
 driver.push("['all','no_external','has_external','not_analyzed','added','no_reference','has_swedish','skipped'].forEach(f => { setSubtitleFilter(f); });");
 driver.push("subtitleData.open_item = subtitleData.items[0];");
 driver.push("subtitleData.attempts = [{ file_id: 7, status: 'rejected_timing', release: 'Hugo.2011.WEB-DL', at: '2026-01-01T00:00:00Z', metrics: { within_2s: 0.5, p90: 4.2, score: 10 } }];");
