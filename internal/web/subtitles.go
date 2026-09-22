@@ -26,8 +26,8 @@ func subtitleRuntimeConfig(cfg *config.Config) subtitles.Config {
 	if s.WorkRetentionDays != 0 {
 		out.WorkRetentionDays = s.WorkRetentionDays
 	}
-	if s.TargetLanguage != "" {
-		out.TargetLanguage = s.TargetLanguage
+	if s.TargetLanguages != nil || s.TargetLanguage != "" {
+		out.TargetLanguages = subtitles.NormalizeTargetLanguages(s.ResolveTargetLanguages())
 	}
 	if len(s.ReferenceLanguages) > 0 {
 		out.ReferenceLanguages = append([]string(nil), s.ReferenceLanguages...)

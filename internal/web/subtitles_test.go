@@ -70,8 +70,8 @@ func TestSubtitleEndpointsListAndScan(t *testing.T) {
 	if !empty.Enabled || empty.Stats.Total != 0 {
 		t.Fatalf("initial view = %+v", empty)
 	}
-	if empty.TargetLanguage != "sv" {
-		t.Errorf("target language = %q, want sv", empty.TargetLanguage)
+	if len(empty.TargetLanguages) != 3 || empty.TargetLanguages[0] != "sv" {
+		t.Errorf("target languages = %v, want sv, es, en", empty.TargetLanguages)
 	}
 
 	folder := filepath.Join(remote, "Movie (2019)")
@@ -105,7 +105,7 @@ func TestSubtitleEndpointsListAndScan(t *testing.T) {
 			if item.Title != "Movie" || item.Year != 2019 {
 				t.Fatalf("item = %+v", item)
 			}
-			if item.HasExternalSubtitle || item.HasSwedish {
+			if item.HasExternalSubtitle || item.HasAllTargets() {
 				t.Fatalf("item flags = %+v", item)
 			}
 			if item.DriveID != "hdd1" {

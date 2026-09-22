@@ -106,12 +106,18 @@ type fakeOS struct {
 	searches     int
 	downloads    int
 	downloadErr  error
+	// queries records every search request, including the language filter.
+	queries []opensubtitles.SearchQuery
+	// downloadedIDs records the order in which candidates were fetched, which is
+	// what the Spanish variant preference is asserted on.
+	downloadedIDs []int
 }
 
 func (f *fakeOS) Configured() bool { return true }
 
-func (f *fakeOS) Search(context.Context, opensubtitles.SearchQuery) (opensubtitles.SearchResponse, error) {
+func (f *fakeOS) Search(_ context.Context, query opensubtitles.SearchQuery) (opensubtitles.SearchResponse, error) {
 	f.searches++
+	f.queries = append(f.queries, query)
 	return opensubtitles.SearchResponse{Data: f.items}, nil
 }
 
@@ -119,11 +125,12 @@ func (f *fakeOS) Features(context.Context, string) (opensubtitles.FeatureRespons
 	return opensubtitles.FeatureResponse{}, nil
 }
 
-func (f *fakeOS) Download(context.Context, int) (opensubtitles.DownloadResponse, error) {
+func (f *fakeOS) Download(_ context.Context, fileID int) (opensubtitles.DownloadResponse, error) {
 	if f.downloadErr != nil {
 		return opensubtitles.DownloadResponse{}, f.downloadErr
 	}
 	f.downloads++
+	f.downloadedIDs = append(f.downloadedIDs, fileID)
 	return opensubtitles.DownloadResponse{
 		Link:      "https://dl.opensubtitles.com/sub/file",
 		Remaining: opensubtitles.Intish(f.remaining),
@@ -165,6 +172,9 @@ func newTestHarness(t *testing.T) *testHarness {
 	cfg.Enabled = true
 	cfg.StatePath = filepath.Join(base, "subtitles.db")
 	cfg.WorkDir = work
+	// The harness covers one language; the multi-language behavior has its own
+	// tests.
+	cfg.TargetLanguages = []string{"sv"}
 	cfg.MinVideoBytes = 1
 	cfg.MinReferenceCues = 1
 	cfg.RequestInterval = 0
@@ -401,7 +411,7 @@ func TestPipelineSkipsExistingSwedishSubtitle(t *testing.T) {
 		t.Fatalf("Scan: %v", err)
 	}
 	item := h.liveItem(t, h.manager.View("").Items[0].ID)
-	if item.Status != StatusHasSwedish || !item.HasSwedish {
+	if item.Status != StatusHasTargets || !item.HasAllTargets() {
 		t.Fatalf("item = %+v", item)
 	}
 	if _, err := h.manager.processAndPersist(context.Background(), item, runOptions{}); err != nil {

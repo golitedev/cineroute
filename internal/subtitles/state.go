@@ -5,9 +5,14 @@ import "time"
 // Workflow statuses. They mirror the vocabulary of the proven
 // `~/Projects/subs` pipeline: a candidate is only installed when it passes the
 // strict timing gate, otherwise the item stays in review.
+//
+// An item can carry several target languages, so these statuses describe the
+// whole movie: StatusPartial means some languages were installed while others
+// ran out of candidates, and StatusHasTargets means every configured language
+// already had a subtitle.
 const (
 	StatusPending     = "pending"
-	StatusHasSwedish  = "has_swedish"
+	StatusHasTargets  = "has_targets"
 	StatusProcessing  = "processing"
 	StatusDownloading = "downloading"
 	StatusSyncing     = "syncing"
@@ -16,6 +21,9 @@ const (
 	// written without a passing alass alignment because the reference was
 	// unusable and allow_unaligned_fallback is enabled.
 	StatusAddedReview = "added_review"
+	// StatusPartial means at least one target language was installed while at
+	// least one other is still missing.
+	StatusPartial     = "partial"
 	StatusNeedsReview = "needs_review"
 	StatusNoMatch     = "no_match"
 	StatusNoReference = "no_reference"
@@ -23,11 +31,65 @@ const (
 	StatusSkipped     = "skipped"
 )
 
+// legacyStatusHasSwedish is the pre-multi-language name of StatusHasTargets. It
+// is still recognized so an item stored by an older build is reconciled on the
+// next scan instead of looking permanently finished.
+const legacyStatusHasSwedish = "has_swedish"
+
+func isHasTargetsStatus(status string) bool {
+	return status == StatusHasTargets || status == legacyStatusHasSwedish
+}
+
 // transientStatuses are reset to pending when the process restarts, since no
 // work can still be in flight after a restart.
 func isTransientStatus(status string) bool {
 	switch status {
 	case StatusProcessing, StatusDownloading, StatusSyncing:
+		return true
+	default:
+		return false
+	}
+}
+
+// Per-target statuses. They reuse the item vocabulary where it applies and add
+// TargetPresent for a language that already had a subtitle before the run.
+const (
+	// TargetPresent marks a language that already has a usable subtitle, either
+	// an external file next to the movie or an embedded stream.
+	TargetPresent = "present"
+)
+
+// TargetState is the subtitle state of one target language for one movie. The
+// page shows one line per configured language, so a movie that got Swedish but
+// has no Spanish candidate is visible instead of looking simply "added".
+type TargetState struct {
+	Language string `json:"language"`
+	// Present is true when a usable subtitle in this language already exists:
+	// an external file next to the video or an embedded stream.
+	Present bool `json:"present"`
+	// Sources lists where an already-present subtitle was found.
+	Sources []string `json:"sources,omitempty"`
+	// Status is the outcome for this language: present, added, added_review,
+	// no_match, needs_review, no_reference, failed or pending.
+	Status string `json:"status"`
+	Error  string `json:"error,omitempty"`
+	// OutputPath is the installed `<video>.<language>.srt`, when there is one.
+	OutputPath  string `json:"output_path,omitempty"`
+	OutputBytes int64  `json:"output_bytes,omitempty"`
+
+	FileID   int      `json:"file_id,omitempty"`
+	Release  string   `json:"release,omitempty"`
+	Category string   `json:"category,omitempty"`
+	Score    float64  `json:"score,omitempty"`
+	Variant  string   `json:"variant,omitempty"`
+	Metrics  *Metrics `json:"metrics,omitempty"`
+}
+
+// resolved reports whether this language has a subtitle, either because it was
+// already there or because one was installed.
+func (t TargetState) resolved() bool {
+	switch t.Status {
+	case TargetPresent, StatusAdded, StatusAddedReview:
 		return true
 	default:
 		return false
@@ -101,28 +163,55 @@ type Item struct {
 	// HasExternalSubtitle is true when a usable text subtitle file sits next to
 	// the video, which is the easy case. Movies without one need their reference
 	// extracted from an embedded stream (or report no_reference).
-	HasExternalSubtitle bool     `json:"has_external_subtitle"`
-	HasSwedish          bool     `json:"has_swedish"`
-	SwedishSources      []string `json:"swedish_sources,omitempty"`
+	HasExternalSubtitle bool `json:"has_external_subtitle"`
+	// Targets is the per-language state for every configured target language, in
+	// configuration order. It is what the page renders as "sv ✓ / es ✗".
+	Targets []TargetState `json:"targets,omitempty"`
 
 	ReferenceKind   string `json:"reference_kind,omitempty"`
 	ReferenceLang   string `json:"reference_lang,omitempty"`
 	ReferenceStream int    `json:"reference_stream,omitempty"`
 	ReferencePath   string `json:"reference_path,omitempty"`
 
-	ChosenFileID   int      `json:"chosen_file_id,omitempty"`
-	ChosenRelease  string   `json:"chosen_release,omitempty"`
-	ChosenCategory string   `json:"chosen_category,omitempty"`
-	ChosenScore    float64  `json:"chosen_score,omitempty"`
-	Metrics        *Metrics `json:"metrics,omitempty"`
-
-	OutputPath  string `json:"output_path,omitempty"`
-	OutputBytes int64  `json:"output_bytes,omitempty"`
-	WorkDir     string `json:"work_dir,omitempty"`
+	WorkDir string `json:"work_dir,omitempty"`
 
 	Attempts  int       `json:"attempts"`
 	CreatedAt time.Time `json:"created_at"`
 	UpdatedAt time.Time `json:"updated_at"`
+}
+
+// Target returns the state of one target language.
+func (i *Item) Target(language string) *TargetState {
+	for index := range i.Targets {
+		if i.Targets[index].Language == language {
+			return &i.Targets[index]
+		}
+	}
+	return nil
+}
+
+// MissingTargets lists the languages that still have no subtitle.
+func (i *Item) MissingTargets() []string {
+	var out []string
+	for _, target := range i.Targets {
+		if !target.resolved() {
+			out = append(out, target.Language)
+		}
+	}
+	return out
+}
+
+// HasAllTargets reports whether every configured language has a subtitle.
+func (i *Item) HasAllTargets() bool {
+	if len(i.Targets) == 0 {
+		return isHasTargetsStatus(i.Status)
+	}
+	for _, target := range i.Targets {
+		if !target.resolved() {
+			return false
+		}
+	}
+	return true
 }
 
 // Attempt records one downloaded candidate and the alass/metrics outcome, so a
@@ -130,6 +219,7 @@ type Item struct {
 type Attempt struct {
 	ItemID   string    `json:"item_id"`
 	FileID   int       `json:"file_id"`
+	Language string    `json:"language,omitempty"`
 	Status   string    `json:"status"`
 	Category string    `json:"category,omitempty"`
 	Release  string    `json:"release,omitempty"`
@@ -163,8 +253,9 @@ type QuotaView struct {
 type Stats struct {
 	Total       int `json:"total"`
 	Pending     int `json:"pending"`
-	HasSwedish  int `json:"has_swedish"`
+	HasTargets  int `json:"has_targets"`
 	Added       int `json:"added"`
+	Partial     int `json:"partial"`
 	NeedsReview int `json:"needs_review"`
 	NoMatch     int `json:"no_match"`
 	NoReference int `json:"no_reference"`

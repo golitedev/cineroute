@@ -174,7 +174,7 @@ content path, file tree, empty category/tags, size, state).
 ## Not implemented yet
 
 SQLite history, intake recovery after crash, singleton lease, archives,
-auto-submit mode, Swedish subtitles for the remote **TV** roots, OCR for
+auto-submit mode, subtitles for the remote **TV** roots, OCR for
 image-based subtitles (PGS/DVD) and audio/voice-activity reference mode.
 
 ## Companion copies
@@ -282,36 +282,50 @@ CineRoute preserves original torrent filenames. It does not rename seeded
 files, and it does not flag filenames that Jellyfin may not group as another
 version.
 
-## Swedish subtitles
+## Subtitles
 
-The **Subtitles** page adds Swedish external subtitles to movies in the remote
-movie libraries (`movie_remote_root`). For every remote video file CineRoute:
+The **Subtitles** page adds external subtitles to movies in the remote movie
+libraries (`movie_remote_root`). `subtitles.target_languages` lists the languages
+to add — `["sv", "es", "en"]` by default — and a movie is only finished once it
+has all of them. For every remote video file CineRoute:
 
-1. searches OpenSubtitles.com for a Swedish subtitle, resolving the canonical
-   feature and auditing every candidate (title, year, source, edition, forced,
-   machine-translated and multi-part/collection releases). A movie with no safe
-   candidate is reported as **No match** and stops here — nothing is read from
-   the video file;
+1. searches OpenSubtitles.com once for every language the movie is missing,
+   resolving the canonical feature and auditing every candidate (title, year,
+   source, edition, forced, machine-translated and multi-part/collection
+   releases). A language with no safe candidate is reported per language and does
+   not stop the others, and a movie with no safe candidate at all is reported as
+   **No match** — nothing is read from the video file;
 2. picks a timing reference — an external `en`/`es` subtitle next to the movie,
    else an embedded English stream, else embedded Spanish, else any other
    embedded **text** stream (image-based PGS/DVD subtitles cannot be used). This
-   is the step that demuxes a whole video file for an embedded stream, so it only
-   runs once a subtitle to sync actually exists;
-3. downloads the best candidates (up to `max_candidates`, default 5) and syncs
-   each one against the reference with **alass**;
-4. installs `<video-basename>.sv.srt` next to the movie only when the alignment
-   passes the timing gate (90 % of cues within 2 s, p90 ≤ 2.5 s, bounded start
-   and end gaps, no clamped cues, no over-long junk cues). Anything else stays
-   in the work directory with its metrics and is reported as **Needs review**.
+   is the step that demuxes a whole video file for an embedded stream, so it runs
+   at most once, after a subtitle to sync actually exists, and the same reference
+   is reused for every language;
+3. downloads the best candidates per language (up to `max_candidates`, default 5
+   each) and syncs each one against the reference with **alass**;
+4. installs `<video-basename>.<language>.srt` next to the movie only when the
+   alignment passes the timing gate (90 % of cues within 2 s, p90 ≤ 2.5 s,
+   bounded start and end gaps, no clamped cues, no over-long junk cues). Anything
+   else stays in the work directory with its metrics and is reported as **Needs
+   review** for that language.
+
+Spanish is treated as three OpenSubtitles languages in one: the search asks for
+`es`, `ea` (Spanish (LA)) and `sp` (Spanish (EU)), and a Latin American candidate
+is tried before a Castilian one — scene releases tag them `LATINO`/`LATAM` and
+`CASTELLANO`. Variants are also read from a filename or stream tag such as
+`Movie.es-419.srt`, so an existing Latin American subtitle counts as Spanish.
+
+When only some of the configured languages work out, the movie is reported as
+**Partly added**, keeps the subtitles it got, and shows a line per language, for
+example `sv added`, `es no match`, `en already there (embedded stream #3)`.
 
 **Scan remote movies** reads `movie_remote_root` on every drive and lists every
-remote movie; movies that already have a Swedish subtitle (an external
-`*.sv.srt` or an embedded Swedish stream) are shown as **Has Swedish** and are
-never queued. Movies that still need one become **Needs subtitles**, and the
-page shows for each whether an external text subtitle is available or whether
-the reference must be extracted from an embedded stream — the **No external
-SRT** / **Has external SRT** filters and the header counters split those two
-groups.
+remote movie; movies that already have every target subtitle (an external
+`*.<language>.srt` or an embedded stream) are shown as **Has subtitles** and are
+never queued. Movies that still miss one become **Needs subtitles**, and the page
+shows for each whether an external text subtitle is available or whether the
+reference must be extracted from an embedded stream — the **No external SRT** /
+**Has external SRT** filters and the header counters split those two groups.
 
 The scan analyzes each video's subtitle streams and caches the result by
 path+size+mtime, so later scans are quick. With the default
@@ -322,12 +336,13 @@ reference". When a movie is processed, every usable reference is tried in order
 (external `en`/`es` files, then embedded streams, forced/signs-only tracks
 last), so one unusable track does not abandon the movie.
 
-**Add Swedish subtitles** processes the next batch; every row can also be run,
-retried with more candidates (up to 20), skipped or reset on its own. **Skip**
-removes a movie from the work queue and it stays skipped across rescans until
-you press **Reset**. Each movie shows its detected languages, external subtitle
-files, embedded streams, the chosen reference, the OpenSubtitles candidate, the
-timing metrics and the full attempt history.
+**Add missing subtitles** processes the next batch; every row can also be run,
+retried with more candidates (up to 20 per language), skipped or reset on its
+own. **Skip** removes a movie from the work queue and it stays skipped across
+rescans until you press **Reset**. Each movie shows its detected languages,
+external subtitle files, embedded streams, the chosen reference, the per-language
+outcome with the installed path and timing metrics, and the full attempt history
+with the language and Spanish variant of every attempt.
 
 Every step is logged: the resolved subtitle configuration at startup, each
 scan (roots, folders, videos, queued movies, probe failures), each movie's
@@ -342,7 +357,10 @@ Searches never consume download quota; downloads do, so CineRoute stops as soon
 as `subtitles.quota_reserve` downloads remain and reports the reset time. That
 stop is checked before the reference is extracted as well as before each
 download, so a movie that cannot be downloaded is not demuxed for nothing. An API
-key alone works, but a logged-in account has the higher free-tier quota.
+key alone works, but a logged-in account has the higher free-tier quota. Three
+target languages can cost up to three downloads per movie, so `quota_reserve`
+stops the batch before the reserve is gone and the movie stays queued for a later
+run.
 
 Processing one movie takes seconds when the reference is an external `.srt`,
 but extracting an **embedded** reference means demuxing the whole video file,

@@ -351,10 +351,10 @@ input[type=number]{width:90px}
     <div class="companion-toolbar">
       <div>
         <h2 style="margin-bottom:4px">Subtitles</h2>
-        <div id="subtitleDescription" class="small">Finds a Swedish subtitle for every movie in the remote movie libraries, syncs it with alass and writes it as &lt;video&gt;.sv.srt next to the movie.</div>
+        <div id="subtitleDescription" class="small">Finds the missing subtitle languages for every movie in the remote movie libraries, syncs each one with alass and writes it as &lt;video&gt;.&lt;language&gt;.srt next to the movie.</div>
       </div>
       <div class="actions" style="margin-top:0">
-        <button id="subtitleRunButton" class="primary" onclick="runSubtitles()" title="Processes the next batch of movies that need Swedish subtitles">Add Swedish subtitles</button>
+        <button id="subtitleRunButton" class="primary" onclick="runSubtitles()" title="Processes the next batch of movies that are missing a target subtitle">Add missing subtitles</button>
         <button id="subtitleScanButton" onclick="scanSubtitles()">Scan remote movies</button>
         <button id="subtitleCancelButton" class="danger hidden" onclick="cancelSubtitleJob()">Cancel</button>
         <button id="subtitleClearWorkButton" onclick="clearSubtitleWork()">Clear work files</button>
@@ -386,12 +386,13 @@ input[type=number]{width:90px}
       <button data-filter="pending" onclick="setSubtitleFilter('pending')">Needs subtitles</button>
       <button data-filter="added" onclick="setSubtitleFilter('added')">Added</button>
       <button data-filter="needs_review" onclick="setSubtitleFilter('needs_review')">Needs review</button>
+      <button data-filter="partial" onclick="setSubtitleFilter('partial')">Partly added</button>
       <button data-filter="no_match" onclick="setSubtitleFilter('no_match')">No match</button>
       <button data-filter="no_external" onclick="setSubtitleFilter('no_external')">No external SRT</button>
       <button data-filter="not_analyzed" onclick="setSubtitleFilter('not_analyzed')">Not analyzed</button>
       <button data-filter="has_external" onclick="setSubtitleFilter('has_external')">Has external SRT</button>
       <button data-filter="no_reference" onclick="setSubtitleFilter('no_reference')">No reference</button>
-      <button data-filter="has_swedish" onclick="setSubtitleFilter('has_swedish')">Has Swedish</button>
+      <button data-filter="has_targets" onclick="setSubtitleFilter('has_targets')">Has subtitles</button>
       <button data-filter="failed" onclick="setSubtitleFilter('failed')">Failed</button>
       <button data-filter="skipped" onclick="setSubtitleFilter('skipped')">Skipped</button>
     </div>
@@ -1238,13 +1239,13 @@ let subtitlePoll=null;
 let openSubtitle="";
 
 function subtitleStatusLabel(item){
-  const labels={pending:"needs subtitles",has_swedish:"has Swedish",processing:"processing",downloading:"downloading",syncing:"syncing",added:"added",added_review:"added (review)",needs_review:"needs review",no_match:"no match",no_reference:"no reference",failed:"failed",skipped:"skipped"};
+  const labels={pending:"needs subtitles",has_targets:"has subtitles",has_swedish:"has subtitles",processing:"processing",downloading:"downloading",syncing:"syncing",added:"added",added_review:"added (review)",partial:"partly added",needs_review:"needs review",no_match:"no match",no_reference:"no reference",failed:"failed",skipped:"skipped"};
   return labels[item.status]||item.status||"pending";
 }
 function subtitleStatusClass(item){
-  if(item.status==="added"||item.status==="has_swedish")return "ok";
+  if(item.status==="added"||item.status==="has_targets"||item.status==="has_swedish")return "ok";
   if(item.status==="failed"||item.status==="no_reference")return "err";
-  if(item.status==="needs_review"||item.status==="added_review"||item.status==="processing"||item.status==="downloading"||item.status==="syncing")return "warn";
+  if(item.status==="partial"||item.status==="no_match"||item.status==="needs_review"||item.status==="added_review"||item.status==="processing"||item.status==="downloading"||item.status==="syncing")return "warn";
   return "";
 }
 function subtitleReferenceText(item){
@@ -1285,34 +1286,61 @@ function subtitleMetricsText(metrics){
   const pct=Math.round((metrics.within_2s||0)*100);
   return pct+"% within 2s · p90 "+(metrics.p90||0).toFixed(2)+"s · gaps "+(metrics.start_gap_minutes||0).toFixed(1)+"/"+(metrics.end_gap_minutes||0).toFixed(1)+"m · overrun "+(metrics.overrun_minutes||0).toFixed(1)+"m · score "+(metrics.score||0).toFixed(0);
 }
+// subtitleTargetLines renders one line per configured language: what the movie
+// already had, what was installed, and why a language is still missing.
+function subtitleTargetLines(item){
+  const targets=item.targets||[];
+  if(!targets.length)return "";
+  return targets.map(t=>{
+    const status=t.status||"pending";
+    const cls=(status==="present"||status==="added"||status==="added_review")?"ok":((status==="no_match"||status==="failed"||status==="no_reference")?"err":"warn");
+    let line='<span class="badge '+cls+'">'+esc(t.language)+'</span> '+esc(subtitleTargetLabel(status));
+    if(t.sources&&t.sources.length)line+=' ('+esc(t.sources.join(", "))+')';
+    if(t.variant)line+=' · '+esc(subtitleVariantLabel(t.variant));
+    if(t.output_path)line+=' · <span class="mono">'+esc(t.output_path)+'</span>';
+    if(t.metrics)line+=' · '+esc(subtitleMetricsText(t.metrics));
+    if(t.error)line+=' · '+esc(t.error);
+    return '<div class="small">'+line+'</div>';
+  }).join("");
+}
+function subtitleTargetLabel(status){
+  const labels={present:"already there",added:"added",added_review:"added (review)",partial:"partly added",no_match:"no match",needs_review:"needs review",no_reference:"no reference",failed:"failed",pending:"pending"};
+  return labels[status]||status||"pending";
+}
+function subtitleVariantLabel(variant){
+  if(variant==="latin")return "Latin American";
+  if(variant==="castilian")return "Castilian";
+  return "";
+}
 function subtitleRow(item){
   const actions=[];
-  if(item.status!=="added"&&item.status!=="has_swedish"&&item.status!=="skipped"){
+  // A movie that has every target subtitle needs no more action; a partly added
+  // one keeps its Run again and Retry buttons for the languages still missing.
+  const complete=item.status==="added"||item.status==="has_targets"||item.status==="has_swedish";
+  if(!complete&&item.status!=="skipped"){
     if(item.status==="pending")actions.push('<button class="primary" data-id="'+esc(item.id)+'" onclick="runSubtitleItem(this.dataset.id,this)">Run</button>');
     else actions.push('<button data-id="'+esc(item.id)+'" onclick="runSubtitleItem(this.dataset.id,this)">Run again</button>');
   }
-  if(item.status==="needs_review"||item.status==="failed"||item.status==="no_match"||item.status==="added_review"){
+  if(item.status==="needs_review"||item.status==="failed"||item.status==="no_match"||item.status==="partial"||item.status==="added_review"){
     actions.push('<button data-id="'+esc(item.id)+'" onclick="retrySubtitleItem(this.dataset.id,this)">Retry with more candidates</button>');
   }
-  if(item.status!=="skipped"&&item.status!=="added"&&item.status!=="has_swedish"){
+  if(!complete&&item.status!=="skipped"){
     actions.push('<button data-id="'+esc(item.id)+'" onclick="skipSubtitleItem(this.dataset.id,this)">Skip</button>');
   }
   actions.push('<button data-id="'+esc(item.id)+'" onclick="openSubtitleItem(this.dataset.id)">Details</button>');
   const langs=item.existing_sub_languages||[];
-  const voice=item.swedish_sources&&item.swedish_sources.length?' · Swedish: '+esc(item.swedish_sources.join(", ")):"";
   const error=item.error?'<div class="hardlink-reason">'+esc(item.error)+'</div>':"";
-  const output=item.output_path?'<div class="small mono">'+esc(item.output_path)+'</div>':"";
-  const metrics=item.metrics?'<div class="small">'+esc(subtitleMetricsText(item.metrics))+'</div>':"";
+  const targets=subtitleTargetLines(item);
   const running=item.status==="processing"||item.status==="downloading"||item.status==="syncing";
   let html='<article class="hardlink-card'+(running?" running":"")+'"><div class="hardlink-card-head"><div class="hardlink-heading">';
   html+='<div class="hardlink-title-line"><span class="hardlink-type">'+esc(item.folder_name)+'</span></div>';
   html+='<div class="hardlink-meta">'+esc(item.drive_id)+' · '+esc(item.title||"")+(item.year?" ("+item.year+")":"")+' · '+esc(subtitleReferenceText(item))+'</div>';
   html+='<div class="small mono">'+esc(item.video_path)+'</div>';
-  html+='<div class="small">Languages: '+esc(langs.length?langs.join(", "):"none detected")+voice+'</div>';
+  html+='<div class="small">Languages: '+esc(langs.length?langs.join(", "):"none detected")+'</div>';
   if(running)html+='<div class="small"><span class="approval-spinner" aria-hidden="true"></span>'+esc((item.step?item.step+"…":"working…")+subtitleStepDetail(item))+'</div>';
   html+='<div class="small">'+esc(subtitleExternalText(item))+'</div>';
   if(!item.probed)html+='<div class="small">not analyzed yet - running this movie or rescanning will read its subtitle streams</div>';
-  html+=output+metrics+'</div><div class="hardlink-card-actions"><span class="badge '+subtitleStatusClass(item)+'">'+esc(subtitleStatusLabel(item))+'</span>'+actions.join("")+'</div></div>'+error+'</article>';
+  html+=targets+'</div><div class="hardlink-card-actions"><span class="badge '+subtitleStatusClass(item)+'">'+esc(subtitleStatusLabel(item))+'</span>'+actions.join("")+'</div></div>'+error+'</article>';
   return html;
 }
 async function loadSubtitles(openId){
@@ -1334,7 +1362,7 @@ function renderSubtitles(){
   $("subtitleSettingsNote").textContent="alass split penalty "+settings.alass_split_penalty+" · quota reserve "+settings.quota_reserve;
   const stats=subtitleData.stats||{};
   $("subtitleStats").innerHTML=[
-    [stats.total,"Remote movies"],[stats.pending,"Needs subtitles"],[stats.no_external_subtitle,"No external SRT"],[stats.with_external_subtitle,"Has external SRT"],[stats.not_analyzed,"Not analyzed"],[stats.added,"Added"],[stats.needs_review,"Needs review"],[stats.no_match,"No match"],[stats.no_reference,"No reference"],[stats.has_swedish,"Has Swedish"],[stats.failed,"Failed"],[stats.skipped,"Skipped"]
+    [stats.total,"Remote movies"],[stats.pending,"Needs subtitles"],[stats.no_external_subtitle,"No external SRT"],[stats.with_external_subtitle,"Has external SRT"],[stats.not_analyzed,"Not analyzed"],[stats.added,"Added"],[stats.partial,"Partly added"],[stats.needs_review,"Needs review"],[stats.no_match,"No match"],[stats.no_reference,"No reference"],[stats.has_targets,"Has subtitles"],[stats.failed,"Failed"],[stats.skipped,"Skipped"]
   ].map(x=>'<div class="companion-stat"><strong>'+x[0]+"</strong><span>"+x[1]+"</span></div>").join("");
   const batchSize=settings.run_batch_size||20;
   const pending=stats.pending||0;
@@ -1358,8 +1386,8 @@ function renderSubtitles(){
   // movies that still need a Swedish subtitle.
   const runButton=$("subtitleRunButton");
   runButton.disabled=!!b.running||pending===0;
-  runButton.textContent=b.running?"Running…":(pending?("Add Swedish subtitles — next "+nextBatch):"Nothing to process");
-  runButton.title=pending?("Processes the next "+nextBatch+" of "+pending+" movies that need Swedish subtitles"):"No movie needs a Swedish subtitle right now";
+  runButton.textContent=b.running?"Running…":(pending?("Add missing subtitles — next "+nextBatch):"Nothing to process");
+  runButton.title=pending?("Processes the next "+nextBatch+" of "+pending+" movies that are missing a target subtitle"):"No movie is missing a target subtitle right now";
   $("subtitleScanButton").disabled=!!b.running;
   $("subtitleCancelButton").classList.toggle("hidden",!b.running);
   const message=[];
@@ -1373,10 +1401,12 @@ function renderSubtitles(){
   const term=subtitleSearchTerm.trim().toLowerCase();
   $("subtitleSearchClear").disabled=!term;
   const items=subtitleData.items||[];
-  const done=item=>item.status==="added"||item.status==="added_review"||item.status==="has_swedish";
+  const done=item=>item.status==="added"||item.status==="added_review"||item.status==="has_targets"||item.status==="has_swedish";
+  $("subtitleDescription").textContent="Finds "+(subtitleData.target_languages||[]).join(", ")+" subtitles for every movie in the remote movie libraries, syncs each one with alass and writes it as <video>.<language>.srt next to the movie.";
   const matchStatus=item=>{
     if(subtitleFilter==="all")return true;
-    if(subtitleFilter==="added")return item.status==="added"||item.status==="added_review";
+    if(subtitleFilter==="added")return item.status==="added"||item.status==="added_review"||item.status==="partial";
+    if(subtitleFilter==="has_targets")return done(item);
     if(subtitleFilter==="pending")return item.status==="pending"||item.status==="processing"||item.status==="downloading"||item.status==="syncing";
     if(subtitleFilter==="no_external")return !item.has_external_subtitle&&!done(item);
     if(subtitleFilter==="not_analyzed")return !item.probed&&!done(item);
@@ -1406,20 +1436,20 @@ function renderSubtitleDetail(){
   if(!item){box.classList.add("hidden");box.innerHTML="";return}
   box.classList.remove("hidden");
   const attempts=(subtitleData.attempts||[]).slice().reverse().map(a=>{
-    let line=esc(a.at||"")+' · '+esc(a.status)+' · file '+a.file_id+(a.release?' · '+esc(a.release):"")+(a.metrics?' · '+esc(subtitleMetricsText(a.metrics)):"");
+    let line=esc(a.at||"")+' · '+esc(a.status)+(a.language?' · '+esc(a.language):"")+' · file '+a.file_id+(a.release?' · '+esc(a.release):"")+(a.metrics?' · '+esc(subtitleMetricsText(a.metrics)):"");
     if(a.detail)line+='<div class="mono">'+esc(a.detail)+'</div>';
     return '<div class="small">'+line+'</div>';
   }).join("");
   const candidates=(subtitleData.candidates||[]).slice(0,10).map(c=>{
-    let line='#'+c.rank+' · score '+Number(c.score||0).toFixed(0)+' · '+esc(c.category||"")+(c.safe?" · safe":" · unsafe")+' · '+esc(c.release||"");
+    let line='#'+c.rank+' · '+(c.language?esc(c.language):"?")+(c.variant?' ('+esc(subtitleVariantLabel(c.variant))+')':"")+' · score '+Number(c.score||0).toFixed(0)+' · '+esc(c.category||"")+(c.safe?" · safe":" · unsafe")+' · '+esc(c.release||"");
     if(c.reasons&&c.reasons.length)line+='<div class="mono">'+esc(c.reasons.join("; "))+'</div>';
     return '<div class="small">'+line+'</div>';
   }).join("");
   let html='<div class="companion-toolbar"><div><h2 style="margin-bottom:4px">'+esc(item.folder_name)+'</h2><div class="small mono">'+esc(item.video_path)+'</div></div><div class="actions" style="margin-top:0"><button onclick="closeSubtitleItem()">Close</button></div></div>';
   html+='<div class="small">Status: '+esc(subtitleStatusLabel(item))+' · reference: '+esc(subtitleReferenceText(item))+'</div>';
   if(item.step)html+='<div class="small"><span class="approval-spinner" aria-hidden="true"></span>'+esc(item.step+"…"+subtitleStepDetail(item))+'</div>';
-  if(item.output_path)html+='<div class="small mono">Output: '+esc(item.output_path)+'</div>';
-  if(item.metrics)html+='<div class="small">'+esc(subtitleMetricsText(item.metrics))+'</div>';
+  const targetLines=subtitleTargetLines(item);
+  if(targetLines)html+='<h3 style="margin-top:14px">Target languages</h3>'+targetLines;
   if(item.work_dir)html+='<div class="small mono">Work: '+esc(item.work_dir)+'</div>';
   const external=(item.external_subtitles||[]).map(sub=>esc(sub.file_name)+(sub.language?" ("+esc(sub.language)+")":"")+(sub.usable?"":" [unusable]")).join(", ");
   if(external)html+='<div class="small">External subtitle files: '+external+'</div>';

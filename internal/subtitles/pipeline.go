@@ -45,16 +45,20 @@ var errQuotaStop = errors.New("opensubtitles quota reserve reached")
 
 // processItem runs the full workflow for one item and returns the resulting
 // status.
+//
+// One run can serve several target languages. OpenSubtitles is searched once for
+// every language the movie is missing, the timing reference is extracted at most
+// once and reused by all of them, and each language is then downloaded,
+// synchronized and installed on its own. A language without a safe candidate is
+// simply left unresolved: the languages that do have candidates still proceed.
 func (m *Manager) processItem(ctx context.Context, item *Item, opts runOptions) (string, error) {
-	target := m.cfg.TargetLanguage
-	if target == "" {
-		target = "sv"
-	}
-
 	external, err := discoverExternalSubtitles(filepath.Dir(item.VideoPath), item.VideoName)
 	if err != nil {
 		return StatusFailed, fmt.Errorf("read movie folder: %w", err)
 	}
+	// A new run invalidates the previous message; the summary of this run (for
+	// example "en no match") is written before returning.
+	item.Error = ""
 
 	// A scan only probes up to scan_batch_size videos per run, so a movie can be
 	// queued without ever being analyzed. Probe it here instead of reporting
@@ -76,59 +80,42 @@ func (m *Manager) processItem(ctx context.Context, item *Item, opts runOptions) 
 		slog.Info("subtitles: movie analyzed", "id", item.ID, "embedded_streams", len(info.Streams), "duration_ms", info.DurationMS)
 	}
 
-	if swedish, sources := hasSwedishSubtitle(target, external, item.EmbeddedSubStreams); swedish {
-		item.HasSwedish = true
-		item.SwedishSources = sources
-		slog.Info("subtitles: movie already has Swedish subtitles", "id", item.ID, "video", item.VideoPath, "sources", strings.Join(sources, ", "))
+	// Rebuild the per-language state from what is on disk right now, so a
+	// subtitle that appeared (or was deleted) since the last scan decides what
+	// this run has to do.
+	item.Targets = m.reconcileItemTargets(item, external)
+	missing := item.MissingTargets()
+	if len(missing) == 0 {
+		item.Error = ""
+		slog.Info("subtitles: every target language already has a subtitle",
+			"id", item.ID, "video", item.VideoPath, "targets", describeTargets(m.cfg.TargetLanguages))
 		if opts.previousStatus == StatusAdded || opts.previousStatus == StatusAddedReview {
 			return opts.previousStatus, nil
 		}
-		return StatusHasSwedish, nil
+		return StatusHasTargets, nil
 	}
-
-	// An existing final subtitle means the work is already done.
-	finalPath := m.outputPath(item)
-	if IsValidSRTFile(finalPath) {
-		slog.Info("subtitles: subtitle already installed", "id", item.ID, "path", finalPath)
-		item.OutputPath = finalPath
-		if info, err := os.Stat(finalPath); err == nil {
-			item.OutputBytes = info.Size()
-		}
-		return StatusHasSwedish, nil
-	}
+	item.Error = ""
 
 	workDir := m.itemWorkDir(item.ID)
 	if err := os.MkdirAll(workDir, 0o755); err != nil {
 		return StatusFailed, fmt.Errorf("create work directory %s: %w (the container user must be able to write subtitles.work_dir; see the Subtitles section of the README)", workDir, err)
 	}
 	item.WorkDir = workDir
-	referencePath := filepath.Join(workDir, "reference.srt")
 
-	// Search before touching the video: finding candidates needs only the movie
-	// identity, so a movie OpenSubtitles has no safe candidate for is abandoned
-	// before an embedded reference is extracted. Extracting one demuxes the whole
-	// video file, which costs minutes per movie, and doing it for a movie that
-	// cannot be finished would be a pure waste of disk time.
+	// 1. Search once for every missing language. The search needs only the movie
+	// identity, so a movie OpenSubtitles has nothing for is abandoned before an
+	// embedded reference is extracted, which demuxes the whole video file and
+	// costs minutes per movie.
 	m.setStage(item, "search", StatusProcessing)
-	candidates, err := m.collectCandidates(ctx, item, opts)
+	candidates, err := m.collectCandidates(ctx, item, missing, opts)
 	if err != nil {
 		if ctxErr := ctx.Err(); ctxErr != nil {
 			return StatusPending, ctxErr
 		}
 		return StatusFailed, err
 	}
-	if len(candidates) == 0 {
-		slog.Warn("subtitles: no safe candidate found; skipping the reference extraction", "id", item.ID, "video", item.VideoPath)
-		return StatusNoMatch, errors.New("no safe Swedish subtitle candidate was found")
-	}
-	slog.Info("subtitles: candidates audited", "id", item.ID, "safe", len(candidates))
-	slog.Info("subtitles: top candidate",
-		"id", item.ID,
-		"file_id", candidates[0].FileID,
-		"release", candidates[0].Release,
-		"identity_score", fmt.Sprintf("%.1f", candidates[0].Score),
-		"release_score", fmt.Sprintf("%.1f", candidates[0].PassScore),
-		"category", candidates[0].Category)
+	slog.Info("subtitles: candidates audited",
+		"id", item.ID, "safe", len(candidates), "languages", describeTargets(missing))
 
 	if opts.refreshQuota {
 		m.refreshQuota(ctx)
@@ -142,6 +129,241 @@ func (m *Manager) processItem(ctx context.Context, item *Item, opts runOptions) 
 		return StatusPending, errQuotaStop
 	}
 
+	// 2. Work through the languages one at a time. The reference is resolved
+	// lazily, on the first language that actually has a candidate.
+	var reference *referenceResult
+	for index := range missing {
+		language := missing[index]
+		if ctxErr := ctx.Err(); ctxErr != nil {
+			return StatusPending, ctxErr
+		}
+		target := item.Target(language)
+		if target == nil {
+			// Defensive: an item stored before this language was configured.
+			item.Targets = append(item.Targets, TargetState{Language: language, Status: StatusPending})
+			target = item.Target(language)
+		}
+
+		list := candidatesForLanguage(candidates, language)
+		if len(list) == 0 {
+			target.Status = StatusNoMatch
+			target.Error = "no safe candidate was found"
+			slog.Warn("subtitles: no safe candidate for a language", "id", item.ID, "language", language)
+			continue
+		}
+
+		if reference == nil {
+			resolved, refErr := m.resolveReference(ctx, item, external, workDir)
+			if refErr != nil {
+				if ctxErr := ctx.Err(); ctxErr != nil {
+					return StatusPending, ctxErr
+				}
+				status := StatusNoReference
+				if errors.Is(refErr, context.DeadlineExceeded) {
+					// A timed-out demux is not the same as a movie without a
+					// reference: the extraction never finished, so the movie must
+					// not be filed as "no reference" and forgotten.
+					status = StatusFailed
+				}
+				// The reference is shared, so every language not reached yet fails
+				// for the same reason.
+				for _, remaining := range missing[index:] {
+					if pending := item.Target(remaining); pending != nil {
+						pending.Status = status
+						pending.Error = refErr.Error()
+					}
+				}
+				slog.Warn("subtitles: no usable timing reference",
+					"id", item.ID, "video", item.VideoPath, "err", refErr)
+				item.Error = summarizeTargetErrors(item.Targets)
+				return status, refErr
+			}
+			reference = resolved
+		}
+
+		m.setStage(item, "download", StatusDownloading)
+		status, targetErr := m.syncTarget(ctx, item, target, list, reference, workDir, opts)
+		if targetErr != nil {
+			// A canceled run or an exhausted quota says nothing about the movie,
+			// so the item stays queued instead of being filed as a finding.
+			if errors.Is(targetErr, context.Canceled) || errors.Is(targetErr, errQuotaStop) {
+				target.Status = StatusPending
+				target.Error = ""
+				return StatusPending, targetErr
+			}
+			if opensubtitles.IsHardStop(targetErr) {
+				target.Status = StatusFailed
+				target.Error = targetErr.Error()
+				item.Error = summarizeTargetErrors(item.Targets)
+				return StatusFailed, targetErr
+			}
+			slog.Warn("subtitles: language failed", "id", item.ID, "language", language, "err", targetErr)
+			target.Status = StatusFailed
+			target.Error = targetErr.Error()
+			continue
+		}
+		target.Status = status
+		if status == StatusAdded || status == StatusAddedReview {
+			slog.Info("subtitles: installed target subtitle",
+				"id", item.ID,
+				"video", item.VideoPath,
+				"language", target.Language,
+				"output", target.OutputPath,
+				"file_id", target.FileID,
+				"release", target.Release,
+				"variant", target.Variant)
+		}
+	}
+
+	// 3. Summarize the run: the item status describes the movie as a whole, the
+	// per-language outcomes explain which subtitles are still missing.
+	item.Targets = dedupeTargetOrder(item.Targets, m.cfg.TargetLanguages)
+	item.Error = summarizeTargetErrors(item.Targets)
+	status := aggregateItemStatus(item.Targets)
+	attrs := []any{"id", item.ID, "video", item.VideoPath, "status", status, "targets", targetSummary(item.Targets)}
+	if item.ReferenceKind != "" {
+		attrs = append(attrs, "reference", item.ReferenceKind+"/"+item.ReferenceLang)
+	}
+	if item.Error != "" {
+		slog.Warn("subtitles: run finished with missing languages", attrs...)
+	} else {
+		slog.Info("subtitles: run finished", attrs...)
+	}
+	if status == StatusFailed || status == StatusNeedsReview || status == StatusNoMatch || status == StatusNoReference {
+		return status, errors.New(item.Error)
+	}
+	return status, nil
+}
+
+// reconcileItemTargets rebuilds the per-language state of an item from its
+// current external files and embedded streams, carrying earlier outcomes,
+// chosen candidates and metrics forward.
+func (m *Manager) reconcileItemTargets(item *Item, external []externalSubtitle) []TargetState {
+	current := targetStates(m.cfg.TargetLanguages, external, item.EmbeddedSubStreams)
+	return reconcileTargets(item.Targets, current, item.VideoPath, false)
+}
+
+// dedupeTargetOrder keeps the configured language order when an item carries
+// languages that are no longer configured (or is missing a newly added one).
+func dedupeTargetOrder(targets []TargetState, languages []string) []TargetState {
+	out := make([]TargetState, 0, len(languages))
+	seen := map[string]bool{}
+	for _, language := range languages {
+		if target := findTarget(targets, language); target != nil {
+			seen[language] = true
+			out = append(out, *target)
+			continue
+		}
+		out = append(out, TargetState{Language: language, Status: StatusPending})
+	}
+	for _, target := range targets {
+		if !seen[target.Language] {
+			out = append(out, target)
+		}
+	}
+	return out
+}
+
+// targetSummary renders the per-language outcomes for the log.
+func targetSummary(targets []TargetState) string {
+	parts := make([]string, 0, len(targets))
+	for _, target := range targets {
+		parts = append(parts, target.Language+" "+targetLabel(target.Status))
+	}
+	return strings.Join(parts, ", ")
+}
+
+// summarizeTargetErrors lists the languages that still have no subtitle, so the
+// card explains a partial or unmatched movie without opening it.
+func summarizeTargetErrors(targets []TargetState) string {
+	var parts []string
+	for _, target := range targets {
+		if target.resolved() {
+			continue
+		}
+		line := target.Language + " " + targetLabel(target.Status)
+		if target.Error != "" {
+			line += ": " + target.Error
+		}
+		parts = append(parts, line)
+	}
+	return strings.Join(parts, "; ")
+}
+
+// aggregateItemStatus folds the per-language outcomes into the status of the
+// movie as a whole.
+func aggregateItemStatus(targets []TargetState) string {
+	resolved, added, review := 0, 0, 0
+	statuses := map[string]bool{}
+	for _, target := range targets {
+		switch target.Status {
+		case TargetPresent:
+			resolved++
+		case StatusAdded:
+			resolved++
+			added++
+		case StatusAddedReview:
+			resolved++
+			added++
+			review++
+		default:
+			statuses[target.Status] = true
+		}
+	}
+	switch {
+	case resolved == len(targets):
+		if review > 0 {
+			return StatusAddedReview
+		}
+		if added > 0 {
+			return StatusAdded
+		}
+		return StatusHasTargets
+	case resolved > 0:
+		return StatusPartial
+	case statuses[StatusFailed]:
+		return StatusFailed
+	case statuses[StatusNeedsReview]:
+		return StatusNeedsReview
+	case statuses[StatusNoReference]:
+		return StatusNoReference
+	case statuses[StatusNoMatch]:
+		return StatusNoMatch
+	default:
+		return StatusPending
+	}
+}
+
+// candidatesForLanguage filters the audited candidates to one target language
+// and orders them the way that language has to be tried: safe candidates first,
+// then the preferred regional variant (Latin American Spanish before Castilian),
+// and otherwise the audited order that the caller already applied.
+func candidatesForLanguage(candidates []Candidate, language string) []Candidate {
+	var out []Candidate
+	for _, candidate := range candidates {
+		if languageMatches(language, candidate.Language) {
+			out = append(out, candidate)
+		}
+	}
+	sort.SliceStable(out, func(i, j int) bool {
+		if out[i].Safe != out[j].Safe {
+			return out[i].Safe
+		}
+		return variantRank(out[i].Variant) < variantRank(out[j].Variant)
+	})
+	return out
+}
+
+// referenceResult is the materialized timing reference shared by every target
+// language of one movie.
+type referenceResult struct {
+	path string
+	cues []TimeSpan
+}
+
+// resolveReference walks the ranked reference candidates and materializes the
+// first usable one as `reference.srt` in the work directory.
+func (m *Manager) resolveReference(ctx context.Context, item *Item, external []externalSubtitle, workDir string) (*referenceResult, error) {
 	choices := RankReferences(item, external, m.cfg.ReferenceLanguages)
 	if len(choices) == 0 {
 		slog.Warn("subtitles: no usable reference subtitle",
@@ -149,28 +371,24 @@ func (m *Manager) processItem(ctx context.Context, item *Item, opts runOptions) 
 			"probed", item.Probed,
 			"external_subtitles", len(item.ExternalSubtitles),
 			"embedded_streams", len(item.EmbeddedSubStreams))
-		return StatusNoReference, errors.New("no text subtitle or embedded text stream can be used as a reference; only image-based subtitles were found")
+		return nil, errors.New("no text subtitle or embedded text stream can be used as a reference; only image-based subtitles were found")
 	}
 
-	// Walk every reference candidate: a forced/signs-only track or an empty
-	// extraction must not abandon a movie that has another usable stream.
-	//
 	// The reference chosen by an earlier run is cleared first: a stale kind would
-	// otherwise mask a reference that this run failed to produce and send the
-	// movie into the download stage with no reference file at all.
-	var referenceCues []TimeSpan
-	var referenceErr error
-	timedOut := false
+	// otherwise mask a reference that this run failed to produce.
 	item.ReferenceKind = ""
 	item.ReferenceLang = ""
 	item.ReferenceStream = 0
 	item.ReferencePath = ""
+	referencePath := filepath.Join(workDir, "reference.srt")
+
+	// Walk every reference candidate: a forced/signs-only track or an empty
+	// extraction must not abandon a movie that has another usable stream.
+	var referenceErr error
+	timedOut := false
 	for index := range choices {
-		// A canceled job must stop immediately: the remaining candidates would
-		// only fail with "context canceled" and their noise hides why the movie
-		// was abandoned.
 		if ctxErr := ctx.Err(); ctxErr != nil {
-			return StatusPending, ctxErr
+			return nil, ctxErr
 		}
 		choice := choices[index]
 		m.setStage(item, "reference", StatusProcessing)
@@ -185,7 +403,7 @@ func (m *Manager) processItem(ctx context.Context, item *Item, opts runOptions) 
 		_ = os.Remove(referencePath)
 		if err := m.materializeReference(ctx, item, &choice, referencePath); err != nil {
 			if ctxErr := ctx.Err(); ctxErr != nil {
-				return StatusPending, ctxErr
+				return nil, ctxErr
 			}
 			slog.Warn("subtitles: reference unusable", "id", item.ID, "kind", choice.Kind, "stream", choice.Stream, "err", err)
 			referenceErr = err
@@ -210,32 +428,28 @@ func (m *Manager) processItem(ctx context.Context, item *Item, opts runOptions) 
 			referenceErr = fmt.Errorf("reference subtitle has only %d cue(s); too small to align against", len(cues))
 			continue
 		}
-		referenceCues = cues
 		item.ReferenceKind = choice.Kind
 		item.ReferenceLang = choice.Lang
 		item.ReferenceStream = choice.Stream
 		item.ReferencePath = choice.Path
 		slog.Info("subtitles: reference ready",
 			"id", item.ID, "kind", choice.Kind, "language", choice.Lang, "stream", choice.Stream, "cues", len(cues), "path", referencePath)
-		break
+		return &referenceResult{path: referencePath, cues: cues}, nil
 	}
-	if item.ReferenceKind == "" {
-		if ctxErr := ctx.Err(); ctxErr != nil {
-			return StatusPending, ctxErr
-		}
-		if referenceErr == nil {
-			referenceErr = errors.New("no usable reference subtitle")
-		}
-		if timedOut {
-			// A timed-out demux is not the same as a movie without a reference:
-			// the extraction never finished, so the movie must not be filed as
-			// "no reference" and forgotten.
-			return StatusFailed, fmt.Errorf("embedded subtitle extraction did not finish in time; the video may be on a slow or sleeping disk: %w", referenceErr)
-		}
-		return StatusNoReference, referenceErr
+	if referenceErr == nil {
+		referenceErr = errors.New("no usable reference subtitle")
 	}
+	if timedOut {
+		return nil, fmt.Errorf("embedded subtitle extraction did not finish in time; the video may be on a slow or sleeping disk: %w", referenceErr)
+	}
+	return nil, referenceErr
+}
 
-	m.setStage(item, "download", StatusDownloading)
+// syncTarget downloads, aligns and installs one target language against the
+// shared timing reference. It returns the language outcome, and an error only
+// when the whole run has to stop (cancel, quota reserve, a hard OpenSubtitles
+// error) or the language failed outright.
+func (m *Manager) syncTarget(ctx context.Context, item *Item, target *TargetState, candidates []Candidate, reference *referenceResult, workDir string, opts runOptions) (string, error) {
 	maxCandidates := opts.maxCandidates
 	if maxCandidates <= 0 {
 		maxCandidates = m.cfg.MaxCandidates
@@ -250,8 +464,8 @@ func (m *Manager) processItem(ctx context.Context, item *Item, opts runOptions) 
 		if attempted >= maxCandidates {
 			break
 		}
-		if ctx.Err() != nil {
-			return StatusPending, ctx.Err()
+		if ctxErr := ctx.Err(); ctxErr != nil {
+			return StatusPending, ctxErr
 		}
 		if remaining, known := m.quotaRemaining(); known && remaining <= m.cfg.QuotaReserve {
 			return StatusPending, errQuotaStop
@@ -260,23 +474,25 @@ func (m *Manager) processItem(ctx context.Context, item *Item, opts runOptions) 
 		item.Attempts++
 		slog.Info("subtitles: trying candidate",
 			"id", item.ID,
+			"language", target.Language,
 			"attempt", attempted,
 			"file_id", candidate.FileID,
 			"release", candidate.Release,
+			"variant", candidate.Variant,
 			"score", fmt.Sprintf("%.1f", candidate.Score),
 			"category", candidate.Category)
 
 		rawPath := filepath.Join(workDir, strconv.Itoa(candidate.FileID)+".raw.srt")
 		if !IsValidSRTFile(rawPath) {
 			if err := m.downloadCandidate(ctx, candidate, rawPath); err != nil {
-				slog.Warn("subtitles: download failed", "id", item.ID, "file_id", candidate.FileID, "err", err)
+				slog.Warn("subtitles: download failed", "id", item.ID, "language", target.Language, "file_id", candidate.FileID, "err", err)
 				m.recordAttempt(item, candidate, "download_error", nil, err.Error())
 				if opensubtitles.IsHardStop(err) {
-					return StatusPending, err
+					return StatusFailed, err
 				}
 				continue
 			}
-			slog.Info("subtitles: downloaded candidate subtitle", "id", item.ID, "file_id", candidate.FileID, "path", rawPath)
+			slog.Info("subtitles: downloaded candidate subtitle", "id", item.ID, "language", target.Language, "file_id", candidate.FileID, "path", rawPath)
 		}
 		if bestFallback == nil {
 			fallback := candidate
@@ -285,7 +501,7 @@ func (m *Manager) processItem(ctx context.Context, item *Item, opts runOptions) 
 
 		m.setStage(item, "sync", StatusSyncing)
 		alignedPath := filepath.Join(workDir, strconv.Itoa(candidate.FileID)+".aligned.srt")
-		report, syncErr := m.runAlass(ctx, referencePath, rawPath, alignedPath)
+		report, syncErr := m.runAlass(ctx, reference.path, rawPath, alignedPath)
 		if syncErr != nil {
 			if ctxErr := ctx.Err(); ctxErr != nil {
 				return StatusPending, ctxErr
@@ -299,18 +515,16 @@ func (m *Manager) processItem(ctx context.Context, item *Item, opts runOptions) 
 			m.recordAttempt(item, candidate, "alass_error", nil, err.Error())
 			continue
 		}
-		cleaned, promos, malformed := 0, 0, 0
+		promos, malformed := 0, 0
 		if m.cfg.RemovePromoCues {
-			cleaned = 1
 			alignedText, promos, malformed = StripPromoAndRepair(alignedText)
 		}
-		_ = cleaned
 		outputCues, err := CueTimesFromText(alignedText)
 		if err != nil {
 			m.recordAttempt(item, candidate, "invalid_output", nil, err.Error())
 			continue
 		}
-		metrics := ComputeMetrics(outputCues, referenceCues, m.cfg.Accept)
+		metrics := ComputeMetrics(outputCues, reference.cues, m.cfg.Accept)
 		metrics.RemovedPromos = promos
 		metrics.RemovedMalformed = malformed
 		metrics.AlassBlocks = len(report.Blocks)
@@ -322,13 +536,14 @@ func (m *Manager) processItem(ctx context.Context, item *Item, opts runOptions) 
 		for _, block := range report.Blocks {
 			synchronized += block.Count
 		}
-		if len(referenceCues) > 0 {
-			metrics.AlassCoverage = float64(synchronized) / float64(len(referenceCues))
+		if len(reference.cues) > 0 {
+			metrics.AlassCoverage = float64(synchronized) / float64(len(reference.cues))
 		}
-		metrics.CoarseIssues = CoarseIssues(referenceCues, mustCueTimes(rawPath), outputCues, report)
+		metrics.CoarseIssues = CoarseIssues(reference.cues, mustCueTimes(rawPath), outputCues, report)
 
 		attrs := []any{
 			"id", item.ID,
+			"language", target.Language,
 			"file_id", candidate.FileID,
 			"cues", metrics.Cues,
 			"within_2s", fmt.Sprintf("%.0f%%", metrics.Within2*100),
@@ -349,7 +564,7 @@ func (m *Manager) processItem(ctx context.Context, item *Item, opts runOptions) 
 
 		if !metrics.Acceptable {
 			slog.Warn("subtitles: candidate rejected by the timing gate",
-				"id", item.ID, "file_id", candidate.FileID, "release", candidate.Release)
+				"id", item.ID, "language", target.Language, "file_id", candidate.FileID, "release", candidate.Release)
 			m.recordAttempt(item, candidate, "rejected_timing", &metrics, report.Detail)
 			continue
 		}
@@ -358,22 +573,16 @@ func (m *Manager) processItem(ctx context.Context, item *Item, opts runOptions) 
 				return StatusFailed, err
 			}
 		}
-		if err := m.installSubtitle(item, alignedText, &metrics, candidate, report); err != nil {
+		if err := m.installSubtitle(item, target, alignedText, &metrics, candidate, report); err != nil {
 			return StatusFailed, err
 		}
-		slog.Info("subtitles: installed Swedish subtitle",
-			"id", item.ID,
-			"video", item.VideoPath,
-			"output", item.OutputPath,
-			"file_id", candidate.FileID,
-			"release", candidate.Release)
 		return StatusAdded, nil
 	}
 
-	// No candidate passed the strict timing gate.
 	if ctxErr := ctx.Err(); ctxErr != nil {
 		return StatusPending, ctxErr
 	}
+	// No candidate passed the strict timing gate.
 	if m.cfg.AllowUnalignedFallback && bestFallback != nil && bestFallback.Safe {
 		rawPath := filepath.Join(workDir, strconv.Itoa(bestFallback.FileID)+".raw.srt")
 		if text, err := readSubtitleText(rawPath); err == nil {
@@ -381,18 +590,20 @@ func (m *Manager) processItem(ctx context.Context, item *Item, opts runOptions) 
 				text, _, _ = StripPromoAndRepair(text)
 			}
 			metrics := &Metrics{Acceptable: false}
-			if err := m.installSubtitle(item, text, metrics, *bestFallback, AlassReport{}); err != nil {
+			if err := m.installSubtitle(item, target, text, metrics, *bestFallback, AlassReport{}); err != nil {
 				return StatusFailed, err
 			}
+			target.Status = StatusAddedReview
+			target.Error = "installed without a passing alass alignment because the reference is unusable"
 			slog.Warn("subtitles: installed without alignment (allow_unaligned_fallback)",
-				"id", item.ID, "video", item.VideoPath, "output", item.OutputPath)
-			item.Error = "installed without a passing alass alignment because the reference is unusable"
+				"id", item.ID, "video", item.VideoPath, "language", target.Language, "output", target.OutputPath)
 			return StatusAddedReview, nil
 		}
 	}
 	slog.Warn("subtitles: no candidate passed the timing gate",
-		"id", item.ID, "video", item.VideoPath, "attempts", attempted)
-	return StatusNeedsReview, fmt.Errorf("no candidate passed the timing gate after %d attempt(s)", attempted)
+		"id", item.ID, "video", item.VideoPath, "language", target.Language, "attempts", attempted)
+	target.Error = fmt.Sprintf("no candidate passed the timing gate after %d attempt(s)", attempted)
+	return StatusNeedsReview, nil
 }
 
 // materializeReference produces a normalized UTF-8 SRT reference in the work
@@ -429,7 +640,16 @@ func (m *Manager) materializeReference(ctx context.Context, item *Item, choice *
 // the safe candidates ordered by identity score, porting the query set of
 // `second-pass-swedish.py`. It needs only the movie identity, which is why the
 // pipeline searches before it extracts a reference from the video file.
-func (m *Manager) collectCandidates(ctx context.Context, item *Item, opts runOptions) ([]Candidate, error) {
+//
+// languages are the target languages this run is missing; they are requested in a
+// single search so one API round trip serves every one of them.
+func (m *Manager) collectCandidates(ctx context.Context, item *Item, languages []string, opts runOptions) ([]Candidate, error) {
+	languagesParam := searchLanguages(languages)
+	scoped := func(query opensubtitles.SearchQuery) opensubtitles.SearchQuery {
+		query.Languages = languagesParam
+		return query
+	}
+
 	merged := map[int]opensubtitles.Item{}
 	if !opts.refreshSearch {
 		for _, candidate := range m.candidatesFor(item.ID) {
@@ -445,9 +665,9 @@ func (m *Manager) collectCandidates(ctx context.Context, item *Item, opts runOpt
 	if m.cfg.UseMoviehash && item.VideoSize > 0 && !opts.refreshSearch {
 		if _, cached := m.searchFor(item.ID, "hash"); !cached {
 			if hash, err := OpenSubtitlesHash(item.VideoPath); err == nil {
-				m.runSearchQuery(ctx, item, "hash", opensubtitles.SearchQuery{
+				m.runSearchQuery(ctx, item, "hash", scoped(opensubtitles.SearchQuery{
 					MovieHash: hash, MovieBytes: item.VideoSize,
-				}, merged)
+				}), merged)
 			}
 		}
 	}
@@ -456,7 +676,7 @@ func (m *Manager) collectCandidates(ctx context.Context, item *Item, opts runOpt
 	if title == "" {
 		title = strings.TrimSpace(item.VideoName)
 	}
-	if err := m.runSearchQuery(ctx, item, "title_year", opensubtitles.SearchQuery{Query: title, Year: item.Year}, merged); err != nil {
+	if err := m.runSearchQuery(ctx, item, "title_year", scoped(opensubtitles.SearchQuery{Query: title, Year: item.Year}), merged); err != nil {
 		return nil, err
 	}
 	releaseQuery := title
@@ -467,8 +687,8 @@ func (m *Manager) collectCandidates(ctx context.Context, item *Item, opts runOpt
 		kind  string
 		query opensubtitles.SearchQuery
 	}{
-		{"title_only", opensubtitles.SearchQuery{Query: title}},
-		{"release", opensubtitles.SearchQuery{Query: releaseQuery}},
+		{"title_only", scoped(opensubtitles.SearchQuery{Query: title})},
+		{"release", scoped(opensubtitles.SearchQuery{Query: releaseQuery})},
 	}
 
 	featureID, acceptedTitles, featureErr := m.resolveFeature(ctx, item, title)
@@ -480,7 +700,7 @@ func (m *Manager) collectCandidates(ctx context.Context, item *Item, opts runOpt
 		queries = append(queries, struct {
 			kind  string
 			query opensubtitles.SearchQuery
-		}{"exact_feature", opensubtitles.SearchQuery{FeatureID: featureID}})
+		}{"exact_feature", scoped(opensubtitles.SearchQuery{FeatureID: featureID})})
 	}
 
 	for _, entry := range queries {
@@ -494,13 +714,12 @@ func (m *Manager) collectCandidates(ctx context.Context, item *Item, opts runOpt
 	if featureID != "" {
 		canonical := m.featureCanonical(item.ID)
 		for page := 1; page <= 5; page++ {
-			safe := m.countSafeCandidates(item, merged, acceptedTitles, featureID)
-			if safe >= m.cfg.MaxCandidates {
+			if m.languagesSatisfied(item, merged, acceptedTitles, featureID, languages) {
 				break
 			}
 			kind := "feature_page_" + strconv.Itoa(page)
 			if canonical != "" {
-				if err := m.runSearchQuery(ctx, item, kind, opensubtitles.SearchQuery{Query: canonical, Page: page}, merged); err != nil {
+				if err := m.runSearchQuery(ctx, item, kind, scoped(opensubtitles.SearchQuery{Query: canonical, Page: page}), merged); err != nil {
 					return nil, err
 				}
 			}
@@ -512,15 +731,34 @@ func (m *Manager) collectCandidates(ctx context.Context, item *Item, opts runOpt
 	return safeCandidates(candidates), nil
 }
 
-func (m *Manager) countSafeCandidates(item *Item, merged map[int]opensubtitles.Item, acceptedTitles map[string]bool, featureID string) int {
-	count := 0
+// languagesSatisfied reports whether every requested language already has enough
+// safe candidates, which is what stops the feature-page sweep. Counting per
+// language matters now that one search serves several of them: a pile of Swedish
+// candidates must not stop the sweep before Spanish has any.
+func (m *Manager) languagesSatisfied(item *Item, merged map[int]opensubtitles.Item, acceptedTitles map[string]bool, featureID string, languages []string) bool {
+	want := m.cfg.MaxCandidates
+	if want <= 0 {
+		want = 5
+	}
+	counts := map[string]int{}
 	for _, raw := range merged {
 		safe, _, _, _, _ := CandidateSafety(m.reference(item), raw, releaseName(raw), acceptedTitles, m.cfg.TitleOverrides, featureID)
-		if safe {
-			count++
+		if !safe {
+			continue
+		}
+		language := normalizeLanguage(raw.Attributes.Language)
+		for _, target := range languages {
+			if languageMatches(target, language) {
+				counts[target]++
+			}
 		}
 	}
-	return count
+	for _, target := range languages {
+		if counts[target] < want {
+			return false
+		}
+	}
+	return true
 }
 
 // runSearchQuery executes one query unless an identical cached result exists,
@@ -698,6 +936,11 @@ func (m *Manager) auditCandidates(item *Item, merged map[int]opensubtitles.Item,
 		}
 		reasons := append(append([]string{}, auditReasons...), safetyReasons...)
 		reasons = append(reasons, passReasons...)
+		language := normalizeLanguage(raw.Attributes.Language)
+		variant := spanishVariant(language, release)
+		if label := variantLabel(variant); label != "" {
+			reasons = append(reasons, label)
+		}
 		out = append(out, Candidate{
 			FileID:      fileID,
 			Score:       score,
@@ -705,6 +948,8 @@ func (m *Manager) auditCandidates(item *Item, merged map[int]opensubtitles.Item,
 			Category:    category,
 			Safe:        safe,
 			Release:     release,
+			Language:    language,
+			Variant:     variant,
 			MovieTitle:  movieTitle,
 			FeatureYear: featureYear,
 			Reasons:     reasons,
@@ -813,12 +1058,13 @@ func (m *Manager) runAlass(ctx context.Context, referencePath, rawPath, alignedP
 	return result.Report, nil
 }
 
-// installSubtitle writes the accepted subtitle next to the movie, atomically and
-// without ever overwriting an existing valid file.
-func (m *Manager) installSubtitle(item *Item, text string, metrics *Metrics, candidate Candidate, report AlassReport) error {
-	finalPath := m.outputPath(item)
+// installSubtitle writes one accepted subtitle next to the movie, atomically and
+// without ever overwriting an existing valid file. Each target language has its
+// own `<video>.<language>.srt`, so installing Spanish never touches Swedish.
+func (m *Manager) installSubtitle(item *Item, target *TargetState, text string, metrics *Metrics, candidate Candidate, report AlassReport) error {
+	finalPath := subtitleOutputPath(item.VideoPath, target.Language)
 	if IsValidSRTFile(finalPath) {
-		return errors.New("a Swedish subtitle already exists; refusing to overwrite")
+		return fmt.Errorf("a %s subtitle already exists; refusing to overwrite", target.Language)
 	}
 	if err := writeFileAtomic(finalPath, []byte(text), 0o644); err != nil {
 		return err
@@ -827,26 +1073,24 @@ func (m *Manager) installSubtitle(item *Item, text string, metrics *Metrics, can
 	if err != nil {
 		return fmt.Errorf("verify installed subtitle: %w", err)
 	}
-	item.OutputPath = finalPath
-	item.OutputBytes = info.Size()
-	item.ChosenFileID = candidate.FileID
-	item.ChosenRelease = candidate.Release
-	item.ChosenCategory = candidate.Category
-	item.ChosenScore = candidate.Score
-	item.Metrics = metrics
-	item.Error = ""
+	target.Status = StatusAdded
+	target.OutputPath = finalPath
+	target.OutputBytes = info.Size()
+	target.FileID = candidate.FileID
+	target.Release = candidate.Release
+	target.Category = candidate.Category
+	target.Score = candidate.Score
+	target.Variant = candidate.Variant
+	target.Metrics = metrics
+	target.Error = ""
 	m.recordAttempt(item, candidate, "accepted", metrics, report.Detail)
 	return nil
 }
 
-// outputPath is `<video-basename>.<target-language>.srt` beside the movie file.
-func (m *Manager) outputPath(item *Item) string {
-	target := m.cfg.TargetLanguage
-	if target == "" {
-		target = "sv"
-	}
-	base := strings.TrimSuffix(item.VideoName, filepath.Ext(item.VideoName))
-	return filepath.Join(filepath.Dir(item.VideoPath), base+"."+target+".srt")
+// subtitleOutputPath is `<video-basename>.<language>.srt` beside the movie file.
+func subtitleOutputPath(videoPath, language string) string {
+	base := strings.TrimSuffix(filepath.Base(videoPath), filepath.Ext(videoPath))
+	return filepath.Join(filepath.Dir(videoPath), base+"."+language+".srt")
 }
 
 // itemWorkDir is the per-item scratch directory under the configured work dir.
@@ -931,6 +1175,7 @@ func (m *Manager) recordAttempt(item *Item, candidate Candidate, status string, 
 	attempt := Attempt{
 		ItemID:   item.ID,
 		FileID:   candidate.FileID,
+		Language: candidate.Language,
 		Status:   status,
 		Category: candidate.Category,
 		Release:  candidate.Release,

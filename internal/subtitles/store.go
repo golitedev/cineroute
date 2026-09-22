@@ -44,6 +44,8 @@ CREATE TABLE IF NOT EXISTS subtitle_candidates (
   category TEXT NOT NULL,
   safe INTEGER NOT NULL DEFAULT 0,
   release TEXT NOT NULL DEFAULT '',
+  language TEXT NOT NULL DEFAULT '',
+  variant TEXT NOT NULL DEFAULT '',
   reasons_json TEXT NOT NULL DEFAULT '[]',
   raw_json TEXT NOT NULL DEFAULT '',
   PRIMARY KEY (item_id, file_id)
@@ -58,6 +60,7 @@ CREATE TABLE IF NOT EXISTS subtitle_attempts (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   item_id TEXT NOT NULL,
   file_id INTEGER NOT NULL,
+  language TEXT NOT NULL DEFAULT '',
   status TEXT NOT NULL,
   category TEXT NOT NULL DEFAULT '',
   release TEXT NOT NULL DEFAULT '',
@@ -116,7 +119,65 @@ func openStore(path string) (*store, error) {
 		_ = db.Close()
 		return nil, fmt.Errorf("create subtitles database schema: %w", err)
 	}
+	if err := migrateStore(db); err != nil {
+		_ = db.Close()
+		return nil, err
+	}
 	return &store{db: db}, nil
+}
+
+// migrateStore adds the columns that multi-language support introduced to a
+// database written by an older build. SQLite has no "ADD COLUMN IF NOT EXISTS",
+// so every column is checked against PRAGMA table_info first; an old database
+// keeps working, it just has no language recorded for its cached candidates.
+func migrateStore(db *sql.DB) error {
+	columns := []struct {
+		table  string
+		column string
+		ddl    string
+	}{
+		{"subtitle_candidates", "language", "TEXT NOT NULL DEFAULT ''"},
+		{"subtitle_candidates", "variant", "TEXT NOT NULL DEFAULT ''"},
+		{"subtitle_attempts", "language", "TEXT NOT NULL DEFAULT ''"},
+	}
+	for _, entry := range columns {
+		exists, err := storeHasColumn(db, entry.table, entry.column)
+		if err != nil {
+			return err
+		}
+		if exists {
+			continue
+		}
+		if _, err := db.Exec("ALTER TABLE " + entry.table + " ADD COLUMN " + entry.column + " " + entry.ddl); err != nil {
+			return fmt.Errorf("migrate %s.%s: %w", entry.table, entry.column, err)
+		}
+	}
+	return nil
+}
+
+func storeHasColumn(db *sql.DB, table, column string) (bool, error) {
+	rows, err := db.Query("PRAGMA table_info(" + table + ")")
+	if err != nil {
+		return false, fmt.Errorf("inspect %s: %w", table, err)
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var (
+			cid      int
+			name     string
+			kind     string
+			notNull  int
+			defaultV sql.NullString
+			primaryK int
+		)
+		if err := rows.Scan(&cid, &name, &kind, &notNull, &defaultV, &primaryK); err != nil {
+			return false, fmt.Errorf("read %s columns: %w", table, err)
+		}
+		if name == column {
+			return true, nil
+		}
+	}
+	return false, rows.Err()
 }
 
 func (s *store) close() error {
@@ -280,10 +341,11 @@ func (s *store) replaceCandidates(itemID string, candidates []Candidate) error {
 			raw = "{}"
 		}
 		if _, err := tx.Exec(`INSERT OR REPLACE INTO subtitle_candidates
-			(item_id, file_id, rank, score, category, safe, release, reasons_json, raw_json)
-			VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+			(item_id, file_id, rank, score, category, safe, release, language, variant, reasons_json, raw_json)
+			VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 			itemID, candidate.FileID, candidate.Rank, candidate.Score, candidate.Category,
-			boolToInt(candidate.Safe), candidate.Release, string(reasons), raw); err != nil {
+			boolToInt(candidate.Safe), candidate.Release, candidate.Language, candidate.Variant,
+			string(reasons), raw); err != nil {
 			_ = tx.Rollback()
 			return fmt.Errorf("save subtitle candidate: %w", err)
 		}
@@ -295,7 +357,7 @@ func (s *store) replaceCandidates(itemID string, candidates []Candidate) error {
 }
 
 func (s *store) loadCandidates(itemID string) ([]Candidate, error) {
-	rows, err := s.db.Query(`SELECT file_id, rank, score, category, safe, release, reasons_json, raw_json
+	rows, err := s.db.Query(`SELECT file_id, rank, score, category, safe, release, language, variant, reasons_json, raw_json
 		FROM subtitle_candidates WHERE item_id = ? ORDER BY rank`, itemID)
 	if err != nil {
 		return nil, fmt.Errorf("load subtitle candidates: %w", err)
@@ -307,7 +369,7 @@ func (s *store) loadCandidates(itemID string) ([]Candidate, error) {
 		var safe int
 		var reasonsJSON, rawJSON string
 		if err := rows.Scan(&candidate.FileID, &candidate.Rank, &candidate.Score, &candidate.Category,
-			&safe, &candidate.Release, &reasonsJSON, &rawJSON); err != nil {
+			&safe, &candidate.Release, &candidate.Language, &candidate.Variant, &reasonsJSON, &rawJSON); err != nil {
 			return nil, fmt.Errorf("read subtitle candidate: %w", err)
 		}
 		candidate.Safe = safe != 0
@@ -348,9 +410,9 @@ func (s *store) addAttempt(attempt Attempt) error {
 		metricsJSON = string(encoded)
 	}
 	if _, err := s.db.Exec(`INSERT INTO subtitle_attempts
-		(item_id, file_id, status, category, release, metrics_json, detail, at)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-		attempt.ItemID, attempt.FileID, attempt.Status, attempt.Category, attempt.Release,
+		(item_id, file_id, language, status, category, release, metrics_json, detail, at)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		attempt.ItemID, attempt.FileID, attempt.Language, attempt.Status, attempt.Category, attempt.Release,
 		metricsJSON, attempt.Detail, attempt.At.UTC().Format(time.RFC3339Nano)); err != nil {
 		return fmt.Errorf("save subtitle attempt: %w", err)
 	}
@@ -358,7 +420,7 @@ func (s *store) addAttempt(attempt Attempt) error {
 }
 
 func (s *store) loadAttempts(itemID string) ([]Attempt, error) {
-	rows, err := s.db.Query(`SELECT file_id, status, category, release, metrics_json, detail, at
+	rows, err := s.db.Query(`SELECT file_id, language, status, category, release, metrics_json, detail, at
 		FROM subtitle_attempts WHERE item_id = ? ORDER BY id`, itemID)
 	if err != nil {
 		return nil, fmt.Errorf("load subtitle attempts: %w", err)
@@ -368,7 +430,7 @@ func (s *store) loadAttempts(itemID string) ([]Attempt, error) {
 	for rows.Next() {
 		var attempt Attempt
 		var metricsJSON, at string
-		if err := rows.Scan(&attempt.FileID, &attempt.Status, &attempt.Category, &attempt.Release,
+		if err := rows.Scan(&attempt.FileID, &attempt.Language, &attempt.Status, &attempt.Category, &attempt.Release,
 			&metricsJSON, &attempt.Detail, &at); err != nil {
 			return nil, fmt.Errorf("read subtitle attempt: %w", err)
 		}

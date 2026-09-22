@@ -20,11 +20,13 @@ import (
 // Config is the runtime configuration of the subtitle subsystem. It is derived
 // from config.Subtitles by the web server.
 type Config struct {
-	Enabled                bool
-	StatePath              string
-	WorkDir                string
-	WorkRetentionDays      int
-	TargetLanguage         string
+	Enabled           bool
+	StatePath         string
+	WorkDir           string
+	WorkRetentionDays int
+	// TargetLanguages are the subtitle languages to add, in order. A movie is
+	// only complete once every one of them has a subtitle.
+	TargetLanguages        []string
 	ReferenceLanguages     []string
 	FFmpegPath             string
 	FFprobePath            string
@@ -58,7 +60,7 @@ func DefaultConfig() Config {
 		StatePath:          "/data/subtitles.db",
 		WorkDir:            "/tmp/cineroute-subtitles",
 		WorkRetentionDays:  7,
-		TargetLanguage:     "sv",
+		TargetLanguages:    []string{"sv", "es", "en"},
 		ReferenceLanguages: []string{"en", "es"},
 		FFmpegPath:         "ffmpeg",
 		FFprobePath:        "ffprobe",
@@ -153,6 +155,10 @@ func NewManager(cfg Config, lib *library.Scan) *Manager {
 
 // newManager allows tests to inject stub dependencies.
 func newManager(cfg Config, lib *library.Scan, st *store, prober Prober, syncer Syncer, osClient OSClient) *Manager {
+	cfg.TargetLanguages = NormalizeTargetLanguages(cfg.TargetLanguages)
+	if len(cfg.TargetLanguages) == 0 {
+		cfg.TargetLanguages = []string{"sv"}
+	}
 	m := &Manager{
 		cfg:          cfg,
 		lib:          lib,
@@ -227,7 +233,7 @@ func newManager(cfg Config, lib *library.Scan, st *store, prober Prober, syncer 
 	slog.Info("subtitles: subsystem ready",
 		"state_path", cfg.StatePath,
 		"work_dir", cfg.WorkDir,
-		"target_language", cfg.TargetLanguage,
+		"target_languages", describeTargets(cfg.TargetLanguages),
 		"reference_languages", strings.Join(cfg.ReferenceLanguages, ","),
 		"movies", len(m.items),
 		"remote_roots", len(roots),
@@ -393,7 +399,7 @@ func (m *Manager) probeIntegration(ctx context.Context) IntegrationView {
 type View struct {
 	Enabled            bool           `json:"enabled"`
 	WorkDir            string         `json:"work_dir"`
-	TargetLanguage     string         `json:"target_language"`
+	TargetLanguages    []string       `json:"target_languages"`
 	ReferenceLanguages []string       `json:"reference_languages"`
 	Accept             AcceptCriteria `json:"accept"`
 	Settings           SettingsView   `json:"settings"`
@@ -417,7 +423,7 @@ func (m *Manager) View(openID string) View {
 	view := View{
 		Enabled:            m.cfg.Enabled,
 		WorkDir:            m.cfg.WorkDir,
-		TargetLanguage:     m.cfg.TargetLanguage,
+		TargetLanguages:    append([]string(nil), m.cfg.TargetLanguages...),
 		ReferenceLanguages: append([]string(nil), m.cfg.ReferenceLanguages...),
 		Accept:             m.cfg.Accept,
 		Settings:           m.settingsView(),
@@ -448,10 +454,12 @@ func (m *Manager) View(openID string) View {
 			// counts as "needs subtitles"; the counter must not flicker while a
 			// batch runs.
 			view.Stats.Pending++
-		case StatusHasSwedish:
-			view.Stats.HasSwedish++
+		case StatusHasTargets, legacyStatusHasSwedish:
+			view.Stats.HasTargets++
 		case StatusAdded, StatusAddedReview:
 			view.Stats.Added++
+		case StatusPartial:
+			view.Stats.Partial++
 		case StatusNeedsReview:
 			view.Stats.NeedsReview++
 		case StatusNoMatch:
@@ -655,7 +663,7 @@ func (m *Manager) Scan(ctx context.Context) error {
 			}
 		}
 
-		item := applyScanResult(existing, video.driveID, video.root, video.folderName, videoPath, info, media, external, m.cfg.TargetLanguage, now)
+		item := applyScanResult(existing, video.driveID, video.root, video.folderName, videoPath, info, media, external, m.cfg.TargetLanguages, now)
 		if existing == nil || existing.Status != item.Status || existing.HasExternalSubtitle != item.HasExternalSubtitle {
 			slog.Info("subtitles: queued movie",
 				"id", item.ID,
@@ -663,7 +671,7 @@ func (m *Manager) Scan(ctx context.Context) error {
 				"title", item.Title,
 				"year", item.Year,
 				"status", item.Status,
-				"has_swedish", item.HasSwedish,
+				"targets", targetSummary(item.Targets),
 				"has_external_subtitle", item.HasExternalSubtitle,
 				"external_subtitles", len(item.ExternalSubtitles),
 				"embedded_streams", len(item.EmbeddedSubStreams))
@@ -749,7 +757,7 @@ func (m *Manager) StartRun() error {
 	}
 	ids := make([]string, 0, batchSize)
 	for _, item := range m.items {
-		if item.Status != StatusPending || item.HasSwedish {
+		if item.Status != StatusPending || item.HasAllTargets() {
 			continue
 		}
 		ids = append(ids, item.ID)
@@ -759,7 +767,7 @@ func (m *Manager) StartRun() error {
 	}
 	if len(ids) == 0 {
 		m.mu.Unlock()
-		slog.Info("subtitles: nothing to process", "reason", "no movies need Swedish subtitles")
+		slog.Info("subtitles: nothing to process", "reason", "no movie is missing a target subtitle")
 		return nil
 	}
 	ctx, cancel := context.WithCancel(context.Background())
@@ -909,7 +917,11 @@ func (m *Manager) processAndPersist(ctx context.Context, item *Item, opts runOpt
 	working.Status = StatusProcessing
 	status, err := m.processItem(ctx, &working, opts)
 	working.Status = status
-	working.Error = errorText(err)
+	// processItem owns the message: a partial run (one language installed, another
+	// without a candidate) has no error but must still explain what is missing.
+	if text := errorText(err); text != "" {
+		working.Error = text
+	}
 	working.Step = ""
 	working.StepDetail = ""
 	working.UpdatedAt = time.Now()
@@ -923,12 +935,7 @@ func (m *Manager) processAndPersist(ctx context.Context, item *Item, opts runOpt
 	if working.ReferenceKind != "" {
 		attrs = append(attrs, "reference", working.ReferenceKind+"/"+working.ReferenceLang)
 	}
-	if working.OutputPath != "" {
-		attrs = append(attrs, "output", working.OutputPath)
-	}
-	if working.Metrics != nil {
-		attrs = append(attrs, "within_2s", fmt.Sprintf("%.0f%%", working.Metrics.Within2*100), "p90_s", fmt.Sprintf("%.2f", working.Metrics.P90))
-	}
+	attrs = append(attrs, "targets", targetSummary(working.Targets))
 	if err != nil {
 		slog.Warn("subtitles: movie finished", append(attrs, "err", err)...)
 	} else {
@@ -991,8 +998,7 @@ func (m *Manager) Reset(id string) error {
 	m.mu.Unlock()
 	m.setItemStatus(item, StatusPending)
 	m.setItemError(item, "")
-	m.setItemMetrics(item, nil)
-	m.setItemOutput(item, "", 0)
+	m.resetTargetResults(item)
 	slog.Info("subtitles: movie reset", "id", id, "video", item.VideoPath)
 	return m.store.saveItem(item)
 }
@@ -1010,16 +1016,21 @@ func (m *Manager) setItemError(item *Item, message string) {
 	m.mu.Unlock()
 }
 
-func (m *Manager) setItemMetrics(item *Item, metrics *Metrics) {
+// resetTargetResults clears the per-language outcomes of a reset item while
+// keeping what the video actually contains.
+func (m *Manager) resetTargetResults(item *Item) {
 	m.mu.Lock()
-	item.Metrics = metrics
-	m.mu.Unlock()
-}
-
-func (m *Manager) setItemOutput(item *Item, path string, size int64) {
-	m.mu.Lock()
-	item.OutputPath = path
-	item.OutputBytes = size
+	for index := range item.Targets {
+		target := &item.Targets[index]
+		present := target.Present
+		sources := target.Sources
+		*target = TargetState{Language: target.Language, Present: present, Sources: sources}
+		if present {
+			target.Status = TargetPresent
+		} else {
+			target.Status = StatusPending
+		}
+	}
 	m.mu.Unlock()
 }
 
@@ -1266,14 +1277,14 @@ func (m *Manager) UpdateSettings(patch SettingsView) error {
 	return nil
 }
 
-// stillNeedsWork reports whether an item is still waiting for a Swedish
-// subtitle, which is what the external-reference statistics count.
+// stillNeedsWork reports whether an item is still waiting for at least one
+// target subtitle, which is what the external-reference statistics count.
 func stillNeedsWork(item *Item) bool {
-	if item.HasSwedish {
+	if item.HasAllTargets() {
 		return false
 	}
 	switch item.Status {
-	case StatusSkipped, StatusAdded, StatusAddedReview, StatusHasSwedish:
+	case StatusSkipped, StatusAdded, StatusAddedReview, StatusHasTargets, legacyStatusHasSwedish:
 		return false
 	default:
 		return true
@@ -1290,12 +1301,16 @@ func copyItem(item *Item) *Item {
 	copied.ExistingSubLanguages = append([]string(nil), item.ExistingSubLanguages...)
 	copied.ExternalSubtitles = append([]ExternalSubtitleRef(nil), item.ExternalSubtitles...)
 	copied.EmbeddedSubStreams = append([]EmbeddedSubtitle(nil), item.EmbeddedSubStreams...)
-	copied.SwedishSources = append([]string(nil), item.SwedishSources...)
-	if item.Metrics != nil {
-		metrics := *item.Metrics
-		metrics.AlassShifts = append([]string(nil), item.Metrics.AlassShifts...)
-		metrics.CoarseIssues = append([]string(nil), item.Metrics.CoarseIssues...)
-		copied.Metrics = &metrics
+	copied.Targets = make([]TargetState, len(item.Targets))
+	for index, target := range item.Targets {
+		copied.Targets[index] = target
+		copied.Targets[index].Sources = append([]string(nil), target.Sources...)
+		if target.Metrics != nil {
+			metrics := *target.Metrics
+			metrics.AlassShifts = append([]string(nil), target.Metrics.AlassShifts...)
+			metrics.CoarseIssues = append([]string(nil), target.Metrics.CoarseIssues...)
+			copied.Targets[index].Metrics = &metrics
+		}
 	}
 	return &copied
 }

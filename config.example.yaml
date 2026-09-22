@@ -45,10 +45,12 @@ companion:
   search_limit: 50
   search_interval_seconds: 10
 
-# Swedish external subtitles for the remote movie libraries.
-# CineRoute picks a reference subtitle (external en/es first, then an embedded
-# text stream), searches OpenSubtitles.com, syncs the Swedish subtitle with the
-# bundled alass and writes <video-basename>.sv.srt next to the remote movie.
+# External subtitles for the remote movie libraries.
+# CineRoute searches OpenSubtitles.com for every target language a movie is
+# missing (a language with no candidate is reported and does not stop the
+# others), picks a reference subtitle (external en/es first, then an embedded
+# text stream) and syncs each subtitle with the bundled alass, writing
+# <video-basename>.<language>.srt next to the remote movie.
 subtitles:
   enabled: true
   # Queue database; mount /data writable.
@@ -57,7 +59,13 @@ subtitles:
   # at a scratch/SSD mount; the container's /tmp works well.
   work_dir: "/tmp/cineroute-subtitles"
   work_retention_days: 7
-  target_language: "sv"
+  # Languages to add, in order. A movie counts as done only when it has all of
+  # them. Spanish is requested as es/ea/sp and the Latin American ("ea")
+  # candidate is preferred over the Castilian ("sp") one.
+  target_languages: ["sv", "es", "en"]
+  # Legacy single-language form; still honoured when target_languages is absent.
+  # target_language: "sv"
+  # Languages preferred as the timing reference for alass.
   reference_languages: ["en", "es"]
   # Bundled in the image; override to use binaries installed elsewhere.
   ffmpeg_path: "ffmpeg"
@@ -67,13 +75,14 @@ subtitles:
   # cached by path+size+mtime, and any movie that was not analyzed yet is probed
   # on demand when it is processed.
   scan_batch_size: 0
-  # Movies processed per "Add Swedish subtitles" run.
+  # Movies processed per "Add missing subtitles" run.
   run_batch_size: 20
   # Delay between OpenSubtitles API calls (searches do not use download quota).
   request_interval_ms: 400
   # Stop downloading once this many quota downloads remain.
   quota_reserve: 5
-  # Downloads attempted per movie. "Retry with more candidates" uses 20.
+  # Downloads attempted per movie and per language. "Retry with more
+  # candidates" uses 20.
   max_candidates: 5
   # Extra precise query + ranking signal; never a hard filter.
   use_moviehash: true
@@ -93,7 +102,8 @@ subtitles:
   sync_timeout_seconds: 300
   alass_no_split: false
   alass_split_penalty: 7
-  # Never overwrite an existing <video>.sv.srt (reserved for a future release).
+  # Never overwrite an existing <video>.<language>.srt (reserved for a future
+  # release).
   overwrite_existing: false
   # Timing gate from the proven manual pipeline; a subtitle that fails it is not
   # installed, and the attempt is kept for review instead.

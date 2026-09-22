@@ -275,8 +275,12 @@ const (
 )
 
 // languageNames maps ffprobe/OpenSubtitles three-letter or alternative codes to
-// the two-letter codes used everywhere else.
+// the two-letter codes used everywhere else. OpenSubtitles reports Latin
+// American Spanish as "ea" and European Spanish as "sp" (plain "es" is
+// generic), so those two keep a regional suffix and can be preferred or avoided
+// per target.
 var languageNames = map[string]string{
+	"ea": "es-419", "sp": "es-es",
 	"eng": "en", "spa": "es", "swe": "sv", "por": "pt", "fin": "fi",
 	"dan": "da", "nor": "no", "nob": "no", "nno": "no", "und": "",
 	"fra": "fr", "fre": "fr", "deu": "de", "ger": "de", "ita": "it",
@@ -290,21 +294,32 @@ var languageNames = map[string]string{
 	"per": "fa", "msa": "ms", "may": "ms", "tam": "ta", "tel": "te",
 }
 
+// normalizeLanguage maps a subtitle language tag to the two-letter code used
+// throughout CineRoute while keeping a regional suffix, so "spa" becomes "es",
+// "english" becomes "en" and "es-419" stays "es-419" (a regional variant of
+// Spanish rather than an unknown language).
 func normalizeLanguage(tag string) string {
 	value := strings.ToLower(strings.TrimSpace(tag))
 	if value == "" {
 		return ""
 	}
-	if mapped, ok := languageNames[value]; ok {
-		return mapped
-	}
-	if len(value) > 3 {
-		value = value[:3]
-		if mapped, ok := languageNames[value]; ok {
-			return mapped
+	base, region, hasRegion := strings.Cut(value, "-")
+	if mapped, ok := languageNames[base]; ok {
+		base = mapped
+	} else if len(base) > 3 {
+		if mapped, ok := languageNames[base[:3]]; ok {
+			base = mapped
+		} else {
+			base = base[:3]
 		}
 	}
-	return value
+	if base == "" {
+		return ""
+	}
+	if hasRegion && strings.TrimSpace(region) != "" {
+		return base + "-" + strings.TrimSpace(region)
+	}
+	return base
 }
 
 func firstNonEmpty(values ...string) string {

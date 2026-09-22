@@ -88,14 +88,15 @@ function expect(condition, message) { if (!condition) fail(message); }
 const item = {
   id: "s_1", drive_id: "hdd1", folder_name: "Hugo (2011)", video_name: "Hugo.2011.1080p.mkv",
   video_path: "/hdd1/movies-remote/Hugo (2011)/Hugo.2011.1080p.mkv", title: "Hugo", year: 2011,
-  status: "pending", probed: true, has_swedish: false, has_external_subtitle: false,
+  status: "pending", probed: true, has_external_subtitle: false,
+  targets: [{ language: "sv", status: "pending" }, { language: "es", status: "present", present: true, sources: ["embedded stream #2"] }, { language: "en", status: "no_match", error: "no safe candidate was found" }],
   existing_sub_languages: ["es", "en"], external_subtitles: [], embedded_sub_streams: [{ index: 3, codec: "subrip", language: "es", usable: true }],
   attempts: 0,
 };
 const view = {
-  enabled: true, work_dir: "/data/subtitles-work", target_language: "sv", reference_languages: ["en", "es"], accept: {},
+  enabled: true, work_dir: "/data/subtitles-work", target_languages: ["sv", "es", "en"], reference_languages: ["en", "es"], accept: {},
   settings: { run_batch_size: 20, request_interval_ms: 400, max_candidates: 5, alass_split_penalty: 7, quota_reserve: 5 },
-  stats: { total: 729, pending: 94, added: 1, has_swedish: 633, skipped: 1, not_analyzed: 58, no_external_subtitle: 94 },
+  stats: { total: 729, pending: 94, added: 1, partial: 2, has_targets: 633, skipped: 1, not_analyzed: 58, no_external_subtitle: 94 },
   items: [item], batch: { running: false, total: 0, done: 0 }, quota: { known: false },
 };
 
@@ -116,8 +117,11 @@ driver.push("expect($('subtitleRunButton').disabled && $('subtitleRunButton').te
 driver.push("expect($('subtitleProgress').innerHTML.includes('run-progress'), 'progress bar missing');");
 driver.push("expect($('subtitleProgress').innerHTML.includes('Processing 3 / 20'), 'progress text missing');");
 driver.push("expect($('subtitleList').innerHTML.includes('hardlink-card running'), 'running row not highlighted');");
+driver.push("expect($('subtitleList').innerHTML.includes('no safe candidate was found'), 'per-language outcome is not shown on the row');");
+driver.push("expect($('subtitleList').innerHTML.includes('embedded stream #2'), 'a language that is already present is not shown');");
+driver.push("expect($('subtitleDescription').textContent.includes('sv, es, en'), 'the page does not name the target languages');");
 driver.push("expect($('subtitleList').innerHTML.includes('42% · 0:50:00 of 2:00:00'), 'extraction progress is not shown while a movie is processed');");
-driver.push("['all','no_external','has_external','not_analyzed','added','no_reference','has_swedish','skipped'].forEach(f => { setSubtitleFilter(f); });");
+driver.push("['all','no_external','has_external','not_analyzed','added','partial','no_reference','has_targets','skipped'].forEach(f => { setSubtitleFilter(f); });");
 driver.push("subtitleData.open_item = subtitleData.items[0];");
 driver.push("subtitleData.attempts = [{ file_id: 7, status: 'rejected_timing', release: 'Hugo.2011.WEB-DL', at: '2026-01-01T00:00:00Z', metrics: { within_2s: 0.5, p90: 4.2, score: 10 } }];");
 driver.push("subtitleData.candidates = [{ rank: 1, file_id: 7, score: 420, category: 'strong', safe: true, release: 'Hugo.2011.WEB-DL', reasons: ['year match'] }];");

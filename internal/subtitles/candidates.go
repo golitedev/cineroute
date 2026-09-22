@@ -19,19 +19,30 @@ const (
 )
 
 // Candidate is one audited OpenSubtitles result for one reference.
+//
+// The JSON tags matter: this struct is what the Subtitles page renders in its
+// candidate list, and the page reads lower-case keys. Without them encoding/json
+// emits "Rank"/"Score"/"Safe" and every row renders as "#undefined · score 0 ·
+// unsafe". Attributes and Raw stay internal: they are the unprocessed
+// OpenSubtitles payload, they are never rendered, and they used to be repeated
+// for every candidate on every poll.
 type Candidate struct {
-	FileID      int
-	Rank        int
-	Score       float64
-	PassScore   float64
-	Category    string
-	Safe        bool
-	Release     string
-	MovieTitle  string
-	FeatureYear int
-	Reasons     []string
-	Attributes  opensubtitles.ItemAttributes
-	Raw         json.RawMessage
+	FileID      int     `json:"file_id"`
+	Rank        int     `json:"rank"`
+	Score       float64 `json:"score"`
+	PassScore   float64 `json:"pass_score"`
+	Category    string  `json:"category"`
+	Safe        bool    `json:"safe"`
+	Release     string  `json:"release"`
+	Language    string  `json:"language,omitempty"`
+	MovieTitle  string  `json:"movie_title,omitempty"`
+	FeatureYear int     `json:"feature_year,omitempty"`
+	// Variant marks a regional variant of the target language, for example
+	// "latin" or "castilian" for Spanish.
+	Variant    string                       `json:"variant,omitempty"`
+	Reasons    []string                     `json:"reasons,omitempty"`
+	Attributes opensubtitles.ItemAttributes `json:"-"`
+	Raw        json.RawMessage              `json:"-"`
 }
 
 const rejectedScore = -10000.0

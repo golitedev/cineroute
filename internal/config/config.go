@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"strings"
 
 	"gopkg.in/yaml.v3"
 )
@@ -64,10 +65,17 @@ type Library struct {
 // Subtitles configures the Swedish external-subtitle workflow for the remote
 // movie libraries.
 type Subtitles struct {
-	Enabled                bool              `yaml:"enabled"`
-	StatePath              string            `yaml:"state_path"`
-	WorkDir                string            `yaml:"work_dir"`
-	WorkRetentionDays      int               `yaml:"work_retention_days"`
+	Enabled           bool   `yaml:"enabled"`
+	StatePath         string `yaml:"state_path"`
+	WorkDir           string `yaml:"work_dir"`
+	WorkRetentionDays int    `yaml:"work_retention_days"`
+	// TargetLanguages are the subtitle languages to add, in order. A movie is
+	// only complete once every one of them has a subtitle; a language
+	// OpenSubtitles has nothing for is reported per language and does not stop
+	// the others.
+	TargetLanguages []string `yaml:"target_languages"`
+	// TargetLanguage is the legacy single-language setting. It is used as the
+	// whole list when target_languages is absent.
 	TargetLanguage         string            `yaml:"target_language"`
 	ReferenceLanguages     []string          `yaml:"reference_languages"`
 	FFmpegPath             string            `yaml:"ffmpeg_path"`
@@ -154,7 +162,6 @@ func Default() *Config {
 			StatePath:             "/data/subtitles.db",
 			WorkDir:               "/tmp/cineroute-subtitles",
 			WorkRetentionDays:     7,
-			TargetLanguage:        "sv",
 			ReferenceLanguages:    []string{"en", "es"},
 			FFmpegPath:            "ffmpeg",
 			FFprobePath:           "ffprobe",
@@ -314,8 +321,12 @@ func (c *Config) validateSubtitles() error {
 	if s.WorkDir == "" {
 		return errors.New("subtitles.work_dir must not be empty")
 	}
-	if s.TargetLanguage == "" {
-		return errors.New("subtitles.target_language must not be empty")
+	if len(s.TargetLanguages) > 0 {
+		for _, language := range s.TargetLanguages {
+			if strings.TrimSpace(language) == "" {
+				return errors.New("subtitles.target_languages must not contain empty entries")
+			}
+		}
 	}
 	if len(s.ReferenceLanguages) == 0 {
 		return errors.New("subtitles.reference_languages must not be empty")
@@ -361,6 +372,18 @@ func (c *Config) validateSubtitles() error {
 		return errors.New("subtitles.accept.max_zero_start_cues must not be negative")
 	}
 	return nil
+}
+
+// ResolveTargetLanguages returns the subtitle languages to work on, honouring
+// the legacy single-language setting and falling back to the built-in default.
+func (s Subtitles) ResolveTargetLanguages() []string {
+	if len(s.TargetLanguages) > 0 {
+		return append([]string(nil), s.TargetLanguages...)
+	}
+	if strings.TrimSpace(s.TargetLanguage) != "" {
+		return []string{s.TargetLanguage}
+	}
+	return []string{"sv", "es", "en"}
 }
 
 func (c *Config) DriveByID(id string) (Drive, bool) {

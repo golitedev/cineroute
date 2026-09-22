@@ -201,21 +201,98 @@ func bestEmbeddedStream(streams []EmbeddedSubtitle, lang string) (EmbeddedSubtit
 	return matches[0], true
 }
 
-// hasSwedishSubtitle reports whether an item already exposes the target
-// language, either as an external file or an embedded stream.
-func hasSwedishSubtitle(targetLanguage string, external []externalSubtitle, streams []EmbeddedSubtitle) (bool, []string) {
-	var sources []string
-	for _, sub := range external {
-		if sub.Language == targetLanguage && usableReferenceExtensions[sub.Ext] {
-			sources = append(sources, "external "+sub.FileName)
+// targetStates reports, for every configured target language, whether the movie
+// already has a usable subtitle and where it comes from.
+func targetStates(targets []string, external []externalSubtitle, streams []EmbeddedSubtitle) []TargetState {
+	out := make([]TargetState, 0, len(targets))
+	for _, target := range targets {
+		state := TargetState{Language: target, Status: StatusPending}
+		for _, sub := range external {
+			if usableReferenceExtensions[sub.Ext] && languageMatches(target, sub.Language) {
+				state.Sources = append(state.Sources, "external "+sub.FileName)
+			}
+		}
+		for _, stream := range streams {
+			if stream.Usable && languageMatches(target, stream.Language) {
+				state.Sources = append(state.Sources, "embedded stream #"+itoa(stream.Index))
+			}
+		}
+		if len(state.Sources) > 0 {
+			state.Present = true
+			state.Status = TargetPresent
+		}
+		out = append(out, state)
+	}
+	return out
+}
+
+// terminalTargetStatus reports whether a per-language outcome is final, so a
+// rescan keeps showing what the last run found instead of queueing that language
+// again for every batch.
+func terminalTargetStatus(status string) bool {
+	switch status {
+	case StatusNoMatch, StatusNeedsReview, StatusNoReference, StatusFailed:
+		return true
+	default:
+		return false
+	}
+}
+
+func findTarget(targets []TargetState, language string) *TargetState {
+	for index := range targets {
+		if targets[index].Language == language {
+			return &targets[index]
 		}
 	}
-	for _, stream := range streams {
-		if stream.Usable && stream.Language == targetLanguage {
-			sources = append(sources, "embedded stream #"+itoa(stream.Index))
+	return nil
+}
+
+// reconcileTargets folds a previous run's per-language outcome into what is on
+// disk now: a subtitle that is present or installed wins, a replaced video resets
+// everything, and a final outcome (no match, needs review) is kept so that
+// language is not retried automatically on every batch.
+func reconcileTargets(previous, current []TargetState, videoPath string, videoChanged bool) []TargetState {
+	for index := range current {
+		state := &current[index]
+		prior := findTarget(previous, state.Language)
+		if prior != nil {
+			state.FileID = prior.FileID
+			state.Release = prior.Release
+			state.Category = prior.Category
+			state.Score = prior.Score
+			state.Variant = prior.Variant
+			state.Metrics = prior.Metrics
+			state.Error = prior.Error
+			state.OutputPath = prior.OutputPath
+			state.OutputBytes = prior.OutputBytes
+		}
+		installed := subtitleOutputPath(videoPath, state.Language)
+		switch {
+		case state.Present:
+			state.Status = TargetPresent
+			state.Error = ""
+		case IsValidSRTFile(installed):
+			state.Status = StatusAdded
+			if prior != nil && (prior.Status == StatusAddedReview || prior.Status == StatusAdded) {
+				state.Status = prior.Status
+			}
+			state.OutputPath = installed
+			if info, err := os.Stat(installed); err == nil {
+				state.OutputBytes = info.Size()
+			}
+			state.Error = ""
+		case videoChanged:
+			*state = TargetState{Language: state.Language, Status: StatusPending}
+		case prior != nil && terminalTargetStatus(prior.Status):
+			state.Status = prior.Status
+		default:
+			state.Status = StatusPending
+			state.Error = ""
+			state.OutputPath = ""
+			state.OutputBytes = 0
 		}
 	}
-	return len(sources) > 0, sources
+	return current
 }
 
 func itoa(value int) string {
@@ -238,7 +315,7 @@ func itoa(value int) string {
 }
 
 // applyScanResult builds or refreshes the durable item for one video file.
-func applyScanResult(existing *Item, driveID, root, folderName, videoPath string, info os.FileInfo, media MediaInfo, external []externalSubtitle, targetLanguage string, now time.Time) *Item {
+func applyScanResult(existing *Item, driveID, root, folderName, videoPath string, info os.FileInfo, media MediaInfo, external []externalSubtitle, targetLanguages []string, now time.Time) *Item {
 	relative, err := filepath.Rel(root, videoPath)
 	if err != nil {
 		relative = videoPath
@@ -258,7 +335,7 @@ func applyScanResult(existing *Item, driveID, root, folderName, videoPath string
 		title = strings.TrimSuffix(folderName, filepath.Ext(folderName))
 	}
 
-	swedish, sources := hasSwedishSubtitle(targetLanguage, external, media.Streams)
+	targets := targetStates(targetLanguages, external, media.Streams)
 	externalRefs := make([]ExternalSubtitleRef, 0, len(external))
 	hasExternal := false
 	for _, sub := range external {
@@ -293,15 +370,15 @@ func applyScanResult(existing *Item, driveID, root, folderName, videoPath string
 		ExternalSubtitles:    externalRefs,
 		EmbeddedSubStreams:   media.Streams,
 		HasExternalSubtitle:  hasExternal,
-		HasSwedish:           swedish,
-		SwedishSources:       sources,
+		Targets:              targets,
 		CreatedAt:            now,
 		UpdatedAt:            now,
 		ReferenceStream:      -1,
 	}
+	videoChanged := existing != nil && (existing.VideoSize != item.VideoSize || existing.VideoMtime != item.VideoMtime)
 	if existing == nil {
-		if swedish {
-			item.Status = StatusHasSwedish
+		if item.HasAllTargets() {
+			item.Status = StatusHasTargets
 		}
 		return item
 	}
@@ -310,45 +387,34 @@ func applyScanResult(existing *Item, driveID, root, folderName, videoPath string
 	// is actually on disk now.
 	item.CreatedAt = existing.CreatedAt
 	item.Attempts = existing.Attempts
-	item.ChosenFileID = existing.ChosenFileID
-	item.ChosenRelease = existing.ChosenRelease
-	item.ChosenCategory = existing.ChosenCategory
-	item.ChosenScore = existing.ChosenScore
-	item.Metrics = existing.Metrics
-	item.OutputPath = existing.OutputPath
-	item.OutputBytes = existing.OutputBytes
 	item.WorkDir = existing.WorkDir
 	item.ReferenceKind = existing.ReferenceKind
 	item.ReferenceLang = existing.ReferenceLang
 	item.ReferenceStream = existing.ReferenceStream
 	item.ReferencePath = existing.ReferencePath
 	item.Error = existing.Error
-
-	videoChanged := existing.VideoSize != item.VideoSize || existing.VideoMtime != item.VideoMtime
+	item.Targets = reconcileTargets(existing.Targets, item.Targets, videoPath, videoChanged)
 	if videoChanged {
-		// A replaced video invalidates the probe cache and any previous sync.
-		item.ChosenFileID = 0
-		item.ChosenRelease = ""
-		item.ChosenCategory = ""
-		item.ChosenScore = 0
-		item.Metrics = nil
-		item.OutputPath = ""
-		item.OutputBytes = 0
+		// A replaced video invalidates the probe cache and every previous sync.
+		item.ReferenceKind = ""
+		item.ReferenceLang = ""
+		item.ReferenceStream = -1
+		item.ReferencePath = ""
 		item.Error = ""
 	}
 
 	switch {
 	case videoChanged:
 		item.Status = StatusPending
-	case swedish:
+	case item.HasAllTargets():
 		if existing.Status == StatusAdded || existing.Status == StatusAddedReview {
 			item.Status = existing.Status
 		} else {
-			item.Status = StatusHasSwedish
+			item.Status = StatusHasTargets
 		}
-	case isTransientStatus(existing.Status), existing.Status == StatusHasSwedish,
+	case isTransientStatus(existing.Status), isHasTargetsStatus(existing.Status),
 		existing.Status == StatusAdded, existing.Status == StatusAddedReview:
-		// The Swedish subtitle disappeared (or work was interrupted).
+		// A target subtitle disappeared (or work was interrupted).
 		item.Status = StatusPending
 		item.Error = ""
 	default:
