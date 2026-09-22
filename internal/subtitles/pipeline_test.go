@@ -238,6 +238,25 @@ func swedishCandidate() opensubtitles.Item {
 	return item
 }
 
+// swedishCandidateFor builds a safe candidate for one specific movie. The
+// pipeline searches OpenSubtitles before it extracts a reference, so a test that
+// needs to reach the extraction stage must offer a candidate that passes the
+// identity audit for its movie.
+func swedishCandidateFor(title string, year, fileID int) opensubtitles.Item {
+	item := swedishCandidate()
+	release := fmt.Sprintf("%s.%d.1080p.WEB-DL", strings.ReplaceAll(title, " ", "."), year)
+	item.Attributes.Release = release
+	item.Attributes.FeatureDetails.MovieName = title
+	item.Attributes.FeatureDetails.Year = opensubtitles.Intish(year)
+	item.Attributes.FeatureDetails.FeatureID = opensubtitles.FlexID("12345")
+	item.Attributes.Files = []opensubtitles.File{{
+		FileID:   opensubtitles.Intish(fileID),
+		FileName: release + ".sv.srt",
+	}}
+	item.Raw = []byte(`{"id":"1","attributes":{"release":"` + release + `"}}`)
+	return item
+}
+
 func TestScanAndInstallSwedishSubtitle(t *testing.T) {
 	h := newTestHarness(t)
 	video := h.addRemoteMovie(t, "Movie (2019)", "Movie.2019.1080p.WEB-DL.mkv")
@@ -323,7 +342,7 @@ func TestPipelineReportsNoReferenceForImageSubtitles(t *testing.T) {
 		DurationMS: 6_000_000,
 		Streams:    []EmbeddedSubtitle{{Index: 3, Codec: "hdmv_pgs_subtitle", Language: "en", Usable: false}},
 	}
-	h.os.items = []opensubtitles.Item{swedishCandidate()}
+	h.os.items = []opensubtitles.Item{swedishCandidateFor("Image Only", 2021, 904)}
 
 	if err := h.manager.Scan(context.Background()); err != nil {
 		t.Fatalf("Scan: %v", err)
@@ -365,6 +384,9 @@ func TestPipelineStopsAtQuotaReserve(t *testing.T) {
 	}
 	if h.os.downloads != 0 {
 		t.Errorf("expected no download, got %d", h.os.downloads)
+	}
+	if len(h.prober.extracted) != 0 {
+		t.Errorf("the reference must not be extracted when the quota reserve is reached, extracted=%v", h.prober.extracted)
 	}
 }
 
@@ -797,7 +819,7 @@ func TestCancelDuringExtractionStaysPending(t *testing.T) {
 			{Index: 3, Codec: "subrip", Language: "es", Usable: true},
 		},
 	}
-	h.os.items = []opensubtitles.Item{swedishCandidate()}
+	h.os.items = []opensubtitles.Item{swedishCandidateFor("Canceled", 2016, 905)}
 
 	if err := h.manager.Scan(context.Background()); err != nil {
 		t.Fatalf("Scan: %v", err)
@@ -863,6 +885,39 @@ func TestExtractionProgressReachesThePage(t *testing.T) {
 	}
 }
 
+// TestNoCandidateSkipsReferenceExtraction pins the order of the pipeline:
+// OpenSubtitles is searched first, and a movie with no safe candidate is filed
+// as no_match without demuxing the video. Extraction is the expensive step, so
+// paying for it before knowing a subtitle exists would waste minutes per movie.
+func TestNoCandidateSkipsReferenceExtraction(t *testing.T) {
+	h := newTestHarness(t)
+	video := h.addRemoteMovie(t, "Unmatchable (2013)", "Unmatchable.2013.1080p.mkv")
+	h.configureEmbeddedEnglish(video)
+	// OpenSubtitles only knows a different movie, so nothing can be synced.
+	h.os.items = []opensubtitles.Item{swedishCandidateFor("Different Movie", 1999, 907)}
+
+	if err := h.manager.Scan(context.Background()); err != nil {
+		t.Fatalf("Scan: %v", err)
+	}
+	item := h.liveItem(t, h.manager.View("").Items[0].ID)
+	status, err := h.manager.processAndPersist(context.Background(), item, runOptions{})
+	if status != StatusNoMatch {
+		t.Fatalf("status = %s (%v), want no_match", status, err)
+	}
+	if len(h.prober.extracted) != 0 {
+		t.Errorf("the embedded reference must not be extracted when no candidate exists, extracted=%v", h.prober.extracted)
+	}
+	if h.os.searches == 0 {
+		t.Error("the movie must still be searched for")
+	}
+	if h.os.downloads != 0 {
+		t.Errorf("downloads = %d, want none", h.os.downloads)
+	}
+	if _, statErr := os.Stat(filepath.Join(h.work, item.ID, "reference.srt")); !os.IsNotExist(statErr) {
+		t.Errorf("no reference should have been written: %v", statErr)
+	}
+}
+
 // TestExtractionTimeoutStopsAfterTheFirstStream pins the fail-fast behavior: a
 // demux that runs out of time would have to read the whole video again for every
 // remaining stream, so the movie is reported as failed after the first timeout
@@ -879,7 +934,7 @@ func TestExtractionTimeoutStopsAfterTheFirstStream(t *testing.T) {
 		},
 	}
 	h.prober.extractErr = fmt.Errorf("ffmpeg subtitle extraction timed out after 15m0s: %w", context.DeadlineExceeded)
-	h.os.items = []opensubtitles.Item{swedishCandidate()}
+	h.os.items = []opensubtitles.Item{swedishCandidateFor("Slow Disk", 2014, 906)}
 
 	if err := h.manager.Scan(context.Background()); err != nil {
 		t.Fatalf("Scan: %v", err)

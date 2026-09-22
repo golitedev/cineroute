@@ -287,12 +287,16 @@ version.
 The **Subtitles** page adds Swedish external subtitles to movies in the remote
 movie libraries (`movie_remote_root`). For every remote video file CineRoute:
 
-1. picks a timing reference — an external `en`/`es` subtitle next to the movie,
-   else an embedded English stream, else embedded Spanish, else any other
-   embedded **text** stream (image-based PGS/DVD subtitles cannot be used);
-2. searches OpenSubtitles.com for a Swedish subtitle, resolving the canonical
+1. searches OpenSubtitles.com for a Swedish subtitle, resolving the canonical
    feature and auditing every candidate (title, year, source, edition, forced,
-   machine-translated and multi-part/collection releases);
+   machine-translated and multi-part/collection releases). A movie with no safe
+   candidate is reported as **No match** and stops here — nothing is read from
+   the video file;
+2. picks a timing reference — an external `en`/`es` subtitle next to the movie,
+   else an embedded English stream, else embedded Spanish, else any other
+   embedded **text** stream (image-based PGS/DVD subtitles cannot be used). This
+   is the step that demuxes a whole video file for an embedded stream, so it only
+   runs once a subtitle to sync actually exists;
 3. downloads the best candidates (up to `max_candidates`, default 5) and syncs
    each one against the reference with **alass**;
 4. installs `<video-basename>.sv.srt` next to the movie only when the alignment
@@ -335,17 +339,21 @@ add per-request OpenSubtitles and per-file probe details.
 Set the credentials with `subtitles.opensubtitles.*` or
 `CINEROUTE_OS_API_KEY` / `CINEROUTE_OS_USERNAME` / `CINEROUTE_OS_PASSWORD`.
 Searches never consume download quota; downloads do, so CineRoute stops as soon
-as `subtitles.quota_reserve` downloads remain and reports the reset time. An API
+as `subtitles.quota_reserve` downloads remain and reports the reset time. That
+stop is checked before the reference is extracted as well as before each
+download, so a movie that cannot be downloaded is not demuxed for nothing. An API
 key alone works, but a logged-in account has the higher free-tier quota.
 
 Processing one movie takes seconds when the reference is an external `.srt`,
 but extracting an **embedded** reference means demuxing the whole video file,
 which can take several minutes for a large movie on a spinning disk; the alass
-sync itself is fast. While that happens the movie's row shows how far ffmpeg has
-demuxed, for example `reference… · 42% · 0:50:00 of 2:00:00 · 4m 12s in this
-step`, so a slow extraction can be told apart from a stuck job; the percentage
-comes from ffmpeg's own progress stream and the elapsed time from the stage
-start.
+sync itself is fast. Because the OpenSubtitles search runs first, that cost is
+only paid for movies that have a candidate to sync — a movie OpenSubtitles has
+nothing for is reported as **No match** without reading the video at all. While
+the extraction does run, the movie's row shows how far ffmpeg has demuxed, for
+example `reference… · 42% · 0:50:00 of 2:00:00 · 4m 12s in this step`, so a slow
+extraction can be told apart from a stuck job; the percentage comes from ffmpeg's
+own progress stream and the elapsed time from the stage start.
 
 `subtitles.extract_timeout_seconds` (default 900) bounds that step, so a batch of
 20 large movies can run for a while. **Cancel** stops the run immediately: the

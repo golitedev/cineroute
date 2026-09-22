@@ -104,6 +104,44 @@ func (m *Manager) processItem(ctx context.Context, item *Item, opts runOptions) 
 	item.WorkDir = workDir
 	referencePath := filepath.Join(workDir, "reference.srt")
 
+	// Search before touching the video: finding candidates needs only the movie
+	// identity, so a movie OpenSubtitles has no safe candidate for is abandoned
+	// before an embedded reference is extracted. Extracting one demuxes the whole
+	// video file, which costs minutes per movie, and doing it for a movie that
+	// cannot be finished would be a pure waste of disk time.
+	m.setStage(item, "search", StatusProcessing)
+	candidates, err := m.collectCandidates(ctx, item, opts)
+	if err != nil {
+		if ctxErr := ctx.Err(); ctxErr != nil {
+			return StatusPending, ctxErr
+		}
+		return StatusFailed, err
+	}
+	if len(candidates) == 0 {
+		slog.Warn("subtitles: no safe candidate found; skipping the reference extraction", "id", item.ID, "video", item.VideoPath)
+		return StatusNoMatch, errors.New("no safe Swedish subtitle candidate was found")
+	}
+	slog.Info("subtitles: candidates audited", "id", item.ID, "safe", len(candidates))
+	slog.Info("subtitles: top candidate",
+		"id", item.ID,
+		"file_id", candidates[0].FileID,
+		"release", candidates[0].Release,
+		"identity_score", fmt.Sprintf("%.1f", candidates[0].Score),
+		"release_score", fmt.Sprintf("%.1f", candidates[0].PassScore),
+		"category", candidates[0].Category)
+
+	if opts.refreshQuota {
+		m.refreshQuota(ctx)
+	}
+	// The quota is checked here as well as in the download loop: once the reserve
+	// is reached nothing can be downloaded, so demuxing a movie to sync a
+	// subtitle that will never be fetched is pure waste.
+	if remaining, known := m.quotaRemaining(); known && remaining <= m.cfg.QuotaReserve {
+		slog.Warn("subtitles: stopping before the reference extraction at the download quota reserve",
+			"id", item.ID, "remaining", remaining, "reserve", m.cfg.QuotaReserve)
+		return StatusPending, errQuotaStop
+	}
+
 	choices := RankReferences(item, external, m.cfg.ReferenceLanguages)
 	if len(choices) == 0 {
 		slog.Warn("subtitles: no usable reference subtitle",
@@ -116,9 +154,17 @@ func (m *Manager) processItem(ctx context.Context, item *Item, opts runOptions) 
 
 	// Walk every reference candidate: a forced/signs-only track or an empty
 	// extraction must not abandon a movie that has another usable stream.
+	//
+	// The reference chosen by an earlier run is cleared first: a stale kind would
+	// otherwise mask a reference that this run failed to produce and send the
+	// movie into the download stage with no reference file at all.
 	var referenceCues []TimeSpan
 	var referenceErr error
 	timedOut := false
+	item.ReferenceKind = ""
+	item.ReferenceLang = ""
+	item.ReferenceStream = 0
+	item.ReferencePath = ""
 	for index := range choices {
 		// A canceled job must stop immediately: the remaining candidates would
 		// only fail with "context canceled" and their noise hides why the movie
@@ -187,31 +233,6 @@ func (m *Manager) processItem(ctx context.Context, item *Item, opts runOptions) 
 			return StatusFailed, fmt.Errorf("embedded subtitle extraction did not finish in time; the video may be on a slow or sleeping disk: %w", referenceErr)
 		}
 		return StatusNoReference, referenceErr
-	}
-
-	m.setStage(item, "search", StatusProcessing)
-	candidates, err := m.collectCandidates(ctx, item, referenceCues, opts)
-	if err != nil {
-		if ctxErr := ctx.Err(); ctxErr != nil {
-			return StatusPending, ctxErr
-		}
-		return StatusFailed, err
-	}
-	if len(candidates) == 0 {
-		slog.Warn("subtitles: no safe candidate found", "id", item.ID, "video", item.VideoPath)
-		return StatusNoMatch, errors.New("no safe Swedish subtitle candidate was found")
-	}
-	slog.Info("subtitles: candidates audited", "id", item.ID, "safe", len(candidates))
-	slog.Info("subtitles: top candidate",
-		"id", item.ID,
-		"file_id", candidates[0].FileID,
-		"release", candidates[0].Release,
-		"identity_score", fmt.Sprintf("%.1f", candidates[0].Score),
-		"release_score", fmt.Sprintf("%.1f", candidates[0].PassScore),
-		"category", candidates[0].Category)
-
-	if opts.refreshQuota {
-		m.refreshQuota(ctx)
 	}
 
 	m.setStage(item, "download", StatusDownloading)
@@ -406,8 +427,9 @@ func (m *Manager) materializeReference(ctx context.Context, item *Item, choice *
 
 // collectCandidates runs the cached multi-query OpenSubtitles search and returns
 // the safe candidates ordered by identity score, porting the query set of
-// `second-pass-swedish.py`.
-func (m *Manager) collectCandidates(ctx context.Context, item *Item, referenceCues []TimeSpan, opts runOptions) ([]Candidate, error) {
+// `second-pass-swedish.py`. It needs only the movie identity, which is why the
+// pipeline searches before it extracts a reference from the video file.
+func (m *Manager) collectCandidates(ctx context.Context, item *Item, opts runOptions) ([]Candidate, error) {
 	merged := map[int]opensubtitles.Item{}
 	if !opts.refreshSearch {
 		for _, candidate := range m.candidatesFor(item.ID) {
