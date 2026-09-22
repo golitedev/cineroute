@@ -292,9 +292,12 @@ has all of them. For every remote video file CineRoute:
 1. searches OpenSubtitles.com once for every language the movie is missing,
    resolving the canonical feature and auditing every candidate (title, year,
    source, edition, forced, machine-translated and multi-part/collection
-   releases). A language with no safe candidate is reported per language and does
-   not stop the others, and a movie with no safe candidate at all is reported as
-   **No match** — nothing is read from the video file;
+   releases). A matching title may be one year away from the movie's year —
+   films open in different countries in different years, so a 2017 film is
+   routinely released as `Movie.2018...` — while a two-year gap is still treated
+   as a different film. A language with no safe candidate is reported per
+   language and does not stop the others, and a movie with no safe candidate at
+   all is reported as **No match** — nothing is read from the video file;
 2. picks a timing reference — an external `en`/`es` subtitle next to the movie,
    else an embedded English stream, else embedded Spanish, else any other
    embedded **text** stream (image-based PGS/DVD subtitles cannot be used). This

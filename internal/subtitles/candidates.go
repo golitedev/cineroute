@@ -47,6 +47,27 @@ type Candidate struct {
 
 const rejectedScore = -10000.0
 
+// yearTolerance is how many years a candidate may differ from the reference
+// year and still be the same movie. Film years are release dates, not birthdays:
+// a film that opened in one country in 2017 legitimately appears as 2018 in
+// another (Revenge (2017) shipped as "Revenge.2018.1080p.AMZN..."), so a
+// one-year difference with a matching title is the same film, not a mismatch.
+const yearTolerance = 1
+
+// trustedYearTolerance applies when the user configured a title override for the
+// movie, which is an explicit statement about which film is meant.
+const trustedYearTolerance = 3
+
+// yearWithinTolerance reports whether a candidate year is close enough to the
+// reference year. A missing year on either side is not a mismatch: there is
+// nothing to compare, and the title checks still have to pass.
+func yearWithinTolerance(referenceYear, candidateYear, tolerance int) bool {
+	if referenceYear == 0 || candidateYear == 0 {
+		return true
+	}
+	return absInt(candidateYear-referenceYear) <= tolerance
+}
+
 // bestFile picks the file inside a result whose name is most similar to the
 // reference basename, like `score_candidate`.
 func bestFile(reference Reference, files []opensubtitles.File) (opensubtitles.File, bool) {
@@ -104,10 +125,16 @@ func ScoreCandidate(reference Reference, item opensubtitles.Item) (float64, []st
 
 	candidateYear := attributes.FeatureDetails.Year.Int()
 	if reference.Year != 0 && candidateYear != 0 {
-		if reference.Year == candidateYear {
+		switch {
+		case reference.Year == candidateYear:
 			score += 100
 			reasons = append(reasons, "year match")
-		} else {
+		case yearWithinTolerance(reference.Year, candidateYear, yearTolerance):
+			// Slightly below an exact match, so a same-year release still wins,
+			// but no longer the -500 of a wrong film.
+			score += 90
+			reasons = append(reasons, fmt.Sprintf("year within %d (%d, reference %d)", yearTolerance, candidateYear, reference.Year))
+		default:
 			score -= 500
 			reasons = append(reasons, fmt.Sprintf("YEAR MISMATCH %d", candidateYear))
 		}
@@ -191,8 +218,11 @@ func AuditCandidate(reference Reference, item opensubtitles.Item, release string
 		reasons = append(reasons, fmt.Sprintf("approximate title: %s", orUnknown(movieTitle)))
 	}
 
+	// A year within the tolerance is the same movie as far as the audit is
+	// concerned; a missing feature year is still worth reporting because nothing
+	// can confirm the film.
 	featureYear := attributes.FeatureDetails.Year.Int()
-	if reference.Year != 0 && featureYear != reference.Year {
+	if reference.Year != 0 && (featureYear == 0 || !yearWithinTolerance(reference.Year, featureYear, yearTolerance)) {
 		reasons = append(reasons, fmt.Sprintf("feature year %s", orMissing(featureYear)))
 	}
 
@@ -204,7 +234,7 @@ func AuditCandidate(reference Reference, item opensubtitles.Item, release string
 			continue
 		}
 		seen[year] = true
-		if reference.Year != 0 && year != reference.Year {
+		if reference.Year != 0 && !yearWithinTolerance(reference.Year, year, yearTolerance) {
 			conflicting = append(conflicting, yearText)
 		}
 	}
@@ -317,11 +347,11 @@ func CandidateSafety(reference Reference, item opensubtitles.Item, release strin
 		if !acceptedTitles[foundTitle] && titleSimilarity < 0.90 {
 			reasons = append(reasons, fmt.Sprintf("wrong/uncertain title: %s (%.2f)", orUnknown(movieTitle), titleSimilarity))
 		}
-		allowedYearDelta := 1
+		allowedYearDelta := yearTolerance
 		if trustedOverride {
-			allowedYearDelta = 3
+			allowedYearDelta = trustedYearTolerance
 		}
-		if reference.Year != 0 && (featureYear == 0 || absInt(featureYear-reference.Year) > allowedYearDelta) {
+		if reference.Year != 0 && (featureYear == 0 || !yearWithinTolerance(reference.Year, featureYear, allowedYearDelta)) {
 			reasons = append(reasons, fmt.Sprintf("feature year %s", orMissing(featureYear)))
 		}
 	}
