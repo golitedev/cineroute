@@ -570,30 +570,29 @@ func (m *Manager) Scan(ctx context.Context) error {
 	}
 	scanStart := time.Now()
 	var videos []videoRef
-	scannedRoots := map[string]bool{}
 	roots := RemoteMovieRoots(m.lib.Drives())
 	slog.Info("subtitles: scanning remote movie roots", "roots", len(roots))
 	for _, root := range roots {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
 		entries, err := os.ReadDir(root.Path)
 		if err != nil {
-			if os.IsNotExist(err) {
-				slog.Warn("subtitles: remote root does not exist", "drive", root.DriveID, "root", root.Path)
-				continue
-			}
 			slog.Error("subtitles: cannot read remote root", "drive", root.DriveID, "root", root.Path, "err", err)
 			return fmt.Errorf("read remote movie root %q: %w", root.Path, err)
 		}
-		scannedRoots[root.Path] = true
 		rootFolders, rootVideos := 0, 0
 		for _, entry := range entries {
+			if err := ctx.Err(); err != nil {
+				return err
+			}
 			if !entry.IsDir() {
 				continue
 			}
 			folderPath := filepath.Join(root.Path, entry.Name())
 			files, err := library.WalkVideoFiles(folderPath)
 			if err != nil {
-				slog.Warn("subtitles: cannot read movie folder", "folder", folderPath, "err", err)
-				continue
+				return fmt.Errorf("read movie folder %q: %w", folderPath, err)
 			}
 			rootFolders++
 			rootVideos += len(files)
@@ -621,11 +620,17 @@ func (m *Manager) Scan(ctx context.Context) error {
 			m.mu.Lock()
 			m.batch.Canceled = true
 			m.mu.Unlock()
-			break
+			return ctx.Err()
 		}
 		videoPath := filepath.Join(video.folderPath, video.relative)
 		info, err := os.Stat(videoPath)
-		if err != nil || !info.Mode().IsRegular() {
+		if err != nil {
+			if os.IsNotExist(err) {
+				continue
+			}
+			return fmt.Errorf("stat video %q: %w", videoPath, err)
+		}
+		if !info.Mode().IsRegular() {
 			continue
 		}
 		if skipVideoFile(filepath.Base(videoPath), info.Size(), m.cfg.MinVideoBytes, m.cfg.SkipSampleFiles) {
@@ -633,7 +638,10 @@ func (m *Manager) Scan(ctx context.Context) error {
 			continue
 		}
 		existing := m.itemByID(subtitleItemID(video.driveID, filepath.Join(video.folderName, video.relative)))
-		external, _ := discoverExternalSubtitles(filepath.Dir(videoPath), filepath.Base(videoPath))
+		external, err := discoverExternalSubtitles(filepath.Dir(videoPath), filepath.Base(videoPath))
+		if err != nil {
+			return fmt.Errorf("read subtitles for %q: %w", videoPath, err)
+		}
 
 		var media MediaInfo
 		reuse := existing != nil && existing.VideoSize == info.Size() &&
@@ -663,6 +671,9 @@ func (m *Manager) Scan(ctx context.Context) error {
 			}
 		}
 
+		if err := ctx.Err(); err != nil {
+			return err
+		}
 		item := applyScanResult(existing, video.driveID, video.root, video.folderName, videoPath, info, media, external, m.cfg.TargetLanguages, now)
 		if existing == nil || existing.Status != item.Status || existing.HasExternalSubtitle != item.HasExternalSubtitle {
 			slog.Info("subtitles: queued movie",
@@ -684,17 +695,22 @@ func (m *Manager) Scan(ctx context.Context) error {
 		m.mu.Unlock()
 	}
 
+	if err := ctx.Err(); err != nil {
+		return err
+	}
 	m.mu.Lock()
-	var removed []*Item
+	var removed []string
 	for _, item := range m.items {
 		if seen[item.ID] {
 			continue
 		}
-		if !scannedRoots[item.RemoteRoot] {
-			// The root could not be read; never treat that as a deletion.
-			continue
-		}
-		removed = append(removed, item)
+		removed = append(removed, item.ID)
+	}
+	// Commit removals and updates together before replacing the live view.
+	// All configured roots were scanned, so old paths/drive IDs are obsolete too.
+	if err := m.store.reconcileItems(updated, removed); err != nil {
+		m.mu.Unlock()
+		return err
 	}
 	m.items = updated
 	m.byID = map[string]*Item{}
@@ -704,13 +720,6 @@ func (m *Manager) Scan(ctx context.Context) error {
 	m.sortItemsLocked()
 	m.mu.Unlock()
 
-	for _, item := range removed {
-		_ = m.store.deleteItem(item.ID)
-	}
-	if err := m.store.saveItems(updated); err != nil {
-		slog.Error("subtitles: cannot save the queue", "err", err)
-		return err
-	}
 	queued, notAnalyzed := 0, 0
 	for _, item := range updated {
 		if !stillNeedsWork(item) {

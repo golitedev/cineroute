@@ -5,7 +5,6 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
-	"strings"
 	"testing"
 	"time"
 
@@ -272,7 +271,7 @@ func TestScanQueuesRemoteOnlyMovieAndTVShow(t *testing.T) {
 	}
 }
 
-func TestScanPreservesSkippedAndAddedMovies(t *testing.T) {
+func TestScanPreservesSkippedAndRequeuesAddedMovieWithoutRemoteCopy(t *testing.T) {
 	root := t.TempDir()
 	for _, name := range []string{"Skipped (2020)", "Added (2021)"} {
 		folder := filepath.Join(root, name)
@@ -316,8 +315,8 @@ func TestScanPreservesSkippedAndAddedMovies(t *testing.T) {
 		t.Fatalf("skipped movie status = %s, want %s", got, StatusSkipped)
 	}
 	added := byFolder["Added (2021)"]
-	if added.Status != StatusComplete || added.QBHash != "existing-hash" || added.AddedAt == nil || !added.AddedAt.Equal(addedAt) {
-		t.Fatalf("added movie changed during scan: %+v", added)
+	if added.Status != StatusPending || added.QBHash != "existing-hash" || added.AddedAt != nil {
+		t.Fatalf("added movie without remote copy was not requeued: %+v", added)
 	}
 }
 
@@ -460,6 +459,9 @@ func TestTVCompanionScansPrimaryAndRemoteRoots(t *testing.T) {
 	if err := os.MkdirAll(filepath.Join(remote, "Remote Only (2024)"), 0o755); err != nil {
 		t.Fatal(err)
 	}
+	if err := os.WriteFile(filepath.Join(remote, "Remote Only (2024)", "Remote.Only.S01E01.mkv"), nil, 0o644); err != nil {
+		t.Fatal(err)
+	}
 	if err := os.MkdirAll(filepath.Join(primary, "Empty Show (2020)"), 0o755); err != nil {
 		t.Fatal(err)
 	}
@@ -471,7 +473,7 @@ func TestTVCompanionScansPrimaryAndRemoteRoots(t *testing.T) {
 		t.Fatal(err)
 	}
 	view := m.View("")
-	if view.MediaType != "tv" || len(view.Movies) != 3 {
+	if view.MediaType != "tv" || len(view.Movies) != 2 {
 		t.Fatalf("TV companion view = %+v, want primary and remote-root shows", view)
 	}
 	shows := make(map[string]*Movie, len(view.Movies))
@@ -489,8 +491,8 @@ func TestTVCompanionScansPrimaryAndRemoteRoots(t *testing.T) {
 		t.Fatalf("TV remote inspection = %+v", show)
 	}
 	empty := shows["Empty Show (2020)"]
-	if empty == nil || empty.Status != StatusPending || !strings.Contains(empty.Error, "no video file") {
-		t.Fatalf("empty TV show should remain searchable with an inspection note: %+v", empty)
+	if empty != nil {
+		t.Fatalf("empty TV show should not remain in the inventory: %+v", empty)
 	}
 	remoteOnly := shows["Remote Only (2024)"]
 	if remoteOnly == nil || remoteOnly.Status != StatusPending || remoteOnly.Path != filepath.Join(primary, "Remote Only (2024)") {

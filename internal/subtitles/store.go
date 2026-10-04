@@ -223,9 +223,29 @@ func (s *store) saveItem(item *Item) error {
 }
 
 func (s *store) saveItems(items []*Item) error {
+	return s.reconcileItems(items, nil)
+}
+
+// reconcileItems commits a complete scan and its obsolete queue entries in one
+// transaction, including cached searches and candidates for removed videos.
+func (s *store) reconcileItems(items []*Item, removed []string) error {
 	tx, err := s.db.Begin()
 	if err != nil {
 		return fmt.Errorf("begin subtitle item transaction: %w", err)
+	}
+	defer tx.Rollback()
+	for _, id := range removed {
+		for _, query := range []string{
+			"DELETE FROM subtitle_items WHERE id = ?",
+			"DELETE FROM subtitle_searches WHERE item_id = ?",
+			"DELETE FROM subtitle_candidates WHERE item_id = ?",
+			"DELETE FROM subtitle_features WHERE item_id = ?",
+			"DELETE FROM subtitle_attempts WHERE item_id = ?",
+		} {
+			if _, err := tx.Exec(query, id); err != nil {
+				return fmt.Errorf("remove obsolete subtitle state: %w", err)
+			}
+		}
 	}
 	for _, item := range items {
 		raw, err := json.Marshal(item)

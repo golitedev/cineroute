@@ -249,11 +249,14 @@ episode releases such as `S03E04` and only allows season or series packs to be
 approved.
 Companion scans use the union of folders in the normal and remote roots. When
 both matching folders contain video files, a scan automatically classifies the
-movie or TV show as Added. Otherwise, each folder is placed in the searchable
+movie or TV show as Added. Otherwise, each title with a video is placed in the searchable
 review queue regardless of its current quality or size, so language companions
 can be reviewed deliberately. Skipped items are never returned to that queue;
-when both copies are found, they are classified as Added. Added items remain
-unchanged by later library scans.
+when both copies are found, they are classified as Added. If one copy is deleted,
+the next scan returns an Added item to the search queue. If neither root contains
+a video, the item and its cached searches are removed, even if an empty folder
+or artwork remains. Obsolete drive IDs and paths are removed during that same
+reconciliation. A failed or canceled scan preserves the previous inventory.
 
 The **Hardlink** button on a movie or TV companion fills whichever side has no
 video. It normally recreates the main folder's tree below the remote root; for
@@ -352,7 +355,10 @@ reference must be extracted from an embedded stream — the **No external SRT** 
 **Has external SRT** filters and the header counters split those two groups.
 
 The scan analyzes each video's subtitle streams and caches the result by
-path+size+mtime, so later scans are quick. With the default
+path+size+mtime, so later scans are quick. A successful scan removes deleted
+videos and obsolete library paths from the queue and database, together with
+their cached searches, candidates and attempts. Missing or unreadable roots and
+canceled scans preserve the previous inventory. With the default
 `scan_batch_size: 0` every video is analyzed in the first scan; if you cap it,
 movies that were not reached yet are marked **Not analyzed** and are probed on
 demand when you run them, so an incomplete scan never produces a false "no

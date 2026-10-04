@@ -415,7 +415,9 @@ func (m *Manager) ProwlarrStatus(ctx context.Context) (string, string) {
 // and remote library roots into durable state.
 // Live searching, review and submitting states are preserved unless both main
 // and remote videos are already present. Startup recovery is handled separately
-// when the state file is loaded. It never renames or moves media files.
+// when the state file is loaded. Entries without videos in either root are
+// removed after a complete scan, including obsolete drive IDs and paths. It
+// never renames, moves or deletes media files.
 func (m *Manager) Scan(ctx context.Context) error {
 	if !m.Enabled() {
 		return nil
@@ -429,6 +431,13 @@ func (m *Manager) Scan(ctx context.Context) error {
 		return errors.New("library scanner is unavailable")
 	}
 
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	searches := make(map[string]searchState, len(m.searches))
+	for id, search := range m.searches {
+		searches[id] = search
+	}
 	previous := make(map[string]*Movie, len(m.state.Movies))
 	for _, movie := range m.state.Movies {
 		previous[movie.ID] = movie
@@ -440,8 +449,10 @@ func (m *Manager) Scan(ctx context.Context) error {
 	seen := make(map[string]bool, len(folders))
 	current := make([]*Movie, 0, len(folders)+len(previous))
 	for _, folder := range folders {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
 		id := movieID(folder.DriveID, folder.Name)
-		seen[id] = true
 		movie := cloneMovie(previous[id])
 		if movie == nil {
 			movie = &Movie{ID: id, CreatedAt: time.Now()}
@@ -459,6 +470,16 @@ func (m *Manager) Scan(ctx context.Context) error {
 		title, year, parseErr := m.parseFolder(folder)
 		remotePath, _ := m.remotePath(folder.DriveID, folder.Name)
 		mainInspection, remoteInspection := m.inspectFolder(movie, folder.Path, remotePath, folder.Name)
+		// An unreadable folder is not proof that its videos were deleted. Abort
+		// reconciliation rather than publishing a partial inventory.
+		if (mainInspection.Error != "" && mainInspection.Quality == "") ||
+			(remoteInspection.Error != "" && remoteInspection.Quality == "") {
+			return fmt.Errorf("%s companion scan aborted: %s: %s", m.itemLabel(), folder.Path, movieInspectionError(mainInspection, remoteInspection))
+		}
+		if len(mainInspection.Files) == 0 && len(remoteInspection.Files) == 0 {
+			continue
+		}
+		seen[id] = true
 		if parseErr == nil {
 			movie.Title = title
 			movie.Year = year
@@ -471,13 +492,21 @@ func (m *Manager) Scan(ctx context.Context) error {
 			if movie.AddedAt == nil {
 				movie.AddedAt = &now
 			}
-			delete(m.searches, movie.ID)
+			delete(searches, movie.ID)
 			current = append(current, movie)
 			continue
 		}
-		if movie.Status == StatusComplete || movie.Status == StatusSkipped {
+		if movie.Status == StatusSkipped {
 			current = append(current, movie)
 			continue
+		}
+		if movie.Status == StatusComplete {
+			// A completed copy was deleted; the remaining video still belongs in
+			// the library, but it no longer has both copies.
+			movie.Status = StatusPending
+			movie.AddedAt = nil
+			movie.Error = ""
+			delete(searches, movie.ID)
 		}
 		if parseErr != nil {
 			if !live {
@@ -506,31 +535,34 @@ func (m *Manager) Scan(ctx context.Context) error {
 		movie.UpdatedAt = time.Now()
 		current = append(current, movie)
 	}
-	for _, movie := range previous {
-		if seen[movie.ID] {
-			continue
-		}
-		missing := cloneMovie(movie)
-		missing.Missing = true
-		live := isLiveWorkflowStatus(missing.Status)
-		if !live && missing.Status != StatusComplete && missing.Status != StatusSkipped {
-			missing.Status = StatusError
-			missing.Error = m.itemLabel() + " folder is no longer present in the configured library roots"
-		}
-		missing.UpdatedAt = time.Now()
-		current = append(current, missing)
-		if !live {
-			delete(m.searches, missing.ID)
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	for id := range searches {
+		if !seen[id] {
+			delete(searches, id)
 		}
 	}
+
 	sort.SliceStable(current, func(i, j int) bool {
 		if current[i].DriveID != current[j].DriveID {
 			return current[i].DriveID < current[j].DriveID
 		}
 		return current[i].FolderName < current[j].FolderName
 	})
+	previousMovies, previousSearches := m.state.Movies, m.searches
 	m.state.Movies = current
-	return m.persistLocked()
+	m.searches = searches
+	if err := m.persistLocked(); err != nil {
+		m.state.Movies, m.searches = previousMovies, previousSearches
+		return err
+	}
+	for id := range m.tvApprovals {
+		if !seen[id] {
+			delete(m.tvApprovals, id)
+		}
+	}
+	return nil
 }
 
 func (m *Manager) SearchOne(ctx context.Context, id string) ([]Candidate, error) {

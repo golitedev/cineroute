@@ -279,6 +279,9 @@ func (s *stateStore) save(state stateFile, searches map[string]searchState, hist
 			return rollback(fmt.Errorf("save companion search history: %w", err))
 		}
 	}
+	if _, err := tx.Exec("DELETE FROM companion_search_history WHERE movie_id NOT IN (SELECT id FROM companion_movies)"); err != nil {
+		return rollback(fmt.Errorf("remove obsolete companion search history: %w", err))
+	}
 	if err := tx.Commit(); err != nil {
 		return fmt.Errorf("commit companion database transaction: %w", err)
 	}
