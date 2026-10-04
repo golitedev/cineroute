@@ -81,18 +81,18 @@ tmdb:
   language: "en-US"
 
 qbittorrent:
-  url: "http://localhost:8080"
+  url: "http://192.168.18.29:8080"
   username: "admin"
   password: ""
 
 drives:
-  - id: "hdd1"
-    movie_root: "/hdd1/movies"
-    movie_remote_root: "/hdd1/movies-remote"
-    tv_root: "/hdd1/tv"
-    tv_remote_root: "/hdd1/tv-remote"
-    anime_root: "/hdd1/anime"
-  # Repeat the same layout below /hdd2, /hdd3 and /hdd4.
+  - id: "disk1"
+    movie_root: "/disk1/media/movies"
+    movie_remote_root: "/disk1/media/movies-remote"
+    tv_root: "/disk1/media/tv"
+    tv_remote_root: "/disk1/media/tv-remote"
+    anime_root: "/disk1/media/anime"
+  # Repeat the same layout below /disk2/media, /disk3/media and /disk4/media.
 ```
 
 Run:
@@ -106,16 +106,37 @@ Open `http://127.0.0.1:8787`.
 
 ## Docker Compose
 
-See `compose.example.yaml`. The container should run as UID 1001 / GID 10 and
+See `compose.example.yaml`. The container should run as UID 1000 / GID 1000 and
 mount each HDD once at the same path in CineRoute and qBittorrent, e.g.:
 
 ```yaml
 volumes:
-  - /volume1/hdd1:/hdd1
-  - /volume3/hdd2:/hdd2
-  - /volume4/hdd3:/hdd3
-  - /volume5/hdd4:/hdd4
+  - /mnt/disk1/data:/disk1
+  - /mnt/disk2/data:/disk2
+  - /mnt/disk3/data:/disk3
+  - /mnt/disk4/data:/disk4
 ```
+
+On the Debian NAS, `/mnt/disk1/data/media/movies/6 Years (2015)` is
+`/disk1/media/movies/6 Years (2015)` inside CineRoute, qBittorrent and Jellyfin.
+The same mapping applies to `movies-remote`, `tv` and `tv-remote` on all four
+disks. CineRoute needs writable mounts for folder creation, hardlinks and
+subtitles. Its config, databases and scratch files live under
+`/srv/docker/cineroute` in the Compose example; make its `data` and `tmp`
+directories writable by UID/GID `1000:1000`.
+
+The example connects to qBittorrent at `http://192.168.18.29:8080`, so the
+containers can run in separate Compose projects. Set `CINEROUTE_QBIT_URL`
+to override it. Set `CINEROUTE_PROWLARR_URL` to a reachable NAS address if
+Prowlarr does not share CineRoute's Docker network.
+
+When migrating from UGOS, update the `drives` section of your existing
+`/srv/docker/cineroute/config.yaml` to the four entries in
+`config.example.yaml`, keeping your credentials and other settings. Existing
+config entries override built-in defaults. Copy your existing CineRoute state
+to `/srv/docker/cineroute/data` if you want to keep it, update the Compose
+mounts, then recreate the container and rescan companions and subtitles to
+index the new paths.
 
 Set `CINEROUTE_LISTEN=0.0.0.0:8787` (already in the example) — the default
 `127.0.0.1` listen address is unreachable from outside the container.
@@ -239,7 +260,7 @@ video. It normally recreates the main folder's tree below the remote root; for
 a remote-only title, it links the remote tree into the normal folder. Existing
 links to the same inode are accepted, while symlinks,
 special files and conflicting destination files are rejected. Main and remote
-roots must be below the same `/hddN` mount and the CineRoute UID/GID must be
+roots must be below the same `/diskN` mount and the CineRoute UID/GID must be
 allowed to create files in the remote root. Hardlinks cannot cross filesystems,
 container mounts or Btrfs subvolumes.
 
@@ -396,7 +417,7 @@ If processing a movie fails with `create work directory ...: permission denied`,
 the container user cannot write `subtitles.work_dir`. That happens when `/tmp`
 is bind-mounted from a host directory owned by another user, because the mount
 replaces the image's world-writable `/tmp`. Either make the host directory
-writable by the container user (`chown 1001:10 <host-dir>` to match the compose
+writable by the container user (`chown 1000:1000 <host-dir>` to match the compose
 `user:` setting) or point `subtitles.work_dir` at a path that is already
 writable inside the container, for example `/data/subtitles-work`. The Subtitles
 page shows the problem at the top of the page, and the startup log reports

@@ -44,6 +44,6 @@ FROM alpine:3.22
 RUN apk add --no-cache ffmpeg tzdata ca-certificates
 COPY --from=build /cineroute /cineroute
 COPY --from=alass /usr/local/bin/alass /usr/local/bin/alass
-USER 1001:10
+USER 1000:1000
 EXPOSE 8787
 ENTRYPOINT ["/cineroute"]

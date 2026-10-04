@@ -86,8 +86,8 @@ function fail(message) { console.log("FAILURE: " + message); process.exit(1); }
 function expect(condition, message) { if (!condition) fail(message); }
 
 const item = {
-  id: "s_1", drive_id: "hdd1", folder_name: "Hugo (2011)", video_name: "Hugo.2011.1080p.mkv",
-  video_path: "/hdd1/movies-remote/Hugo (2011)/Hugo.2011.1080p.mkv", title: "Hugo", year: 2011,
+  id: "s_1", drive_id: "disk1", folder_name: "Hugo (2011)", video_name: "Hugo.2011.1080p.mkv",
+  video_path: "/disk1/media/movies-remote/Hugo (2011)/Hugo.2011.1080p.mkv", title: "Hugo", year: 2011,
   status: "pending", probed: true, has_external_subtitle: false,
   targets: [{ language: "sv", status: "pending" }, { language: "es", status: "present", present: true, sources: ["embedded stream #2"] }, { language: "en", status: "no_match", error: "no safe candidate was found" }],
   existing_sub_languages: ["es", "en"], external_subtitles: [], embedded_sub_streams: [{ index: 3, codec: "subrip", language: "es", usable: true }],
@@ -108,7 +108,7 @@ driver.push("expect($('subtitleRunButton').textContent.includes('next 20'), 'idl
 driver.push("expect($('subtitleProgress').textContent.includes('next batch: 20 of 94'), 'idle hint missing: ' + $('subtitleProgress').textContent);");
 driver.push("expect($('subtitleStats').innerHTML.includes('729'), 'stats not rendered');");
 driver.push("expect($('subtitleList').innerHTML.includes('Hugo'), 'movie row not rendered');");
-driver.push("subtitleData.batch = { running: true, kind: 'run', total: 20, done: 3, stage: 'reference', current: '/hdd4/movies-remote/The Dark Knight (2008)/The.Dark.Knight.2008.1080p.mkv' };");
+driver.push("subtitleData.batch = { running: true, kind: 'run', total: 20, done: 3, stage: 'reference', current: '/disk4/media/movies-remote/The Dark Knight (2008)/The.Dark.Knight.2008.1080p.mkv' };");
 driver.push("subtitleData.items[0].status = 'processing';");
 driver.push("subtitleData.items[0].step = 'reference';");
 driver.push("subtitleData.items[0].step_detail = '42% · 0:50:00 of 2:00:00';");

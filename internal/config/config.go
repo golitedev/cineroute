@@ -194,10 +194,10 @@ func Default() *Config {
 			},
 		},
 		Drives: []Drive{
-			{ID: "hdd1", MovieRoot: "/hdd1/movies", MovieRemoteRoot: "/hdd1/movies-remote", TVRoot: "/hdd1/tv", TVRemoteRoot: "/hdd1/tv-remote", AnimeRoot: "/hdd1/anime"},
-			{ID: "hdd2", MovieRoot: "/hdd2/movies", MovieRemoteRoot: "/hdd2/movies-remote", TVRoot: "/hdd2/tv", TVRemoteRoot: "/hdd2/tv-remote", AnimeRoot: "/hdd2/anime"},
-			{ID: "hdd3", MovieRoot: "/hdd3/movies", MovieRemoteRoot: "/hdd3/movies-remote", TVRoot: "/hdd3/tv", TVRemoteRoot: "/hdd3/tv-remote", AnimeRoot: "/hdd3/anime"},
-			{ID: "hdd4", MovieRoot: "/hdd4/movies", MovieRemoteRoot: "/hdd4/movies-remote", TVRoot: "/hdd4/tv", TVRemoteRoot: "/hdd4/tv-remote", AnimeRoot: "/hdd4/anime"},
+			{ID: "disk1", MovieRoot: "/disk1/media/movies", MovieRemoteRoot: "/disk1/media/movies-remote", TVRoot: "/disk1/media/tv", TVRemoteRoot: "/disk1/media/tv-remote", AnimeRoot: "/disk1/media/anime"},
+			{ID: "disk2", MovieRoot: "/disk2/media/movies", MovieRemoteRoot: "/disk2/media/movies-remote", TVRoot: "/disk2/media/tv", TVRemoteRoot: "/disk2/media/tv-remote", AnimeRoot: "/disk2/media/anime"},
+			{ID: "disk3", MovieRoot: "/disk3/media/movies", MovieRemoteRoot: "/disk3/media/movies-remote", TVRoot: "/disk3/media/tv", TVRemoteRoot: "/disk3/media/tv-remote", AnimeRoot: "/disk3/media/anime"},
+			{ID: "disk4", MovieRoot: "/disk4/media/movies", MovieRemoteRoot: "/disk4/media/movies-remote", TVRoot: "/disk4/media/tv", TVRemoteRoot: "/disk4/media/tv-remote", AnimeRoot: "/disk4/media/anime"},
 		},
 	}
 }

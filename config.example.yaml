@@ -24,7 +24,7 @@ tmdb:
 
 qbittorrent:
   # Alternatively: CINEROUTE_QBIT_URL, CINEROUTE_QBIT_USERNAME, CINEROUTE_QBIT_PASSWORD
-  url: "http://localhost:8080"
+  url: "http://192.168.18.29:8080"
   username: "admin"
   password: ""
 
@@ -129,33 +129,33 @@ subtitles:
 library:
   folder_format: "{title} ({year})"
 
-# Mount each HDD once at /hddN in both CineRoute and qBittorrent. Keeping the
+# Mount /mnt/diskN/data once at /diskN in both CineRoute and qBittorrent. Keeping the
 # primary and remote roots below one mount allows hardlinks between them.
 drives:
-  - id: "hdd1"
-    movie_root: "/hdd1/movies"
-    movie_remote_root: "/hdd1/movies-remote"
-    tv_root: "/hdd1/tv"
-    tv_remote_root: "/hdd1/tv-remote"
-    anime_root: "/hdd1/anime"
+  - id: "disk1"
+    movie_root: "/disk1/media/movies"
+    movie_remote_root: "/disk1/media/movies-remote"
+    tv_root: "/disk1/media/tv"
+    tv_remote_root: "/disk1/media/tv-remote"
+    anime_root: "/disk1/media/anime"
 
-  - id: "hdd2"
-    movie_root: "/hdd2/movies"
-    movie_remote_root: "/hdd2/movies-remote"
-    tv_root: "/hdd2/tv"
-    tv_remote_root: "/hdd2/tv-remote"
-    anime_root: "/hdd2/anime"
+  - id: "disk2"
+    movie_root: "/disk2/media/movies"
+    movie_remote_root: "/disk2/media/movies-remote"
+    tv_root: "/disk2/media/tv"
+    tv_remote_root: "/disk2/media/tv-remote"
+    anime_root: "/disk2/media/anime"
 
-  - id: "hdd3"
-    movie_root: "/hdd3/movies"
-    movie_remote_root: "/hdd3/movies-remote"
-    tv_root: "/hdd3/tv"
-    tv_remote_root: "/hdd3/tv-remote"
-    anime_root: "/hdd3/anime"
+  - id: "disk3"
+    movie_root: "/disk3/media/movies"
+    movie_remote_root: "/disk3/media/movies-remote"
+    tv_root: "/disk3/media/tv"
+    tv_remote_root: "/disk3/media/tv-remote"
+    anime_root: "/disk3/media/anime"
 
-  - id: "hdd4"
-    movie_root: "/hdd4/movies"
-    movie_remote_root: "/hdd4/movies-remote"
-    tv_root: "/hdd4/tv"
-    tv_remote_root: "/hdd4/tv-remote"
-    anime_root: "/hdd4/anime"
+  - id: "disk4"
+    movie_root: "/disk4/media/movies"
+    movie_remote_root: "/disk4/media/movies-remote"
+    tv_root: "/disk4/media/tv"
+    tv_remote_root: "/disk4/media/tv-remote"
+    anime_root: "/disk4/media/anime"
