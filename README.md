@@ -342,14 +342,23 @@ merges seasons into the user's existing request instead of creating extra downlo
 * **Language priorities (Movies / TV):** admin-only checkboxes prefer audio and
   full subtitle languages independently for each profile. Quality order remains
   first; each distinct preferred audio or full-subtitle match adds one language
-  point, before keyword scores, pack preference, tracker priority and seeders.
+  point, before optional text-subtitle preference, keyword scores, pack preference,
+  tracker priority and seeders.
   These points do not bypass filters or the minimum keyword score, and language
-  preferences alone do not replace an already conforming library copy. Blank
-  selections preserve existing behavior and perform no native metadata lookups.
+  preferences alone do not replace an already conforming library copy. With no language or
+  format preference selected, existing behavior is preserved and no native
+  metadata lookups are performed.
   Regional variants are grouped (for example all Spanish audio), and original
   audio is resolved using TMDB's original language without double-counting it.
   Forced-only, signs/songs-only and commentary tracks do not count as full
   subtitles; commentary audio does not earn language points.
+  **Prefer text-based subtitles** favors SRT/SubRip, ASS/SSA, WebVTT, timed text
+  and other recognized text formats over PGS, VobSub and other image formats.
+  It ranks after quality and preferred-language matches, so text subtitles in
+  another language do not outrank a preferred language. With no subtitle
+  languages selected, any full text subtitle track earns a format preference;
+  otherwise only text tracks in the preferred subtitle languages earn points.
+  Unknown formats are neutral and no OCR or format conversion is performed.
   Compatible UNIT3D trackers supply MediaInfo/BDInfo through their native API,
   authenticated with their individual API keys read from Prowlarr's configuration.
   CineRoute batches the first 100 native results per tracker/search and matches
@@ -396,7 +405,8 @@ receipts survive restarts in `/data/requests.db`, configurable through
 `/data` volume writable; the read-only YAML configuration is not rewritten.
 
 The worker searches only selected, enabled Prowlarr torrent indexers, ranks
-releases by allowed quality, language preference points, keyword score, pack preference, tracker priority
+releases by allowed quality, language preference points, text-subtitle preference,
+keyword score, pack preference, tracker priority
 and seeders, and validates actual torrent files before adding anything. Unknown
 or ambiguous identities, qualities, episode numbering and overlapping packs
 remain waiting with an admin diagnostic. Codec rules use release/filename

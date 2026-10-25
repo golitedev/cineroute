@@ -51,6 +51,7 @@ type Profile struct {
 	AudioLanguages             []string  `json:"audio_languages"` // empty means any language
 	PreferredAudioLanguages    []string  `json:"preferred_audio_languages"`
 	PreferredSubtitleLanguages []string  `json:"preferred_subtitle_languages"`
+	PreferTextSubtitles        bool      `json:"prefer_text_subtitles"`
 	AllowUnknownLanguage       bool      `json:"allow_unknown_language"`
 	MinSizeGiB                 float64   `json:"min_size_gib"`
 	MaxSizeGiB                 float64   `json:"max_size_gib"` // zero means unlimited

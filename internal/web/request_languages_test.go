@@ -18,8 +18,9 @@ import (
 )
 
 func TestAdminLanguagePrioritiesRankReportsWithoutChangingRoutingOrKeywordMinimum(t *testing.T) {
-	for _, enabled := range []bool{false, true} {
-		t.Run(fmt.Sprint(enabled), func(t *testing.T) {
+	for _, mode := range []string{"off", "language", "text"} {
+		t.Run(mode, func(t *testing.T) {
+			enabled := mode != "off"
 			f := newWorkflowFixture(t, false)
 			var nativeHits, preferredHits, ordinaryHits atomic.Int32
 			var provider *httptest.Server
@@ -37,7 +38,7 @@ func TestAdminLanguagePrioritiesRankReportsWithoutChangingRoutingOrKeywordMinimu
 					if r.Header.Get("Authorization") != "Bearer PRIVATE_TRACKER_KEY" || r.Header.Get("X-Api-Key") != "" {
 						t.Error("native lookup authentication wrong")
 					}
-					json.NewEncoder(w).Encode(map[string]any{"data": []any{map[string]any{"attributes": map[string]string{"details_link": provider.URL + "/torrents/1", "media_info": "Audio\nLanguage : English\nText\nLanguage : Swedish\nForced : Yes"}}, map[string]any{"attributes": map[string]string{"details_link": provider.URL + "/torrents/2", "media_info": "Audio\nLanguage : Spanish\nText\nLanguage : Swedish\nForced : No"}}}})
+					json.NewEncoder(w).Encode(map[string]any{"data": []any{map[string]any{"attributes": map[string]string{"details_link": provider.URL + "/torrents/1", "media_info": "Audio\nLanguage : English\nText\nFormat : PGS\nLanguage : Swedish\nForced : No"}}, map[string]any{"attributes": map[string]string{"details_link": provider.URL + "/torrents/2", "media_info": "Audio\nLanguage : Spanish\nText\nFormat : UTF-8\nLanguage : Swedish\nForced : No"}}}})
 				case "/ordinary":
 					ordinaryHits.Add(1)
 					w.Write(f.torrent)
@@ -53,9 +54,12 @@ func TestAdminLanguagePrioritiesRankReportsWithoutChangingRoutingOrKeywordMinimu
 			f.s.engine = requests.NewEngine(f.s.requests, f.s.tmdb, f.s.prowlarr, requestBackend{f.s})
 			settings, _ := f.s.requests.Load()
 			settings.Movie.Keywords = []requests.Keyword{{Pattern: "PreferredGroup", Match: "contains", Mode: "preferred", Score: 100}}
-			if enabled {
+			if mode == "language" {
 				settings.Movie.PreferredAudioLanguages = []string{"es"}
 				settings.Movie.PreferredSubtitleLanguages = []string{"sv"}
+			}
+			if mode == "text" {
+				settings.Movie.PreferTextSubtitles = true
 			}
 			if err := f.s.requests.Save(settings); err != nil {
 				t.Fatal(err)
@@ -82,7 +86,7 @@ func TestAdminLanguagePrioritiesRankReportsWithoutChangingRoutingOrKeywordMinimu
 				t.Fatalf("routing changed: %+v", d)
 			}
 			if enabled {
-				if nativeHits.Load() != 1 || preferredHits.Load() != 1 || ordinaryHits.Load() != 0 || d.LanguageScore != 2 || !slices.Contains(d.Languages.Audio, "es") || !slices.Contains(d.Languages.Subtitles, "sv") {
+				if nativeHits.Load() != 1 || preferredHits.Load() != 1 || ordinaryHits.Load() != 0 || (mode == "language" && d.LanguageScore != 2) || (mode == "text" && d.SubtitleFormatScore != 1) || !slices.Contains(d.Languages.Audio, "es") || !slices.Contains(d.Languages.Subtitles, "sv") {
 					t.Fatalf("language ranking did not beat keyword preference: %+v hits %d/%d/%d", d, nativeHits.Load(), preferredHits.Load(), ordinaryHits.Load())
 				}
 			} else if nativeHits.Load() != 0 || ordinaryHits.Load() != 1 || preferredHits.Load() != 0 {
@@ -107,7 +111,7 @@ func TestAdminLanguagePrioritiesRankReportsWithoutChangingRoutingOrKeywordMinimu
 				}
 			}
 			history := readHistory(t, f.s, "")
-			if enabled && (history.Entries[0].Downloads[0].LanguageScore != 2 || history.Entries[0].Downloads[0].Languages.Status != "reported") {
+			if enabled && ((mode == "language" && history.Entries[0].Downloads[0].LanguageScore != 2) || (mode == "text" && history.Entries[0].Downloads[0].SubtitleFormatScore != 1) || history.Entries[0].Downloads[0].Languages.Status != "reported") {
 				t.Fatal("history lacks reported languages/priority points")
 			}
 			public := userWorkflowCall(t, f.s, "alice", "GET", "/api/user/requests", "")

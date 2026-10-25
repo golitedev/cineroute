@@ -449,7 +449,7 @@ func (e *Engine) process(ctx context.Context, job *Job, settings Settings, downl
 		if err != nil {
 			return err
 		}
-		if len(p.PreferredAudioLanguages)+len(p.PreferredSubtitleLanguages) > 0 {
+		if len(p.PreferredAudioLanguages)+len(p.PreferredSubtitleLanguages) > 0 || p.PreferTextSubtitles {
 			// Read native reports only for otherwise eligible, selected releases.
 			// Metadata may also confirm an existing strict audio-language filter.
 			precheck := p
@@ -539,6 +539,7 @@ func (e *Engine) process(ctx context.Context, job *Job, settings Settings, downl
 			d.RequestID, d.RequestedBy = job.ID, job.Owner
 			d.IndexerID, d.Indexer, d.InfoURL = candidate.Release.IndexerID, candidate.Release.Indexer, candidate.Release.InfoURL
 			d.Languages, d.LanguageScore = candidate.Release.Languages, candidate.LanguageScore
+			d.SubtitleFormatScore = candidate.SubtitleFormatScore
 			if d.Indexer == "" {
 				for _, tracker := range settings.Trackers {
 					if tracker.ID == d.IndexerID {

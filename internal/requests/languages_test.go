@@ -78,3 +78,31 @@ func TestLanguageRankRespectsQualityFiltersAndKeywordMinimum(t *testing.T) {
 		t.Fatal("reported audio could not satisfy the audio filter")
 	}
 }
+
+func TestTextSubtitlePreferenceRespectsLanguageAndQuality(t *testing.T) {
+	media := tmdb.Details{Result: tmdb.Result{ID: 1, Title: "Example", MediaType: "movie", ReleaseDate: "2024-01-01"}, OriginalLanguage: "en"}
+	p := Defaults().Movie
+	p.PreferredSubtitleLanguages = []string{"sv"}
+	p.PreferTextSubtitles = true
+	release := prowlarr.Release{Title: "Example.2024.1080p.WEB-DL.x264", Languages: medialanguages.Parse("Text\nFormat : PGS\nLanguage : Swedish", "")}
+	image, _ := Evaluate(release, media, p, 0, 1)
+	release.Languages = medialanguages.Parse("Text\nFormat : UTF-8\nLanguage : English", "")
+	wrongLanguage, _ := Evaluate(release, media, p, 0, 1)
+	if Better(wrongLanguage, image, true) {
+		t.Fatal("English text subtitles beat preferred Swedish image subtitles")
+	}
+	release.Languages = medialanguages.Parse("Text\nFormat : ASS\nLanguage : Swedish", "")
+	text, _ := Evaluate(release, media, p, 0, 1)
+	if !Better(text, image, true) || text.SubtitleFormatScore != 1 {
+		t.Fatal("text subtitles did not beat equivalent image subtitles")
+	}
+	text.Rank = 1
+	if Better(text, image, true) {
+		t.Fatal("text format overrode preferred quality")
+	}
+	p.PreferTextSubtitles = false
+	unchecked, _ := Evaluate(release, media, p, 0, 1)
+	if unchecked.SubtitleFormatScore != 0 {
+		t.Fatal("unchecked format preference affected ranking")
+	}
+}

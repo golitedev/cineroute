@@ -75,3 +75,34 @@ func TestUnknownAndRegionalLanguages(t *testing.T) {
 		}
 	}
 }
+
+func TestTextVersusImageSubtitlesAndUnknownLanguages(t *testing.T) {
+	for _, format := range []string{"UTF-8", "SubRip", "ASS", "SSA", "WebVTT", "Timed Text", "TTML", "S_TEXT/UTF8", "S_TEXT/ASS"} {
+		m := Parse("Text\nFormat : "+format+"\nLanguage : Swedish\nForced : No", "")
+		if !m.HasTextSubtitles || m.HasImageSubtitles || m.TextPreferenceScore([]string{"sv"}) != 1 {
+			t.Errorf("text format %q not preferred: %+v", format, m)
+		}
+	}
+	for _, format := range []string{"PGS", "VobSub", "S_HDMV/PGS", "DVB Subtitle"} {
+		m := Parse("Text\nFormat : "+format+"\nLanguage : Swedish\nForced : No", "")
+		if m.HasTextSubtitles || !m.HasImageSubtitles || m.TextPreferenceScore(nil) != 0 {
+			t.Errorf("image format %q incorrectly preferred: %+v", format, m)
+		}
+	}
+	forced := Parse("Text\nFormat : UTF-8\nLanguage : Swedish\nForced : Yes", "")
+	if forced.TextPreferenceScore(nil) != 0 {
+		t.Fatal("forced-only text subtitles earned full-subtitle preference")
+	}
+	unknown := Parse("Text\nFormat : UTF-8\nLanguage : und\nForced : No", "")
+	if unknown.TextPreferenceScore(nil) != 1 || unknown.TextPreferenceScore([]string{"sv"}) != 0 {
+		t.Fatal("unknown subtitle language bypassed language-specific format preference")
+	}
+	mixed := Parse("Text #1\nFormat : PGS\nLanguage : Swedish\nText #2\nFormat : UTF-8\nLanguage : English", "")
+	if mixed.TextPreferenceScore([]string{"sv"}) != 0 || mixed.TextPreferenceScore([]string{"en"}) != 1 {
+		t.Fatal("text format applied to the wrong language")
+	}
+	jsonReport := Parse(`{"media":{"track":[{"@type":"Text","Language":"sv","CodecID":"S_TEXT/ASS","Forced":"No"}]}}`, "")
+	if !jsonReport.HasTextSubtitles {
+		t.Fatal("JSON subtitle codec not recognized")
+	}
+}

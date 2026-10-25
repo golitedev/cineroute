@@ -53,10 +53,14 @@ func Normalize(value string) string {
 }
 
 type Metadata struct {
-	Audio           []string `json:"audio,omitempty"`
-	Subtitles       []string `json:"subtitles,omitempty"`
-	ForcedSubtitles []string `json:"forced_subtitles,omitempty"`
-	Status          string   `json:"status"` // reported, unknown, unsupported or unavailable
+	Audio             []string `json:"audio,omitempty"`
+	Subtitles         []string `json:"subtitles,omitempty"`
+	ForcedSubtitles   []string `json:"forced_subtitles,omitempty"`
+	TextSubtitles     []string `json:"text_subtitles,omitempty"`
+	ImageSubtitles    []string `json:"image_subtitles,omitempty"`
+	HasTextSubtitles  bool     `json:"has_text_subtitles,omitempty"`
+	HasImageSubtitles bool     `json:"has_image_subtitles,omitempty"`
+	Status            string   `json:"status"` // reported, unknown, unsupported or unavailable
 }
 
 func (m Metadata) PreferenceScore(audio, subtitles []string, original string) int {
@@ -79,13 +83,26 @@ func (m Metadata) PreferenceScore(audio, subtitles []string, original string) in
 	return score
 }
 
-type track struct{ kind, language, title, forced string }
+func (m Metadata) TextPreferenceScore(preferred []string) int {
+	if len(preferred) == 0 {
+		if m.HasTextSubtitles || len(m.TextSubtitles) > 0 {
+			return 1
+		}
+		return 0
+	}
+	score := 0
+	for _, code := range preferred {
+		if slices.Contains(m.TextSubtitles, code) {
+			score++
+		}
+	}
+	return score
+}
+
+type track struct{ kind, language, title, forced, format, codecID string }
 
 func (m *Metadata) add(t track) {
 	code := Normalize(t.language)
-	if code == "" {
-		return
-	}
 	title := strings.ToLower(t.title)
 	for _, word := range []string{"commentary", "comentario", "commentaire", "kommentar"} {
 		if strings.Contains(title, word) {
@@ -93,14 +110,32 @@ func (m *Metadata) add(t track) {
 		}
 	}
 	if t.kind == "audio" {
-		m.Audio = append(m.Audio, code)
+		if code != "" {
+			m.Audio = append(m.Audio, code)
+		}
 	} else if t.kind == "text" || t.kind == "subtitle" {
 		forced := strings.ToLower(t.forced)
 		title := strings.ToLower(t.title)
 		if forced == "yes" || forced == "true" || forced == "1" || strings.Contains(title, "forced") || strings.Contains(title, "signs") || strings.Contains(title, "songs") {
-			m.ForcedSubtitles = append(m.ForcedSubtitles, code)
+			if code != "" {
+				m.ForcedSubtitles = append(m.ForcedSubtitles, code)
+			}
 		} else {
-			m.Subtitles = append(m.Subtitles, code)
+			if code != "" {
+				m.Subtitles = append(m.Subtitles, code)
+			}
+			switch subtitleFormat(t.format, t.codecID) {
+			case "text":
+				m.HasTextSubtitles = true
+				if code != "" {
+					m.TextSubtitles = append(m.TextSubtitles, code)
+				}
+			case "image":
+				m.HasImageSubtitles = true
+				if code != "" {
+					m.ImageSubtitles = append(m.ImageSubtitles, code)
+				}
+			}
 		}
 	}
 }
@@ -135,6 +170,10 @@ func Parse(mediaInfo, bdInfo string) Metadata {
 				current.title = value
 			case "forced":
 				current.forced = value
+			case "format":
+				current.format = value
+			case "codec id":
+				current.codecID = value
 			}
 		}
 		m.add(current)
@@ -143,7 +182,9 @@ func Parse(mediaInfo, bdInfo string) Metadata {
 	m.Audio = unique(m.Audio)
 	m.Subtitles = unique(m.Subtitles)
 	m.ForcedSubtitles = unique(m.ForcedSubtitles)
-	if len(m.Audio)+len(m.Subtitles)+len(m.ForcedSubtitles) > 0 {
+	m.TextSubtitles = unique(m.TextSubtitles)
+	m.ImageSubtitles = unique(m.ImageSubtitles)
+	if len(m.Audio)+len(m.Subtitles)+len(m.ForcedSubtitles) > 0 || m.HasTextSubtitles || m.HasImageSubtitles {
 		m.Status = "reported"
 	}
 	return m
@@ -157,6 +198,8 @@ func parseJSON(m *Metadata, raw string) {
 				Language string
 				Title    string
 				Forced   json.RawMessage
+				Format   string
+				CodecID  string
 			}
 		}
 	}
@@ -165,7 +208,7 @@ func parseJSON(m *Metadata, raw string) {
 	}
 	for _, t := range report.Media.Track {
 		forced := strings.Trim(string(t.Forced), `"`)
-		m.add(track{kind: strings.ToLower(t.Type), language: t.Language, title: t.Title, forced: forced})
+		m.add(track{kind: strings.ToLower(t.Type), language: t.Language, title: t.Title, forced: forced, format: t.Format, codecID: t.CodecID})
 	}
 }
 
@@ -198,8 +241,39 @@ func addBDLine(m *Metadata, kind, line string) {
 	// Table rows identify languages after the codec; summary rows put them first.
 	for _, word := range strings.FieldsFunc(line, func(r rune) bool { return r == ' ' || r == '\t' || r == '/' || r == '(' || r == ')' }) {
 		if code := Normalize(word); code != "" {
-			m.add(track{kind: kind, language: code, title: line})
+			m.add(track{kind: kind, language: code, title: line, format: line})
 			return
 		}
 	}
+}
+
+func subtitleFormat(values ...string) string {
+	text := false
+	expanded := []string{}
+	for _, value := range values {
+		expanded = append(expanded, value)
+		expanded = append(expanded, strings.Split(value, "/")...)
+	}
+	for _, value := range expanded {
+		value = strings.Map(func(r rune) rune {
+			if (r >= 'a' && r <= 'z') || (r >= '0' && r <= '9') {
+				return r
+			}
+			return -1
+		}, strings.ToLower(value))
+		for _, prefix := range []string{"pgs", "presentationgraphics", "vobsub", "svobsub", "shdmvpgs", "hdmvpgs", "dvdsubtitle", "dvbsubtitle", "dvdsub", "xsub"} {
+			if strings.HasPrefix(value, prefix) {
+				return "image"
+			}
+		}
+		for _, prefix := range []string{"utf8", "subrip", "srt", "ass", "ssa", "webvtt", "vtt", "timedtext", "movtext", "ttml", "tx3g", "wvtt", "stpp", "usf", "sami", "microdvd", "stextutf8", "stextass", "stextssa", "stextwebvtt", "stextusf"} {
+			if strings.HasPrefix(value, prefix) {
+				text = true
+			}
+		}
+	}
+	if text {
+		return "text"
+	}
+	return ""
 }

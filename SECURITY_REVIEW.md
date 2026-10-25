@@ -28,8 +28,9 @@ HTTPS (HTTP is limited to loopback test servers), use a Bearer header and never
 follow redirects, including when retrieving configuration from Prowlarr. No
 search-result URL can select a destination for credentials. Twelve-second request
 timeouts, response/report size limits, bounded parsed-result caches, pacing and
-five-minute failure backoff limit the extra work. Only normalized language codes
-and preference points enter download receipts and admin history. Raw reports,
+five-minute failure backoff limit the extra work. Only normalized language codes,
+recognized text/image format flags and preference points enter download receipts
+and admin history. Raw reports,
 tracker keys and credential-bearing download URLs are excluded. Tests cover
 redirects, mismatched origins/identities, disabled trackers, unknown reports,
 independent profiles, and public users attempting policy overrides.

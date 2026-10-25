@@ -18,13 +18,14 @@ import (
 )
 
 type Candidate struct {
-	Release       prowlarr.Release
-	Quality       string
-	Rank          int
-	Score         int
-	Priority      int
-	Pack          bool
-	LanguageScore int
+	Release             prowlarr.Release
+	Quality             string
+	Rank                int
+	Score               int
+	Priority            int
+	Pack                bool
+	LanguageScore       int
+	SubtitleFormatScore int
 }
 
 func ReleaseKey(r prowlarr.Release) string {
@@ -228,6 +229,9 @@ func Evaluate(r prowlarr.Release, media tmdb.Details, p Profile, minSeeders int,
 	}
 	c.Score = score
 	c.LanguageScore = r.Languages.PreferenceScore(p.PreferredAudioLanguages, p.PreferredSubtitleLanguages, media.OriginalLanguage)
+	if p.PreferTextSubtitles {
+		c.SubtitleFormatScore = r.Languages.TextPreferenceScore(p.PreferredSubtitleLanguages)
+	}
 	if r.Size > 0 {
 		min, max := p.MinSizeGiB, p.MaxSizeGiB
 		if c.Pack {
@@ -281,6 +285,9 @@ func Better(a, b Candidate, preferPacks bool) bool {
 	}
 	if a.LanguageScore != b.LanguageScore {
 		return a.LanguageScore > b.LanguageScore
+	}
+	if a.SubtitleFormatScore != b.SubtitleFormatScore {
+		return a.SubtitleFormatScore > b.SubtitleFormatScore
 	}
 	if a.Score != b.Score {
 		return a.Score > b.Score
