@@ -30,19 +30,18 @@ button:hover{border-color:var(--accent)}
 button.icon-button{width:34px;height:34px;padding:0;display:inline-flex;align-items:center;justify-content:center;font-size:20px;line-height:0}
 button.icon-button .refresh-icon{display:flex;flex:0 0 18px;width:18px;height:18px;align-items:center;justify-content:center;line-height:0;transform-origin:50% 50%}
 button.icon-button .refresh-icon svg{display:block;width:18px;height:18px;overflow:visible}
-button.icon-button.searching .refresh-icon{animation:companion-spin .8s linear infinite}
-@keyframes companion-spin{to{transform:rotate(360deg)}}
+button.icon-button.searching .refresh-icon{animation:copy-spin .8s linear infinite}
+@keyframes copy-spin{to{transform:rotate(360deg)}}
 button.primary{background:var(--accent);border-color:var(--accent);color:#fff}
 button.primary.approving{background:#111318;border-color:#343945;color:var(--dim)}
 button.primary.searching{background:#111318;border-color:#343945;color:var(--dim)}
 button.primary.added{background:#12261a;border-color:#2c6a3a;color:var(--ok)}
-.approval-spinner{display:inline-block;width:12px;height:12px;margin-right:7px;border:2px solid #4b5260;border-top-color:var(--text);border-radius:50%;vertical-align:-2px;animation:companion-spin .8s linear infinite}
+.action-spinner{display:inline-block;width:12px;height:12px;margin-right:7px;border:2px solid #4b5260;border-top-color:var(--text);border-radius:50%;vertical-align:-2px;animation:copy-spin .8s linear infinite}
 button.danger{background:#3a171a;color:#ffb3ad;border-color:#7a2f2d}
 button.danger:hover{background:#4b1c20;border-color:var(--err)}
 button:disabled{opacity:.5;cursor:not-allowed}
 a.tracker-link,a.tracker-link:visited{color:#ffb86c}
 a.tracker-link:hover{color:#ffd28a}
-.candidate .actions{align-items:center}
 a.tracker-link{display:inline-flex;align-items:center;min-height:34px}
 table{width:100%;max-width:100%;border-collapse:collapse;font-size:13px}
 td,th{text-align:left;padding:6px 8px;border-bottom:1px solid var(--border);vertical-align:top;overflow-wrap:anywhere}
@@ -72,37 +71,29 @@ th{color:var(--dim);font-weight:500;width:170px}
 .okbox{background:#12261a;border:1px solid #2c6a3a;border-radius:8px;padding:10px 12px;color:#7ee787;margin-top:10px}
 #statusbar{display:flex;flex-wrap:wrap;gap:6px}
 .view-nav{display:flex;gap:8px;margin-bottom:16px;flex-wrap:wrap}
-.companion-toolbar{display:flex;justify-content:space-between;gap:10px;align-items:center;flex-wrap:wrap}
-.companion-settings{border-top:1px solid var(--border);margin-top:14px;padding-top:12px}
-.companion-settings label{display:block;color:var(--dim);font-size:12px;margin-bottom:5px}
-.companion-stats{display:flex;gap:8px;flex-wrap:wrap;margin:14px 0}
-.companion-stat{background:#12151b;border:1px solid var(--border);border-radius:7px;padding:8px 11px;min-width:92px}
-.companion-stat strong{display:block;font-size:18px}
-.companion-stat span{color:var(--dim);font-size:11px;text-transform:uppercase;letter-spacing:.04em}
-.companion-filters{display:flex;gap:6px;flex-wrap:wrap;margin-bottom:12px}
-.companion-filters button.active{border-color:var(--accent);color:#fff;background:#121a2e}
-.companion-search-input{flex:1;min-width:220px}
-.companion-row{display:grid;grid-template-columns:minmax(0,1fr) auto auto;gap:12px;align-items:center;border-top:1px solid var(--border);padding:11px 0}
-.companion-row:first-child{border-top:0}
-.companion-row .title{font-weight:600}
-.companion-row .meta{color:var(--dim);font-size:12px;margin-top:2px}
-.companion-row .meta .copy-tag{color:var(--dim)}
-.companion-row .meta .copy-tag.present{color:var(--remote);font-weight:600}
-.companion-row .meta .copy-tag.main.present{color:var(--accent)}
-.companion-detail{border-color:var(--accent)}
-.companion-existing-files{margin-top:4px}
-.companion-existing-files .mono{display:block;margin-top:2px;word-break:break-all}
-.candidate{border:1px solid var(--border);border-radius:8px;padding:12px;margin-top:10px}
-.candidate h3{font-size:13px;line-height:1.4;margin:0 0 7px;word-break:break-word}
-.candidate .facts{display:flex;gap:6px;flex-wrap:wrap;margin-bottom:7px}
-.candidate .reason{color:var(--dim);font-size:12px;margin-top:6px}
-.candidate-season-heading{font-size:17px;font-weight:650;color:var(--text);margin:21px 0 5px;padding-top:9px;border-top:1px solid var(--border)}
+.copy-toolbar{display:flex;justify-content:space-between;gap:10px;align-items:center;flex-wrap:wrap}
+.copy-stats{display:flex;gap:8px;flex-wrap:wrap;margin:14px 0}
+.copy-stat{background:#12151b;border:1px solid var(--border);border-radius:7px;padding:8px 11px;min-width:92px}
+.copy-stat strong{display:block;font-size:18px}
+.copy-stat span{color:var(--dim);font-size:11px;text-transform:uppercase;letter-spacing:.04em}
+.copy-filters{display:flex;gap:6px;flex-wrap:wrap;margin-bottom:12px}
+.copy-filters button.active{border-color:var(--accent);color:#fff;background:#121a2e}
+.copy-search-input{flex:1;min-width:220px}
+.copy-row{display:grid;grid-template-columns:minmax(0,1fr) auto auto;gap:12px;align-items:center;border-top:1px solid var(--border);padding:11px 0}
+.copy-row:first-child{border-top:0}
+.copy-row .title{font-weight:600}
+.copy-row .meta{color:var(--dim);font-size:12px;margin-top:2px}
+.copy-row .meta .copy-tag{color:var(--dim)}
+.copy-row .meta .copy-tag.present{color:var(--remote);font-weight:600}
+.copy-row .meta .copy-tag.main.present{color:var(--accent)}
+.copy-detail{border-color:var(--accent)}
+.copy-existing-files{margin-top:4px}
+.copy-existing-files .mono{display:block;margin-top:2px;word-break:break-all}
 .pagination{display:flex;justify-content:space-between;align-items:center;margin-top:12px}
-.companion-detail-navigation{border-top:1px solid var(--border);padding-top:12px}
-.companion-detail .companion-toolbar{align-items:flex-start;flex-wrap:nowrap}
-.companion-detail .companion-toolbar>div:first-child{min-width:0;flex:1}
-.companion-detail .companion-toolbar>.actions{flex:none;margin-left:10px}
-@media(max-width:600px){.companion-row{grid-template-columns:1fr auto}.companion-row .status{grid-column:1}.companion-row button{grid-column:2;grid-row:1 / span 2}}
+.copy-detail .copy-toolbar{align-items:flex-start;flex-wrap:nowrap}
+.copy-detail .copy-toolbar>div:first-child{min-width:0;flex:1}
+.copy-detail .copy-toolbar>.actions{flex:none;margin-left:10px}
+@media(max-width:600px){.copy-row{grid-template-columns:1fr auto}.copy-row .status{grid-column:1}.copy-row button{grid-column:2;grid-row:1 / span 2}}
 input[type=text],input[type=number]{background:#0f1115;border:1px solid var(--border);border-radius:6px;color:var(--text);padding:7px 10px;font-size:13px}
 input[type=number]{width:90px}
 .actions{display:flex;gap:10px;margin-top:14px;flex-wrap:wrap}
@@ -222,8 +213,8 @@ input[type=number]{width:90px}
 <div id="appShell" class="hidden">
 <div class="view-nav" id="viewNav">
   <button id="routeTab" class="primary" onclick="showView('route')">Route torrents</button>
-  <button id="movieCompanionTab" onclick="showView('companions',true,'movie')">Movie Companions</button>
-  <button id="tvCompanionTab" onclick="showView('companions',true,'tv')">TV Companions</button>
+  <button id="moviesTab" onclick="showView('copies',true,'movie')">Movies</button>
+  <button id="tvTab" onclick="showView('copies',true,'tv')">TV</button>
   <button id="hardlinksTab" onclick="showView('hardlinks')">Hardlinks</button>
   <button id="subtitlesTab" onclick="showView('subtitles')">Subtitles</button>
 </div>
@@ -245,69 +236,33 @@ input[type=number]{width:90px}
 </div>
 </div>
 
-<div id="companionView" class="hidden">
+<div id="copyView" class="hidden">
   <div class="card">
-    <div class="companion-toolbar">
+    <div class="copy-toolbar">
       <div>
-        <h2 id="companionTitle" style="margin-bottom:4px">Movie Companions</h2>
-        <div id="companionDescription" class="small">Searches the configured Prowlarr indexer. Every download still needs your approval.</div>
+        <h2 id="copyTitle" style="margin-bottom:4px">Movies</h2>
+        <div class="small">Browse main and remote library copies. Hardlink a title into the side that is missing it.</div>
       </div>
-      <div class="actions" style="margin-top:0">
-        <button onclick="scanCompanions()">Scan library</button>
-        <button id="companionSearchButton" class="primary" onclick="searchMissingCompanions()">Search next batch</button>
-        <button id="companionClearReviewsButton" class="danger" onclick="clearCompanionReviews()">Clear reviews</button>
-        <button id="companionCancelButton" class="danger hidden" onclick="cancelCompanionSearch()">Cancel search</button>
-      </div>
+      <button id="copyScanButton" onclick="scanCopies()">Scan library</button>
     </div>
-    <div class="companion-settings">
-      <label id="companionBatchLabel" for="companionBatchSize">Search batch size (movies)</label>
-      <div class="row">
-        <input id="companionBatchSize" type="number" min="1" max="1000" step="1" value="20">
-        <button class="primary" onclick="saveCompanionSettings()">Save</button>
-        <button onclick="setCompanionBatchSize(10)">10</button>
-        <button onclick="setCompanionBatchSize(20)">20</button>
-        <button onclick="setCompanionBatchSize(50)">50</button>
-        <button onclick="setCompanionBatchSize(100)">100</button>
-      </div>
-      <div id="companionBatchNote" class="small" style="margin-top:6px">The next batch searches up to this many movies. Each movie uses one tracker search.</div>
-    </div>
-    <div class="companion-settings">
-      <label for="companionInterval">Search interval (seconds)</label>
-      <div class="row">
-        <input id="companionInterval" type="number" min="1" max="300" step="1" value="10">
-        <button class="primary" onclick="saveCompanionSettings()">Save</button>
-        <button onclick="setCompanionInterval(5)">5s</button>
-        <button onclick="setCompanionInterval(10)">10s</button>
-        <button onclick="setCompanionInterval(30)">30s</button>
-        <button onclick="setCompanionInterval(60)">60s</button>
-      </div>
-      <div id="companionIntervalNote" class="small" style="margin-top:6px">Delay between Prowlarr tracker searches.</div>
-    </div>
-    <div id="companionStats" class="companion-stats"></div>
-    <div id="companionProgress" class="small"></div>
-    <div id="companionMessage"></div>
-  </div>
-  <div class="card companion-search-card">
-    <div class="row">
-      <input class="companion-search-input" id="companionSearchInput" type="text" placeholder="Search torrents in Needs search" aria-label="Search torrents in Needs search" autocomplete="off" oninput="setCompanionSearch(this.value)">
-      <button id="companionSearchClear" type="button" onclick="clearCompanionSearch()">Clear</button>
-    </div>
+    <div id="copyStats" class="copy-stats"></div>
+    <div id="copyMessage"></div>
   </div>
   <div class="card">
-    <div class="companion-filters" id="companionFilters">
-      <button data-filter="pending" onclick="setCompanionFilter('pending')">Needs search</button>
-      <button data-filter="review" onclick="setCompanionFilter('review')">Review</button>
-      <button data-filter="no_match" onclick="setCompanionFilter('no_match')">No releases</button>
-      <button data-filter="needs_review" onclick="setCompanionFilter('needs_review')">Needs review</button>
-      <button data-filter="error" onclick="setCompanionFilter('error')">Errors</button>
-      <button data-filter="complete" onclick="setCompanionFilter('complete')">Added</button>
-      <button data-filter="skipped" onclick="setCompanionFilter('skipped')">Skipped</button>
-      <button data-filter="all" onclick="setCompanionFilter('all')">All</button>
+    <div class="actions" style="margin-top:0;margin-bottom:12px">
+      <input class="copy-search-input" id="copySearchInput" type="text" placeholder="Filter library titles" aria-label="Filter library titles" autocomplete="off" oninput="setCopySearch(this.value)">
+      <button id="copySearchClear" type="button" onclick="clearCopySearch()">Clear</button>
     </div>
-    <div id="companionList"></div>
-    <div id="companionPagination" class="pagination"></div>
+    <div class="copy-filters" id="copyFilters">
+      <button data-filter="all" onclick="setCopyFilter('all')">All</button>
+      <button data-filter="main_only" onclick="setCopyFilter('main_only')">Main only</button>
+      <button data-filter="remote_only" onclick="setCopyFilter('remote_only')">Remote only</button>
+      <button data-filter="both" onclick="setCopyFilter('both')">Both copies</button>
+    </div>
+    <div id="copyList"></div>
+    <div id="copyPagination" class="pagination"></div>
   </div>
-  <div id="companionDetail" class="card companion-detail hidden"></div>
+  <div id="copyDetail" class="card copy-detail hidden"></div>
 </div>
 
 <div id="hardlinkView" class="hidden">
@@ -348,7 +303,7 @@ input[type=number]{width:90px}
 
 <div id="subtitlesView" class="hidden">
   <div class="card">
-    <div class="companion-toolbar">
+    <div class="copy-toolbar">
       <div>
         <h2 style="margin-bottom:4px">Subtitles</h2>
         <div id="subtitleDescription" class="small">Finds the missing subtitle languages for every movie in the remote movie libraries, syncs each one with alass and writes it as &lt;video&gt;.&lt;language&gt;.srt next to the movie.</div>
@@ -362,10 +317,10 @@ input[type=number]{width:90px}
     </div>
     <div id="subtitleProgress" class="small" style="margin-top:10px"></div>
     <div id="subtitleMessage"></div>
-    <div id="subtitleStats" class="companion-stats"></div>
+    <div id="subtitleStats" class="copy-stats"></div>
   </div>
   <div class="card">
-    <div class="companion-settings" style="border-top:none;margin-top:0;padding-top:0">
+    <div class="copy-settings" style="border-top:none;margin-top:0;padding-top:0">
       <div class="row">
         <label for="subtitleBatchSize">Batch size</label>
         <input id="subtitleBatchSize" type="number" min="1" max="1000" style="max-width:90px">
@@ -409,15 +364,13 @@ const $=id=>document.getElementById(id);
 let intakes=[];
 const busy=new Set();
 const destinationBusy=new Set();
-let companionData=null;
-let companionType="movie";
-let companionFilter="pending";
-let companionSearchTerm="";
-let companionPage=0;
-let openCompanion="";
-let companionPoll=null;
-let companionLoadToken=0;
-const companionApprovals=new Map();
+let copyData=null;
+let copyType="movie";
+let copyFilter="all";
+let copySearchTerm="";
+let copyPage=0;
+let openCopy="";
+let copyLoadToken=0;
 let hardlinkData=null;
 let hardlinkFilter="all";
 let hardlinkMirror="main_to_remote";
@@ -430,24 +383,6 @@ const fmtBytes=n=>{
   const u=["B","KiB","MiB","GiB","TiB"];let i=0;let v=n;
   while(v>=1024&&i<u.length-1){v/=1024;i++}
   return v.toFixed(i?2:0)+" "+u[i];
-};
-const candidateAgeHours=c=>{
-  const reported=Number(c.age_hours);
-  if(Number.isFinite(reported)&&reported>0)return reported;
-  const published=Date.parse(c.publish_date||"");
-  if(Number.isFinite(published))return Math.max(0,(Date.now()-published)/3600000);
-  return Number.isFinite(reported)&&reported>=0?reported:null;
-};
-const fmtAge=hours=>{
-  if(hours===null||!Number.isFinite(hours)||hours<0)return "";
-  if(hours<24){if(hours<1)return "<1 day";const value=Math.max(1,Math.floor(hours));return value+" hour"+(value===1?"":"s")}
-  const days=hours/24;
-  if(days<30){const value=Math.floor(days);return value+" day"+(value===1?"":"s")}
-  const months=days/30;
-  if(days<365){const value=Math.max(1,Math.floor(months));return value+" month"+(value===1?"":"s")}
-  const years=days/365;
-  const value=years<2?Number(years.toFixed(1)):Math.floor(years);
-  return value+" year"+(value===1?"":"s");
 };
 const esc=s=>String(s??"").replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
 const seasonLbl=m=>m.season?("S"+String(m.season).padStart(2,"0")):"—";
@@ -520,26 +455,26 @@ function showLogin(){
   }
 }
 
-function companionURL(path="",openId=""){
-  const query=["type="+encodeURIComponent(companionType)];
+function copyURL(path="",openId=""){
+  const query=["type="+encodeURIComponent(copyType)];
   if(openId)query.push("open="+encodeURIComponent(openId));
-  return "/api/companions"+path+"?"+query.join("&");
+  return "/api/copies"+path+"?"+query.join("&");
 }
 function showView(view,load=true,type){
-  if(view==="companions"){
-    if(type&&type!==companionType){companionType=type;openCompanion="";companionPage=0;companionData=null}
-    $("companionView").appendChild($("companionDetail"));
+  if(view==="copies"&&type&&type!==copyType){
+    copyType=type;openCopy="";copyPage=0;copyFilter="all";copySearchTerm="";copyData=null;copyLoadToken++;
+    renderCopies();
   }
   $("routeView").classList.toggle("hidden",view!=="route");
-  $("companionView").classList.toggle("hidden",view!=="companions");
+  $("copyView").classList.toggle("hidden",view!=="copies");
   $("hardlinkView").classList.toggle("hidden",view!=="hardlinks");
-  $("routeTab").classList.toggle("primary",view==="route");
-  $("movieCompanionTab").classList.toggle("primary",view==="companions"&&companionType==="movie");
-  $("tvCompanionTab").classList.toggle("primary",view==="companions"&&companionType==="tv");
-  $("hardlinksTab").classList.toggle("primary",view==="hardlinks");
   $("subtitlesView").classList.toggle("hidden",view!=="subtitles");
+  $("routeTab").classList.toggle("primary",view==="route");
+  $("moviesTab").classList.toggle("primary",view==="copies"&&copyType==="movie");
+  $("tvTab").classList.toggle("primary",view==="copies"&&copyType==="tv");
+  $("hardlinksTab").classList.toggle("primary",view==="hardlinks");
   $("subtitlesTab").classList.toggle("primary",view==="subtitles");
-  if(view==="companions"&&load)loadCompanions();
+  if(view==="copies"&&load)loadCopies();
   if(view==="hardlinks"&&load)loadHardlinks();
   if(view==="subtitles"&&load)loadSubtitles();
 }
@@ -553,7 +488,7 @@ async function loadStatus(){
     const add=(txt,cls)=>b.appendChild(Object.assign(document.createElement("span"),{className:"badge "+cls,textContent:txt}));
     add("qb: "+s.qbittorrent,s.qbittorrent==="ok"?"ok":"err");
     if(s.tmdb==="configured")add("tmdb: ok","ok");else add("tmdb: "+s.tmdb,"warn");
-    if(s.prowlarr&&s.prowlarr!=="disabled")add("prowlarr: "+(s.prowlarr_indexer||s.prowlarr),s.prowlarr_indexer&&s.prowlarr===s.prowlarr_indexer?"ok":s.prowlarr==="not configured"?"warn":"err");
+    if(s.prowlarr==="configured")add("prowlarr: configured","ok");
     if(s.preallocate&&s.preallocate.includes("enabled"))add("prealloc: on","warn");
     if(s.temp_path&&s.temp_path.includes("enabled"))add("temp path: on","warn");
     const st=s.storage||{};
@@ -707,7 +642,7 @@ function clearHardlinkSearch(){hardlinkSearchTerm="";hardlinkPage=0;renderHardli
 let hardlinkNotice="";
 async function scanHardlinks(){
   const button=$("hardlinkScanButton");
-  button.disabled=true;button.innerHTML='<span class="approval-spinner" aria-hidden="true"></span>Scanning…';
+  button.disabled=true;button.innerHTML='<span class="action-spinner" aria-hidden="true"></span>Scanning…';
   try{hardlinkData=await postJSON("/api/hardlinks/scan",{});hardlinkNotice="";hardlinkPage=0;renderHardlinks()}
   catch(e){alert(e.message)}
   finally{if(button.isConnected){button.disabled=false;button.textContent="Scan hardlinks"}}
@@ -715,7 +650,7 @@ async function scanHardlinks(){
 async function removeHardlink(id,button){
   const item=(hardlinkData&&hardlinkData.items||[]).find(entry=>entry.id===id);
   if(!item||!confirm("Remove the verified hardlinked files from "+(item.remote_folder||"this remote folder")+"? The primary files and unrelated remote files will be kept."))return;
-  button.disabled=true;button.innerHTML='<span class="approval-spinner" aria-hidden="true"></span>Removing…';
+  button.disabled=true;button.innerHTML='<span class="action-spinner" aria-hidden="true"></span>Removing…';
   try{
     const response=await api("/api/hardlinks/"+encodeURIComponent(id),{method:"DELETE"});
     hardlinkData=response.view||response;hardlinkNotice="Removed "+(response.result&&response.result.removed_files||0)+" hardlinked file"+((response.result&&response.result.removed_files||0)===1?"":"s")+".";renderHardlinks();
@@ -729,7 +664,7 @@ async function relinkHardlink(id,button){
     ?"Relink this remote folder to the current primary name "+(item.source_folder||"")+"? The remote folder will be made identical to the primary folder: missing files are hardlinked and remote files that are not in the primary folder are removed."
     :"Link this remote folder's extra files into the primary folder "+(item.source_folder||"")+"? They are hardlinked into the primary folder and nothing is deleted.";
   if(!confirm(question))return;
-  button.disabled=true;button.innerHTML='<span class="approval-spinner" aria-hidden="true"></span>Relinking…';
+  button.disabled=true;button.innerHTML='<span class="action-spinner" aria-hidden="true"></span>Relinking…';
   try{
     const response=await postJSON("/api/hardlinks/"+encodeURIComponent(id)+"/relink",{direction:hardlinkMirror});
     const result=response.result||{};
@@ -744,297 +679,69 @@ async function relinkHardlink(id,button){
   }catch(e){alert(e.message);button.disabled=false;button.textContent="Relink"}
 }
 
-// ---- companions ----
-function companionStatus(m){
-  const labels={pending:"needs search",searching:"searching…",review:"review",no_match:"no releases",already_has_1080p:"already has 1080p",needs_review:"needs review",skipped:"skipped",submitting:"submitting…",complete:"added",error:"error"};
-  return labels[m.status]||m.status||"pending";
-}
-function companionStatusClass(m){
-  if(m.status==="complete"||m.status==="already_has_1080p")return "ok";
-  if(m.status==="error"||m.status==="needs_review")return "err";
-  if(m.status==="review"||m.status==="searching"||m.status==="submitting")return "warn";
-  return "";
-}
-function companionAddedTime(m){
-  const value=m.added_at||m.updated_at||m.created_at||"";
-  const timestamp=Date.parse(value);
-  return Number.isFinite(timestamp)?timestamp:0;
-}
-async function loadCompanions(openId){
-  if(openId!==undefined){openCompanion=openId||"";$("companionDetail").dataset.showAll="false"}
-  const loadToken=++companionLoadToken;
+// ---- movie and TV library copies ----
+const copyStatus=item=>({main_only:"main only",remote_only:"remote only",both:"both copies"}[item.status]||item.status);
+async function loadCopies(openId){
+  if(openId!==undefined)openCopy=openId||"";
+  const token=++copyLoadToken;
   try{
-    const nextData=await api(companionURL("",openCompanion));
-    if(loadToken!==companionLoadToken)return;
-    companionData=nextData;
-    renderCompanions();
-    if(companionData.batch&&companionData.batch.running){
-      clearTimeout(companionPoll);companionPoll=setTimeout(()=>loadCompanions(),2500);
-    }
-  }catch(e){$("companionMessage").innerHTML='<div class="errbox">'+esc(e.message)+"</div>"}
+    const data=await api(copyURL("",openCopy));
+    if(token!==copyLoadToken)return;
+    copyData=data;renderCopies();
+  }catch(e){if(token===copyLoadToken)$("copyMessage").textContent=e.message}
 }
-function renderCompanions(){
-  if(!companionData)return;
-  const movies=companionData.movies||[];
-  const isTV=companionType==="tv";
-  const noun=isTV?"TV shows":"movies";
-  const singular=isTV?"TV show":"movie";
-  const interval=companionData.search_interval_seconds||10;
-  const batchSize=companionData.search_batch_size||20;
-  const rate=60/interval;
-  const rateText=rate>=1?(rate%1?rate.toFixed(1):String(rate)):rate.toFixed(1);
-  if(document.activeElement!==$("companionInterval"))$("companionInterval").value=interval;
-  if(document.activeElement!==$("companionBatchSize"))$("companionBatchSize").value=batchSize;
-  $("companionTitle").textContent=isTV?"TV Companions":"Movie Companions";
-  $("companionDescription").textContent=isTV?"Searches Prowlarr by TV show title. Season and series packs can be approved; individual episodes are hidden.":"Searches the configured Prowlarr indexer. Every download still needs your approval.";
-  $("companionBatchLabel").textContent="Search batch size ("+noun+")";
-  $("companionIntervalNote").textContent="Delay between Prowlarr tracker searches. "+interval+"s ≈ "+rateText+" searches/minute.";
-  $("companionBatchNote").textContent="The next batch searches up to "+batchSize+" "+noun+". Each "+singular+" uses one tracker search.";
-  const count=status=>movies.filter(m=>m.status===status&&!m.missing).length;
-  const reviewCount=count("review");
-  const missing=movies.filter(m=>m.missing).length;
-  $("companionStats").innerHTML=[
-    [movies.length-missing,isTV?"TV shows":"Movies"],[count("pending"),"Needs search"],[reviewCount,"Review"],[count("no_match"),"No releases"],[count("complete"),"Added"],[count("skipped"),"Skipped"]
-  ].map(x=>'<div class="companion-stat"><strong>'+x[0]+"</strong><span>"+x[1]+"</span></div>").join("");
-  const b=companionData.batch||{};
-  $("companionProgress").textContent=b.running?"Searching "+b.done+" / "+b.total+(b.error?" — "+b.error:""):b.canceled?"Search canceled after "+b.done+" / "+b.total:b.error||(companionData.prowlarr_configured?"Indexer: "+(companionData.indexer_name||"LAT-Team"):"Prowlarr not configured — set the API key before searching");
-  $("companionSearchButton").disabled=!!b.running;
-  $("companionClearReviewsButton").disabled=!!b.running||reviewCount===0;
-  $("companionCancelButton").classList.toggle("hidden",!b.running);
-  $("companionMessage").innerHTML=companionData.state_error?'<div class="errbox">'+esc(companionData.state_error)+"</div>":"";
-  document.querySelectorAll("#companionFilters button").forEach(btn=>btn.classList.toggle("active",btn.dataset.filter===companionFilter));
-  const filterLabels={pending:"Needs search",review:"Review",no_match:"No releases",needs_review:"Needs review",error:"Errors",complete:"Added",skipped:"Skipped",all:"All"};
-  const searchInput=$("companionSearchInput");
-  if(document.activeElement!==searchInput)searchInput.value=companionSearchTerm;
-  const searchPlaceholder="Search torrents in "+(filterLabels[companionFilter]||"selected category");
-  searchInput.placeholder=searchPlaceholder;
-  searchInput.setAttribute("aria-label",searchPlaceholder);
-  const searchTerm=companionSearchTerm.trim().toLowerCase();
-  $("companionSearchClear").disabled=!searchTerm;
-  const categoryFiltered=movies.filter(m=>companionFilter==="all"||m.status===companionFilter);
-  const filtered=categoryFiltered.filter(m=>!searchTerm||companionSearchText(m).includes(searchTerm));
-  if(companionFilter==="complete")filtered.sort((a,b)=>companionAddedTime(b)-companionAddedTime(a));
-  const pageSize=20,totalPages=Math.max(1,Math.ceil(filtered.length/pageSize));
-  companionPage=Math.min(companionPage,totalPages-1);
-  const page=filtered.slice(companionPage*pageSize,(companionPage+1)*pageSize);
-  $("companionList").innerHTML=page.length?page.map(companionRow).join(""):'<div class="small">No '+noun+' in this filter. Scan the library to populate the queue.</div>';
-  $("companionPagination").innerHTML=filtered.length?'<button '+(companionPage===0?"disabled":"")+' onclick="companionPage--;renderCompanions()">Previous</button><span class="small">Page '+(companionPage+1)+" of "+totalPages+" · "+filtered.length+" "+noun+'</span><button '+(companionPage>=totalPages-1?"disabled":"")+' onclick="companionPage++;renderCompanions()">Next</button>':"";
-  renderCompanionDetail();
+function filteredCopies(){
+  const term=copySearchTerm.trim().toLowerCase();
+  return ((copyData&&copyData.items)||[]).filter(item=>(copyFilter==="all"||item.status===copyFilter)&&(!term||[item.folder_name,item.drive_id,item.path,item.remote_path,...item.existing_files,...item.remote_files].join(" ").toLowerCase().includes(term)));
 }
-function companionSearchText(m){
-  return [m.id,m.title,m.folder_name,m.drive_id,m.path,m.remote_path,m.existing_copy,m.remote_copy,m.year,m.status,companionStatus(m),m.error,...(m.existing_files||[]),...(m.remote_files||[])].filter(value=>value!==undefined&&value!==null).join(" ").toLowerCase();
+function renderCopies(){
+  $("copyTitle").textContent=copyType==="tv"?"TV":"Movies";
+  const items=(copyData&&copyData.items)||[];
+  const stats=[[items.length,copyType==="tv"?"Shows":"Movies"],[items.filter(x=>x.status==="main_only").length,"Main only"],[items.filter(x=>x.status==="remote_only").length,"Remote only"],[items.filter(x=>x.status==="both").length,"Both copies"]];
+  $("copyStats").innerHTML=stats.map(([count,label])=>'<div class="copy-stat"><strong>'+count+'</strong><span>'+label+'</span></div>').join("");
+  $("copyMessage").innerHTML=copyData&&copyData.state_error?'<div class="errbox">'+esc(copyData.state_error)+'</div>':"";
+  document.querySelectorAll("#copyFilters button").forEach(btn=>btn.classList.toggle("active",btn.dataset.filter===copyFilter));
+  if(document.activeElement!==$("copySearchInput"))$("copySearchInput").value=copySearchTerm;
+  $("copySearchClear").disabled=!copySearchTerm;
+  const filtered=filteredCopies(),totalPages=Math.max(1,Math.ceil(filtered.length/20));
+  copyPage=Math.min(copyPage,totalPages-1);
+  $("copyList").innerHTML=filtered.slice(copyPage*20,(copyPage+1)*20).map(item=>'<div class="copy-row"><div><div class="title">'+esc(item.folder_name)+'</div><div class="meta">'+esc(item.drive_id)+' · <span class="copy-tag main'+(item.existing_files.length?' present':'')+'">main</span> · <span class="copy-tag'+(item.remote_files.length?' present':'')+'">remote</span></div></div><span class="badge '+(item.status==="both"?'ok':'')+' status">'+copyStatus(item)+'</span><button data-id="'+esc(item.id)+'" onclick="openCopyItem(this.dataset.id)">Open</button></div>').join("")||'<div class="small">'+(items.length?'No titles match this filter.':'Scan the library to browse movie and TV copies.')+'</div>';
+  $("copyPagination").innerHTML=filtered.length?'<button '+(copyPage===0?'disabled':'')+' onclick="copyPage--;renderCopies()">Previous</button><span class="small">Page '+(copyPage+1)+' of '+totalPages+' · '+filtered.length+' titles</span><button '+(copyPage>=totalPages-1?'disabled':'')+' onclick="copyPage++;renderCopies()">Next</button>':"";
+  renderCopyDetail();
 }
-// companionCopyStatus shows where a title actually lives. The label is always
-// "main · remote" and only the side that holds a video file is highlighted: the
-// main copy in blue and the remote copy in orange. The other side stays grey.
-function companionCopyStatus(m){
-  const present={
-    main:!!(m.existing_files&&m.existing_files.length),
-    remote:!!(m.remote_files&&m.remote_files.length)
-  };
-  const tag=(side,label)=>'<span class="copy-tag '+side+(present[side]?" present":"")+'">'+label+'</span>';
-  return tag("main","main")+" · "+tag("remote","remote");
-}
-function companionRow(m){
-  const copies=companionCopyStatus(m);
-  return `<div class="companion-row"><div><div class="title">${esc(m.folder_name||m.title)}</div><div class="meta">${esc(m.drive_id)} · ${copies}${m.year?" · "+m.year:""}</div></div><span class="badge ${companionStatusClass(m)} status">${esc(companionStatus(m))}</span><button data-id="${esc(m.id)}" onclick="openCompanionMovie(this.dataset.id)">Open</button></div>`;
-}
-function setCompanionFilter(filter){companionFilter=filter;companionPage=0;renderCompanions()}
-function setCompanionSearch(value){companionSearchTerm=value;companionPage=0;renderCompanions()}
-function clearCompanionSearch(){companionSearchTerm="";companionPage=0;renderCompanions();$("companionSearchInput").focus()}
-async function scanCompanions(){
-  try{await postJSON(companionURL("/scan"),{});companionPage=0;await loadCompanions()}catch(e){alert(e.message)}
-}
-async function searchMissingCompanions(){
-  try{await postJSON(companionURL("/search-missing"),{});await loadCompanions()}catch(e){alert(e.message)}
-}
-async function clearCompanionReviews(){
-  const itemWord=companionType==="tv"?"TV shows":"movies";
-  if(!confirm("Clear all review "+itemWord+"? Their current Prowlarr results will be removed and they will return to Needs search."))return;
-  const button=$("companionClearReviewsButton");
-  button.disabled=true;
+function setCopyFilter(value){copyFilter=value;copyPage=0;renderCopies()}
+function setCopySearch(value){copySearchTerm=value;copyPage=0;renderCopies()}
+function clearCopySearch(){copySearchTerm="";copyPage=0;renderCopies();$("copySearchInput").focus()}
+async function scanCopies(){
+  const button=$("copyScanButton"),type=copyType,token=++copyLoadToken;
+  button.disabled=true;button.textContent="Scanning…";
   try{
-    await postJSON(companionURL("/clear-reviews"),{});
-    companionFilter="pending";
-    companionPage=0;
-    openCompanion="";
-    await loadCompanions();
-  }catch(e){alert(e.message)}finally{if(button.isConnected)button.disabled=false}
+    const data=await postJSON(copyURL("/scan",openCopy),{});
+    if(token!==copyLoadToken||type!==copyType)return;
+    copyData=data;copyPage=0;renderCopies();
+  }catch(e){if(type===copyType)$("copyMessage").textContent=e.message}
+  finally{button.disabled=false;button.textContent="Scan library"}
 }
-async function cancelCompanionSearch(){
-  try{await postJSON(companionURL("/search-missing/cancel"),{});await loadCompanions()}catch(e){alert(e.message)}
-}
-async function saveCompanionSettings(){
-  try{companionData=await patchJSON(companionURL("/settings"),{search_interval_seconds:+$("companionInterval").value,search_batch_size:+$("companionBatchSize").value});renderCompanions()}catch(e){alert(e.message)}
-}
-async function setCompanionInterval(value){$("companionInterval").value=value;await saveCompanionSettings()}
-async function setCompanionBatchSize(value){$("companionBatchSize").value=value;await saveCompanionSettings()}
-async function openCompanionMovie(id){await loadCompanions(id);$("companionDetail").scrollIntoView({behavior:"smooth",block:"start"})}
-function companionReviewNavigation(m){
-  const movies=((companionData&&companionData.movies)||[]).filter(movie=>!movie.missing);
-  const currentIndex=movies.findIndex(movie=>movie.id===m.id);
-  if(currentIndex<0)return {next:"",footer:""};
-  const findNeighbor=step=>{
-    for(let i=currentIndex+step;i>=0&&i<movies.length;i+=step){if(movies[i].status==="review")return movies[i]}
-    return null;
-  };
-  const previous=findNeighbor(-1),next=findNeighbor(1);
-  const reviewMovies=movies.filter(movie=>movie.status==="review");
-  const reviewIndex=reviewMovies.findIndex(movie=>movie.id===m.id);
-  const itemWord=companionType==="tv"?"TV show":"movie";
-  const label=reviewIndex>=0?"Review "+(reviewIndex+1)+" of "+reviewMovies.length:reviewMovies.length+" review "+itemWord+(reviewMovies.length===1?"":"s")+" remaining";
-  const button=(text,target)=>'<button '+(target?'data-id="'+esc(target.id)+'" onclick="navigateCompanionReview(this.dataset.id)"':"disabled")+">"+text+"</button>";
-  return {next:button("Next",next),footer:'<div class="pagination companion-detail-navigation">'+button("Previous",previous)+'<span class="small">'+esc(label)+"</span>"+button("Next",next)+"</div>"};
-}
-function setCompanionPageForMovie(id){
-  const movies=(companionData&&companionData.movies)||[];
-  const filtered=movies.filter(m=>companionFilter==="all"||m.status===companionFilter);
-  const index=filtered.findIndex(m=>m.id===id);
-  if(index>=0)companionPage=Math.floor(index/20);
-}
-async function navigateCompanionReview(id){if(!id)return;setCompanionPageForMovie(id);await loadCompanions(id);$("companionDetail").scrollIntoView({behavior:"smooth",block:"start"})}
-function tvPackPreview(files,sizes){
-  const seen=new Set();
-  const totals=new Map();
-  const preview=[];
-  files.forEach(path=>{
-    const normalized=String(path).replace(/\\/g,"/");
-    const separator=normalized.lastIndexOf("/");
-    const pack=separator<0?normalized:normalized.slice(0,separator);
-    const size=Number(sizes[path]);
-    if(Number.isFinite(size)&&size>=0)totals.set(pack,(totals.get(pack)||0)+size);
-    if(seen.has(pack))return;
-    seen.add(pack);
-    preview.push({path,pack});
-  });
-  const previewSizes={};
-  preview.forEach(item=>{
-    if(totals.has(item.pack))previewSizes[item.path]=totals.get(item.pack);
-  });
-  return {files:preview.map(item=>item.path),sizes:previewSizes};
-}
-function renderCompanionDetail(){
-  const box=$("companionDetail"),m=companionData&&companionData.open;
-  if(!m){box.classList.add("hidden");box.innerHTML="";return}
+async function openCopyItem(id){await loadCopies(id);$("copyDetail").scrollIntoView({behavior:"smooth",block:"start"})}
+function closeCopyItem(){openCopy="";renderCopyDetail()}
+function renderCopyDetail(){
+  const box=$("copyDetail"),item=copyData&&copyData.items.find(x=>x.id===openCopy);
+  if(!item){box.classList.add("hidden");box.innerHTML="";return}
   box.classList.remove("hidden");
-  const candidates=companionData.candidates||[];
-  const isTV=companionType==="tv";
-  const existingFiles=m.existing_files||[];
-  const existingFileSizes=m.existing_file_sizes||{};
-  const remoteFiles=m.remote_files||[];
-  const remoteFileSizes=m.remote_file_sizes||{};
-  const fileHTML=(label,files,sizes)=>files.length?'<div class="companion-existing-files"><div class="small">'+label+(files.length===1?"":"s")+'</div>'+files.map(path=>'<div class="small mono">'+esc(m.drive_id+" · "+path+(Object.prototype.hasOwnProperty.call(sizes,path)?" · "+fmtBytes(sizes[path]):""))+"</div>").join("")+"</div>":"";
-  const mainPreview=isTV?tvPackPreview(existingFiles,existingFileSizes):{files:existingFiles,sizes:existingFileSizes};
-  const remotePreview=isTV?tvPackPreview(remoteFiles,remoteFileSizes):{files:remoteFiles,sizes:remoteFileSizes};
-  const existingHTML=fileHTML("Main video file",mainPreview.files,mainPreview.sizes)+fileHTML("Remote video file",remotePreview.files,remotePreview.sizes);
-  const needsPrimary=existingFiles.length===0&&remoteFiles.length>0;
-  const destinationPath=needsPrimary?m.path:(m.remote_path||m.path);
-  const refreshIcon='<span class="refresh-icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12a9 9 0 1 1-2.64-6.36L21 8"></path><path d="M21 3v5h-5"></path></svg></span>';
-  const navigation=companionReviewNavigation(m);
-  const itemWord=isTV?"TV show":"movie";
-  const hardlinkDisabled=m.missing||!m.remote_path||m.status==="searching"||m.status==="submitting";
-  const canResearch=!m.missing&&(m.status==="complete"||m.status==="skipped"||m.status==="already_has_1080p");
-  const hardlinkLabel=needsPrimary?"Hardlink to main":"Hardlink";
-  let html='<div class="companion-toolbar"><div><h2 style="margin-bottom:4px">'+esc(m.folder_name)+"</h2><div class=\"small\">"+esc(m.drive_id)+" · "+esc(destinationPath)+"</div>"+existingHTML+'</div><div class="actions" style="margin-top:0"><button data-id="'+esc(m.id)+'" onclick="hardlinkCompanion(this.dataset.id,this)"'+(hardlinkDisabled?' disabled':'')+'>'+hardlinkLabel+'</button><button onclick="closeCompanionMovie()">Close</button>'+(m.status==="review"||canResearch?'<button class="icon-button" data-id="'+esc(m.id)+'" onclick="searchOneCompanion(this.dataset.id,this)" title="Search this '+itemWord+' again" aria-label="Search this '+itemWord+' again">'+refreshIcon+'</button>':"")+navigation.next+"</div></div>";
-  if(m.error)html+='<div class="errbox">'+esc(m.error)+"</div>";
-  if(!candidates.length){
-    const canSearch=!m.missing&&m.status!=="searching"&&m.status!=="submitting";
-    if(canSearch){const searchLabel=m.status==="pending"?"Search":"Search again";html+='<div class="actions"><button class="primary" data-id="'+esc(m.id)+'" onclick="searchOneCompanion(this.dataset.id,this)">'+searchLabel+'</button><button data-id="'+esc(m.id)+'" onclick="skipCompanion(this.dataset.id)">Skip</button></div>'}
-    box.innerHTML=html+navigation.footer;return;
-  }
-  html+='<h2 style="margin-top:18px">Candidates <span class="small">'+candidates.length+' Prowlarr release'+(candidates.length===1?"":"s")+" · ranked for review; inspect the tracker details before approving</span></h2>";
-  html+=isTV?candidateList(candidates,m):candidates.map(candidate=>candidateCard(candidate,m)).join("");
-  if(m.status!=="complete"&&m.status!=="submitting")html+='<div class="actions"><button data-id="'+esc(m.id)+'" onclick="skipCompanion(this.dataset.id)">Skip this '+itemWord+'</button></div>';
-  box.innerHTML=html+navigation.footer;
+  const fileList=(label,files,sizes)=>'<div class="copy-existing-files"><div class="small">'+label+'</div>'+files.map(path=>'<span class="small mono">'+esc(path)+' · '+fmtBytes(sizes[path]||0)+'</span>').join("")+(files.length?'':'<span class="small">No video files</span>')+'</div>';
+  const canLink=item.status!=="both"&&!!item.remote_path;
+  const label=item.status==="remote_only"?"Hardlink to main":"Hardlink to remote";
+  box.innerHTML='<div class="copy-toolbar"><div><h2 style="margin-bottom:4px">'+esc(item.folder_name)+'</h2><div class="small">'+esc(item.drive_id)+' · '+copyStatus(item)+'</div></div><div class="actions" style="margin-top:0">'+(canLink?'<button class="primary" data-id="'+esc(item.id)+'" onclick="hardlinkCopy(this.dataset.id,this)">'+label+'</button>':'')+'<button onclick="closeCopyItem()">Close</button></div></div>'+fileList("Main",item.existing_files,item.existing_file_sizes)+fileList("Remote",item.remote_files,item.remote_file_sizes)+(item.status==="both"?'<p class="small">Both sides contain video. Use Hardlinks to inspect and maintain existing links.</p>':!item.remote_path?'<p class="small">No remote root is configured for this drive.</p>':'');
 }
-function candidateSeasonNumber(c){
-  const title=String(c.title||"");
-  const match=title.match(/(?:^|[^a-z0-9])s([0-9]{1,3})/i)||title.match(/(?:^|[^a-z0-9])season[ ._-]*([0-9]{1,3})/i);
-  return match?Number(match[1]):null;
-}
-function candidateSeasonLabel(c){
-  const season=candidateSeasonNumber(c);
-  return season===null?"Series / other packs":"Season "+String(season).padStart(2,"0");
-}
-function candidateList(candidates,m){
-  let previousLabel="";
-  return candidates.map(candidate=>{
-    const label=candidateSeasonLabel(candidate);
-    const heading=label===previousLabel?"":'<div class="candidate-season-heading">'+esc(label)+"</div>";
-    previousLabel=label;
-    return heading+candidateCard(candidate,m);
-  }).join("");
-}
-function candidateCard(c,m){
-  const seed=c.seeders===null||c.seeders===undefined?"unknown":c.seeders;
-  const age=fmtAge(candidateAgeHours(c));
-  const ageBadge=age?'<span class="badge">Age '+esc(age)+'</span>':"";
-  const link=c.info_url&&/^https?:\/\//i.test(c.info_url)?'<a class="tracker-link" href="'+esc(c.info_url)+'" target="_blank" rel="noopener noreferrer">Open tracker</a>':"";
-  const packKey=c.tv_pack_key||c.guid;
-  const approvalKey=m.id+"|"+packKey;
-  const added=c.tv_pack_status==="added";
-  const adding=companionApprovals.has(approvalKey)||c.tv_pack_status==="submitting";
-  const tvPackBlocked=companionType==="tv"&&c.tv_pack_eligible!==true;
-  const disabled=adding||added||m.status!=="review"||tvPackBlocked?" disabled":"";
-  const label=adding?'<span class="approval-spinner" aria-hidden="true"></span>Adding…':added?"Added":tvPackBlocked?"Not eligible":"Approve";
-  const buttonClass=adding?"primary approving":added?"primary added":"primary";
-  const packStatus=added?'<span class="badge ok">Added</span>':adding?'<span class="badge warn">Adding…</span>':"";
-  const packReason=companionType==="tv"?'<div class="reason">TV companion: '+esc(c.tv_pack_reason||"not identified as a season or series pack")+'</div>':"";
-  return '<div class="candidate"><h3>'+esc(c.title)+"</h3><div class=\"facts\"><span class=\"badge\">"+fmtBytes(c.size)+"</span><span class=\"badge\">"+esc(seed)+" seeders</span>"+ageBadge+"<span class=\"badge\">"+esc(c.source)+"</span><span class=\"badge\">"+esc(c.codec)+"</span><span class=\"badge warn\">"+esc(c.language_evidence)+"</span><span class=\"badge\">Score "+esc(c.score)+"</span>"+packStatus+"</div><div class=\"reason\">✓ "+esc((c.reasons||[]).join(" · "))+"</div>"+packReason+"<div class=\"actions\">"+'<button data-id="'+esc(m.id)+'" data-guid="'+esc(c.guid)+'" data-pack-key="'+esc(packKey)+'" onclick="approveFromButton(this)" class="'+buttonClass+'"'+disabled+'>'+label+'</button>'+link+'</div></div>';
-}
-function approveFromButton(button){approveCompanion(button.dataset.id,button.dataset.guid,button)}
-function closeCompanionMovie(){openCompanion="";loadCompanions()}
-async function hardlinkCompanion(id,button){
-  const original=button.textContent;
-  button.disabled=true;
-  button.innerHTML='<span class="approval-spinner" aria-hidden="true"></span>Linking…';
-  try{await postJSON(companionURL("/"+id+"/hardlink"),{});await loadCompanions(id)}catch(e){alert(e.message)}finally{if(button.isConnected){button.disabled=false;button.textContent=original}}
-}
-async function searchOneCompanion(id,button){
-  const originalHTML=button&&button.innerHTML;
-  if(button){button.disabled=true;button.classList.add("searching");if(!button.classList.contains("icon-button"))button.innerHTML='<span class="approval-spinner" aria-hidden="true"></span>Searching…'}
-  try{await postJSON(companionURL("/"+id+"/search"),{});await loadCompanions(id)}catch(e){alert(e.message)}finally{if(button&&button.isConnected){button.disabled=false;button.classList.remove("searching");button.innerHTML=originalHTML}}
-}
-async function skipCompanion(id){try{await postJSON(companionURL("/"+id+"/skip"),{});await loadCompanions(id)}catch(e){alert(e.message)}}
-async function approveCompanion(id,guid,button){
-  const packKey=button&&button.dataset.packKey||guid;
-  const approvalKey=id+"|"+packKey;
-  if(companionApprovals.has(approvalKey))return;
-  companionApprovals.set(approvalKey,guid);
-  const buttons=openCompanion===id?[...document.querySelectorAll("#companionDetail .candidate button.primary")].filter(candidateButton=>companionType!=="tv"||candidateButton.dataset.packKey===packKey):[];
-  buttons.forEach(candidateButton=>candidateButton.disabled=true);
-  if(button){button.classList.add("approving");button.innerHTML='<span class="approval-spinner" aria-hidden="true"></span>Adding…'}
+async function hardlinkCopy(id,button){
+  const type=copyType;
+  button.disabled=true;button.textContent="Linking…";
   try{
-    await postJSON(companionURL("/"+id+"/approve"),{guid});
-    await loadCompanions(openCompanion);
-  }catch(e){
-    const currentOpen=openCompanion;
-    await loadCompanions(currentOpen);
-    if(currentOpen===id){
-      const open=companionData&&companionData.open;
-      if(!open||!open.error)$("companionDetail").insertAdjacentHTML("afterbegin",'<div class="errbox">'+esc(e.message)+"</div>");
-    }
-  }finally{
-    companionApprovals.delete(approvalKey);
-    if(button&&button.isConnected){button.classList.remove("approving");button.textContent="Approve"}
-    buttons.forEach(candidateButton=>{if(candidateButton.isConnected)candidateButton.disabled=false});
-  }
-}
-async function searchIntakeCompanion(id){
-  try{
-    const view=await postJSON("/api/intakes/"+id+"/companion-search",{});
-    companionData=view;
-    companionType=view.media_type==="tv"?"tv":"movie";
-    openCompanion=(view.open&&view.open.id)||id;
-    companionFilter=(view.open&&view.open.status)||"all";
-    companionPage=0;
-    const detail=$("companionDetail");
-    showView("route",false);
-    $("routeView").insertBefore(detail,$("historyCard"));
-    detail.dataset.showAll="false";
-    renderCompanions();
-    detail.scrollIntoView({behavior:"smooth",block:"start"});
+    const response=await postJSON(copyURL("/"+encodeURIComponent(id)+"/hardlink"),{});
+    if(type!==copyType)return;
+    copyLoadToken++;copyData=response.view;renderCopies();
   }catch(e){alert(e.message)}
+  finally{if(button.isConnected){button.disabled=false;button.textContent="Hardlink"}}
 }
 
 // ---- render ----
@@ -1159,7 +866,7 @@ function destHTML(x){
       "<tr><td>Hash</td><td class='mono'>"+esc(x.result.hash)+"</td></tr>"+
       "</tbody></table>"+
       '<span class="small">CineRoute will perform no further operations on this torrent.</span>'+
-      ((x.media_type==="movie"||x.media_type==="tv")&&x.library!=="anime"?'<div class="actions"><button data-id="'+esc(x.id)+'" onclick="searchIntakeCompanion(this.dataset.id)">Find companion</button></div>':"")+"</div>";
+      "</div>";
   }else if(x.status==="submitting"||busy.has(x.group)){
     html+='<div class="okbox">Adding stopped, verifying, starting…</div>';
   }else{
@@ -1206,7 +913,6 @@ function cardTV(g){
       return "";
     }).filter(Boolean).join("<br>");
     if(msgs)html+='<div class="'+(g.some(x=>x.status==="failed")?"errbox":"okbox")+'" style="margin-top:8px">'+msgs+"</div>";
-    if(allSubmitted&&rep.library!=="anime")html+='<div class="actions"><button data-id="'+esc(rep.id)+'" onclick="searchIntakeCompanion(this.dataset.id)">Find companion</button></div>';
     if(!allSubmitted&&!busy.has(busyKey)){
       html+='<div class="actions"><button class="primary" onclick="submit(\''+rep.id+'\')">Add all '+g.length+' to qBittorrent (stopped, verify, start)</button></div>';
     }
@@ -1337,7 +1043,7 @@ function subtitleRow(item){
   html+='<div class="hardlink-meta">'+esc(item.drive_id)+' · '+esc(item.title||"")+(item.year?" ("+item.year+")":"")+' · '+esc(subtitleReferenceText(item))+'</div>';
   html+='<div class="small mono">'+esc(item.video_path)+'</div>';
   html+='<div class="small">Languages: '+esc(langs.length?langs.join(", "):"none detected")+'</div>';
-  if(running)html+='<div class="small"><span class="approval-spinner" aria-hidden="true"></span>'+esc((item.step?item.step+"…":"working…")+subtitleStepDetail(item))+'</div>';
+  if(running)html+='<div class="small"><span class="action-spinner" aria-hidden="true"></span>'+esc((item.step?item.step+"…":"working…")+subtitleStepDetail(item))+'</div>';
   html+='<div class="small">'+esc(subtitleExternalText(item))+'</div>';
   if(!item.probed)html+='<div class="small">not analyzed yet - running this movie or rescanning will read its subtitle streams</div>';
   html+=targets+'</div><div class="hardlink-card-actions"><span class="badge '+subtitleStatusClass(item)+'">'+esc(subtitleStatusLabel(item))+'</span>'+actions.join("")+'</div></div>'+error+'</article>';
@@ -1363,7 +1069,7 @@ function renderSubtitles(){
   const stats=subtitleData.stats||{};
   $("subtitleStats").innerHTML=[
     [stats.total,"Remote movies"],[stats.pending,"Needs subtitles"],[stats.no_external_subtitle,"No external SRT"],[stats.with_external_subtitle,"Has external SRT"],[stats.not_analyzed,"Not analyzed"],[stats.added,"Added"],[stats.partial,"Partly added"],[stats.needs_review,"Needs review"],[stats.no_match,"No match"],[stats.no_reference,"No reference"],[stats.has_targets,"Has subtitles"],[stats.failed,"Failed"],[stats.skipped,"Skipped"]
-  ].map(x=>'<div class="companion-stat"><strong>'+x[0]+"</strong><span>"+x[1]+"</span></div>").join("");
+  ].map(x=>'<div class="copy-stat"><strong>'+x[0]+"</strong><span>"+x[1]+"</span></div>").join("");
   const batchSize=settings.run_batch_size||20;
   const pending=stats.pending||0;
   const nextBatch=Math.min(batchSize,pending);
@@ -1373,7 +1079,7 @@ function renderSubtitles(){
   if(b.running){
     const label=(b.kind==="scan"?"Scanning":"Processing")+" "+b.done+" / "+b.total;
     const percent=b.total?Math.round(b.done*100/b.total):0;
-    let html='<span class="approval-spinner" aria-hidden="true"></span>'+esc(label);
+    let html='<span class="action-spinner" aria-hidden="true"></span>'+esc(label);
     if(b.stage)html+=" · "+esc(b.stage);
     if(b.current)html+='<div class="small mono">'+esc(b.current)+"</div>";
     html+='<div class="run-progress" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="'+percent+'"><span style="width:'+percent+'%"></span></div>';
@@ -1445,9 +1151,9 @@ function renderSubtitleDetail(){
     if(c.reasons&&c.reasons.length)line+='<div class="mono">'+esc(c.reasons.join("; "))+'</div>';
     return '<div class="small">'+line+'</div>';
   }).join("");
-  let html='<div class="companion-toolbar"><div><h2 style="margin-bottom:4px">'+esc(item.folder_name)+'</h2><div class="small mono">'+esc(item.video_path)+'</div></div><div class="actions" style="margin-top:0"><button onclick="closeSubtitleItem()">Close</button></div></div>';
+  let html='<div class="copy-toolbar"><div><h2 style="margin-bottom:4px">'+esc(item.folder_name)+'</h2><div class="small mono">'+esc(item.video_path)+'</div></div><div class="actions" style="margin-top:0"><button onclick="closeSubtitleItem()">Close</button></div></div>';
   html+='<div class="small">Status: '+esc(subtitleStatusLabel(item))+' · reference: '+esc(subtitleReferenceText(item))+'</div>';
-  if(item.step)html+='<div class="small"><span class="approval-spinner" aria-hidden="true"></span>'+esc(item.step+"…"+subtitleStepDetail(item))+'</div>';
+  if(item.step)html+='<div class="small"><span class="action-spinner" aria-hidden="true"></span>'+esc(item.step+"…"+subtitleStepDetail(item))+'</div>';
   const targetLines=subtitleTargetLines(item);
   if(targetLines)html+='<h3 style="margin-top:14px">Target languages</h3>'+targetLines;
   if(item.work_dir)html+='<div class="small mono">Work: '+esc(item.work_dir)+'</div>';
@@ -1467,7 +1173,7 @@ function setSubtitleSearch(value){subtitleSearchTerm=value;subtitlePage=0;render
 function clearSubtitleSearch(){subtitleSearchTerm="";subtitlePage=0;renderSubtitles();$("subtitleSearchInput").focus()}
 async function scanSubtitles(){
   const button=$("subtitleScanButton");
-  button.disabled=true;button.innerHTML='<span class="approval-spinner" aria-hidden="true"></span>Scanning…';
+  button.disabled=true;button.innerHTML='<span class="action-spinner" aria-hidden="true"></span>Scanning…';
   try{subtitleData=await postJSON("/api/subtitles/scan",{});renderSubtitles();loadSubtitles()}
   catch(e){alert(e.message)}
   finally{if(button.isConnected){button.disabled=false;button.textContent="Scan remote movies"}}
@@ -1491,13 +1197,13 @@ async function saveSubtitleSettings(){
   catch(e){alert(e.message)}
 }
 async function runSubtitleItem(id,button){
-  button.disabled=true;button.innerHTML='<span class="approval-spinner" aria-hidden="true"></span>Running…';
+  button.disabled=true;button.innerHTML='<span class="action-spinner" aria-hidden="true"></span>Running…';
   try{await postJSON("/api/subtitles/"+encodeURIComponent(id)+"/run",{});loadSubtitles(id)}
   catch(e){alert(e.message)}
   finally{if(button.isConnected){button.disabled=false;button.textContent="Run"}}
 }
 async function retrySubtitleItem(id,button){
-  button.disabled=true;button.innerHTML='<span class="approval-spinner" aria-hidden="true"></span>Retrying…';
+  button.disabled=true;button.innerHTML='<span class="action-spinner" aria-hidden="true"></span>Retrying…';
   try{await postJSON("/api/subtitles/"+encodeURIComponent(id)+"/retry",{});loadSubtitles(id)}
   catch(e){alert(e.message)}
   finally{if(button.isConnected){button.disabled=false;button.textContent="Retry with more candidates"}}

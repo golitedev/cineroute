@@ -19,7 +19,7 @@ type RemoteRoot struct {
 }
 
 // RemoteMovieRoots resolves every configured remote movie root, including the
-// conventional /mN -> /mrN alias, so subtitles land where companions do.
+// conventional /mN -> /mrN alias, so subtitles land in the remote libraries.
 func RemoteMovieRoots(drives []library.Drive) []RemoteRoot {
 	var out []RemoteRoot
 	for _, drive := range drives {

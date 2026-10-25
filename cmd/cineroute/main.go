@@ -50,9 +50,6 @@ func main() {
 	if cfg.AuthPassword == "" {
 		slog.Warn("no auth password configured; the web interface is unauthenticated")
 	}
-	if cfg.Companion.Enabled && cfg.Prowlarr.APIKey == "" {
-		slog.Warn("1080p companion search is enabled but Prowlarr is not configured")
-	}
 	if cfg.Subtitles.Enabled {
 		if cfg.Subtitles.OpenSubtitles.APIKey == "" {
 			slog.Warn("subtitles are enabled but OpenSubtitles is not configured; set subtitles.opensubtitles.api_key or CINEROUTE_OS_API_KEY")
@@ -77,7 +74,7 @@ func main() {
 		tmdbClient = tmdb.New(cfg.TMDB.APIKey, cfg.TMDB.Language, 15*time.Second)
 	}
 	var prowlarrClient *prowlarr.Client
-	if cfg.Companion.Enabled {
+	if cfg.Prowlarr.APIKey != "" {
 		prowlarrClient = prowlarr.New(cfg.Prowlarr.URL, cfg.Prowlarr.APIKey, 30*time.Second, cfg.MaxUploadBytes)
 	}
 

@@ -8,8 +8,8 @@ import (
 	"path/filepath"
 	"testing"
 
-	"cineroute/internal/companion"
 	"cineroute/internal/config"
+	"cineroute/internal/copies"
 )
 
 func TestHardlinkManagementAPIListsAndRemovesLinks(t *testing.T) {
@@ -41,7 +41,6 @@ func TestHardlinkManagementAPIListsAndRemovesLinks(t *testing.T) {
 	}
 
 	cfg := config.Default()
-	cfg.Companion.StatePath = filepath.Join(base, "state.db")
 	cfg.Drives = []config.Drive{{
 		ID:              "hdd-api",
 		MovieRoot:       primary,
@@ -57,7 +56,7 @@ func TestHardlinkManagementAPIListsAndRemovesLinks(t *testing.T) {
 	if list.Code != http.StatusOK {
 		t.Fatalf("list status = %d, body %s", list.Code, list.Body.String())
 	}
-	var view companion.HardlinkView
+	var view copies.HardlinkView
 	if err := json.NewDecoder(list.Body).Decode(&view); err != nil {
 		t.Fatal(err)
 	}

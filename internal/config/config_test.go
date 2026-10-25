@@ -68,3 +68,18 @@ func TestDebianNASLayout(t *testing.T) {
 		})
 	}
 }
+
+func TestLegacySearchSettingsDoNotBlockStartup(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "config.yaml")
+	data := []byte("prowlarr:\n  url: http://indexers:9696\n  api_key: retained-key\n  indexer_name: old-indexer\ncompanion:\n  state_path: /unavailable/old.db\n  search_interval_seconds: 0\n")
+	if err := os.WriteFile(path, data, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	cfg, err := Load(path)
+	if err != nil {
+		t.Fatalf("legacy search settings prevented startup: %v", err)
+	}
+	if cfg.Prowlarr.URL != "http://indexers:9696" || cfg.Prowlarr.APIKey != "retained-key" {
+		t.Fatal("generic Prowlarr connection settings were lost")
+	}
+}

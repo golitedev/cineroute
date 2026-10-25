@@ -21,8 +21,8 @@ import (
 	"time"
 
 	"cineroute/internal/allocator"
-	"cineroute/internal/companion"
 	"cineroute/internal/config"
+	"cineroute/internal/copies"
 	"cineroute/internal/library"
 	"cineroute/internal/prowlarr"
 	"cineroute/internal/qbittorrent"
@@ -123,17 +123,18 @@ type SubmitResult struct {
 }
 
 type Server struct {
-	cfg          *config.Config
-	qb           *qbittorrent.Client
-	tmdb         *tmdb.Client
-	alloc        *allocator.Allocator
-	lib          *library.Scan
-	companions   *companion.Manager
-	tvCompanions *companion.Manager
-	hardlinks    *companion.HardlinkManager
-	subtitles    *subtitles.Manager
-	allocMu      sync.Mutex
-	page         *template.Template
+	cfg       *config.Config
+	prowlarr  *prowlarr.Client
+	qb        *qbittorrent.Client
+	tmdb      *tmdb.Client
+	alloc     *allocator.Allocator
+	lib       *library.Scan
+	movies    *copies.Manager
+	tv        *copies.Manager
+	hardlinks *copies.HardlinkManager
+	subtitles *subtitles.Manager
+	allocMu   sync.Mutex
+	page      *template.Template
 
 	mu      sync.RWMutex
 	intakes map[string]*Intake
@@ -158,16 +159,17 @@ func New(cfg *config.Config, qb *qbittorrent.Client, tmdbClient *tmdb.Client, pr
 	}
 	scan := library.NewScan(drives)
 	s := &Server{
-		cfg:          cfg,
-		qb:           qb,
-		tmdb:         tmdbClient,
-		alloc:        allocator.New(),
-		lib:          scan,
-		companions:   companion.NewManager(cfg, scan, prowlarrClient),
-		tvCompanions: companion.NewTVManager(cfg, scan, prowlarrClient),
-		hardlinks:    companion.NewHardlinkManager(scan),
-		subtitles:    subtitles.NewManager(subtitleRuntimeConfig(cfg), scan),
-		intakes:      map[string]*Intake{},
+		cfg:       cfg,
+		qb:        qb,
+		prowlarr:  prowlarrClient,
+		tmdb:      tmdbClient,
+		alloc:     allocator.New(),
+		lib:       scan,
+		movies:    copies.NewManager(scan, "movie"),
+		tv:        copies.NewManager(scan, "tv"),
+		hardlinks: copies.NewHardlinkManager(scan),
+		subtitles: subtitles.NewManager(subtitleRuntimeConfig(cfg), scan),
+		intakes:   map[string]*Intake{},
 	}
 	s.page = template.Must(template.New("index.html").ParseFS(assetsFS, "templates/index.html"))
 	go s.cleanupLoop()
@@ -191,7 +193,7 @@ func (s *Server) cleanupLoop() {
 
 func (s *Server) Handler() http.Handler {
 	mux := http.NewServeMux()
-	mux.HandleFunc("GET /", s.pageIndex)
+	mux.HandleFunc("GET /{$}", s.pageIndex)
 	mux.HandleFunc("GET /favicon.png", s.serveAsset("logo/favicon.png"))
 	mux.HandleFunc("GET /favicon.svg", s.serveAsset("logo/favicon.svg"))
 	mux.HandleFunc("GET /logo.svg", s.serveAsset("logo/logo.svg"))
@@ -208,17 +210,9 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("POST /api/intakes/{id}/match", s.match)
 	mux.HandleFunc("POST /api/intakes/{id}/destination", s.setDestinationMode)
 	mux.HandleFunc("POST /api/intakes/{id}/submit", s.submit)
-	mux.HandleFunc("GET /api/companions", s.listCompanions)
-	mux.HandleFunc("PATCH /api/companions/settings", s.updateCompanionSettings)
-	mux.HandleFunc("POST /api/companions/scan", s.scanCompanions)
-	mux.HandleFunc("POST /api/companions/search-missing", s.searchMissingCompanions)
-	mux.HandleFunc("POST /api/companions/search-missing/cancel", s.cancelCompanionSearch)
-	mux.HandleFunc("POST /api/companions/clear-reviews", s.clearCompanionReviews)
-	mux.HandleFunc("POST /api/companions/{id}/search", s.searchCompanion)
-	mux.HandleFunc("POST /api/companions/{id}/hardlink", s.hardlinkCompanion)
-	mux.HandleFunc("POST /api/companions/{id}/skip", s.skipCompanion)
-	mux.HandleFunc("POST /api/companions/{id}/approve", s.approveCompanion)
-	mux.HandleFunc("POST /api/intakes/{id}/companion-search", s.searchIntakeCompanion)
+	mux.HandleFunc("GET /api/copies", s.listCopies)
+	mux.HandleFunc("POST /api/copies/scan", s.scanCopies)
+	mux.HandleFunc("POST /api/copies/{id}/hardlink", s.hardlinkCopy)
 	mux.HandleFunc("GET /api/hardlinks", s.listHardlinks)
 	mux.HandleFunc("POST /api/hardlinks/scan", s.scanHardlinks)
 	mux.HandleFunc("DELETE /api/hardlinks/{id}", s.removeHardlink)

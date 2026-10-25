@@ -1,4 +1,4 @@
-package companion
+package copies
 
 import (
 	"context"

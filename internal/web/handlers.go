@@ -16,7 +16,6 @@ import (
 
 	"cineroute/internal/allocator"
 	"cineroute/internal/classifier"
-	"cineroute/internal/companion"
 	"cineroute/internal/config"
 	"cineroute/internal/library"
 	"cineroute/internal/tmdb"
@@ -119,17 +118,16 @@ type storageJSON struct {
 
 func (s *Server) status(w http.ResponseWriter, r *http.Request) {
 	out := struct {
-		TMDB            string           `json:"tmdb"`
-		QBittorrent     string           `json:"qbittorrent"`
-		Prowlarr        string           `json:"prowlarr"`
-		ProwlarrIndexer string           `json:"prowlarr_indexer,omitempty"`
-		QBVersion       string           `json:"qb_version"`
-		QBWebAPI        string           `json:"qb_webapi"`
-		Preallocate     string           `json:"preallocate"`
-		TempPath        string           `json:"temp_path"`
-		Storage         storageJSON      `json:"storage"`
-		Auth            bool             `json:"auth"`
-		Subtitles       *subtitlesStatus `json:"subtitles,omitempty"`
+		TMDB        string           `json:"tmdb"`
+		QBittorrent string           `json:"qbittorrent"`
+		Prowlarr    string           `json:"prowlarr"`
+		QBVersion   string           `json:"qb_version"`
+		QBWebAPI    string           `json:"qb_webapi"`
+		Preallocate string           `json:"preallocate"`
+		TempPath    string           `json:"temp_path"`
+		Storage     storageJSON      `json:"storage"`
+		Auth        bool             `json:"auth"`
+		Subtitles   *subtitlesStatus `json:"subtitles,omitempty"`
 	}{TMDB: "not configured", QBittorrent: "not checked", Prowlarr: "not configured"}
 	if s.tmdb != nil {
 		out.TMDB = "configured"
@@ -162,8 +160,8 @@ func (s *Server) status(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 	}
-	if s.companions != nil {
-		out.Prowlarr, out.ProwlarrIndexer = s.companions.ProwlarrStatus(r.Context())
+	if s.prowlarr.Configured() {
+		out.Prowlarr = "configured"
 	}
 	storage := storageJSON{Healthy: true}
 	for _, st := range s.alloc.Statuses(s.cfg.Drives) {
@@ -182,134 +180,6 @@ func (s *Server) status(w http.ResponseWriter, r *http.Request) {
 		out.Subtitles = &status
 	}
 	writeJSON(w, http.StatusOK, out)
-}
-
-func (s *Server) companionManager(r *http.Request) *companion.Manager {
-	if r.URL.Query().Get("type") == "tv" {
-		return s.tvCompanions
-	}
-	return s.companions
-}
-
-func (s *Server) listCompanions(w http.ResponseWriter, r *http.Request) {
-	manager := s.companionManager(r)
-	if manager == nil {
-		writeErr(w, http.StatusServiceUnavailable, "companion subsystem is unavailable")
-		return
-	}
-	openID := r.URL.Query().Get("open")
-	writeJSON(w, http.StatusOK, manager.View(openID))
-}
-
-func (s *Server) updateCompanionSettings(w http.ResponseWriter, r *http.Request) {
-	manager := s.companionManager(r)
-	if manager == nil {
-		writeErr(w, http.StatusServiceUnavailable, "companion subsystem is unavailable")
-		return
-	}
-	var body struct {
-		SearchIntervalSeconds *int `json:"search_interval_seconds"`
-		SearchBatchSize       *int `json:"search_batch_size"`
-	}
-	r.Body = http.MaxBytesReader(w, r.Body, 1<<20)
-	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
-		writeErr(w, http.StatusBadRequest, "invalid body")
-		return
-	}
-	if body.SearchIntervalSeconds == nil && body.SearchBatchSize == nil {
-		writeErr(w, http.StatusBadRequest, "at least one companion setting is required")
-		return
-	}
-	if err := manager.SetSearchSettings(body.SearchIntervalSeconds, body.SearchBatchSize); err != nil {
-		writeErr(w, http.StatusBadRequest, err.Error())
-		return
-	}
-	writeJSON(w, http.StatusOK, manager.View(""))
-}
-
-func (s *Server) scanCompanions(w http.ResponseWriter, r *http.Request) {
-	manager := s.companionManager(r)
-	if manager == nil {
-		writeErr(w, http.StatusServiceUnavailable, "companion subsystem is unavailable")
-		return
-	}
-	if err := manager.Scan(r.Context()); err != nil {
-		writeErr(w, http.StatusConflict, err.Error())
-		return
-	}
-	writeJSON(w, http.StatusOK, manager.View(""))
-}
-
-func (s *Server) searchMissingCompanions(w http.ResponseWriter, r *http.Request) {
-	manager := s.companionManager(r)
-	if manager == nil {
-		writeErr(w, http.StatusServiceUnavailable, "companion subsystem is unavailable")
-		return
-	}
-	if err := manager.StartSearchMissing(); err != nil {
-		writeErr(w, http.StatusConflict, err.Error())
-		return
-	}
-	writeJSON(w, http.StatusAccepted, map[string]any{"status": "started", "batch": manager.View("").Batch})
-}
-
-func (s *Server) cancelCompanionSearch(w http.ResponseWriter, r *http.Request) {
-	manager := s.companionManager(r)
-	if manager == nil {
-		writeErr(w, http.StatusServiceUnavailable, "companion subsystem is unavailable")
-		return
-	}
-	if err := manager.CancelSearchMissing(); err != nil {
-		writeErr(w, http.StatusConflict, err.Error())
-		return
-	}
-	writeJSON(w, http.StatusAccepted, map[string]any{"status": "canceling", "batch": manager.View("").Batch})
-}
-
-func (s *Server) clearCompanionReviews(w http.ResponseWriter, r *http.Request) {
-	manager := s.companionManager(r)
-	if manager == nil {
-		writeErr(w, http.StatusServiceUnavailable, "companion subsystem is unavailable")
-		return
-	}
-	cleared, err := manager.ClearReviews()
-	if err != nil {
-		writeErr(w, http.StatusConflict, err.Error())
-		return
-	}
-	writeJSON(w, http.StatusOK, map[string]any{"status": "cleared", "cleared": cleared})
-}
-
-func (s *Server) searchCompanion(w http.ResponseWriter, r *http.Request) {
-	manager := s.companionManager(r)
-	if manager == nil {
-		writeErr(w, http.StatusServiceUnavailable, "companion subsystem is unavailable")
-		return
-	}
-	id := r.PathValue("id")
-	if _, err := manager.SearchOne(r.Context(), id); err != nil {
-		writeErr(w, http.StatusBadGateway, err.Error())
-		return
-	}
-	writeJSON(w, http.StatusOK, manager.View(id))
-}
-
-func (s *Server) hardlinkCompanion(w http.ResponseWriter, r *http.Request) {
-	manager := s.companionManager(r)
-	if manager == nil {
-		writeErr(w, http.StatusServiceUnavailable, "companion subsystem is unavailable")
-		return
-	}
-	id := r.PathValue("id")
-	result, err := manager.Hardlink(id)
-	if err != nil {
-		writeErr(w, http.StatusConflict, err.Error())
-		return
-	}
-	writeJSON(w, http.StatusOK, map[string]any{
-		"result": result,
-		"view":   manager.View(id),
-	})
 }
 
 func (s *Server) listHardlinks(w http.ResponseWriter, r *http.Request) {
@@ -372,154 +242,6 @@ func (s *Server) relinkHardlink(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"result": result, "view": view})
-}
-
-func (s *Server) skipCompanion(w http.ResponseWriter, r *http.Request) {
-	manager := s.companionManager(r)
-	if manager == nil {
-		writeErr(w, http.StatusServiceUnavailable, "companion subsystem is unavailable")
-		return
-	}
-	if err := manager.Skip(r.PathValue("id")); err != nil {
-		writeErr(w, http.StatusConflict, err.Error())
-		return
-	}
-	writeJSON(w, http.StatusOK, manager.View(r.PathValue("id")))
-}
-
-func (s *Server) approveCompanion(w http.ResponseWriter, r *http.Request) {
-	manager := s.companionManager(r)
-	if manager == nil {
-		writeErr(w, http.StatusServiceUnavailable, "companion subsystem is unavailable")
-		return
-	}
-	var body struct {
-		Guid string `json:"guid"`
-	}
-	r.Body = http.MaxBytesReader(w, r.Body, 1<<20)
-	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
-		writeErr(w, http.StatusBadRequest, "invalid body")
-		return
-	}
-	movie, candidate, data, err := manager.PrepareSelected(r.Context(), r.PathValue("id"), body.Guid)
-	if err != nil {
-		writeErr(w, http.StatusConflict, err.Error())
-		return
-	}
-	mediaType := manager.MediaType()
-	markApprovalError := func(approvalErr error) {
-		if mediaType == "tv" {
-			_ = manager.MarkTVError(movie.ID, candidate, approvalErr)
-		} else {
-			manager.MarkError(movie.ID, approvalErr)
-		}
-	}
-	meta, err := torrentmeta.Parse(data)
-	if err != nil {
-		err = fmt.Errorf("selected Prowlarr torrent is invalid: %w", err)
-		markApprovalError(err)
-		writeErr(w, http.StatusBadRequest, err.Error())
-		return
-	}
-	if s.qb == nil {
-		err = errors.New("qBittorrent is not configured")
-		markApprovalError(err)
-		writeErr(w, http.StatusServiceUnavailable, err.Error())
-		return
-	}
-	match := tmdb.Result{
-		ID:          movie.TmdbID,
-		Title:       movie.Title,
-		ReleaseDate: fmt.Sprintf("%04d-01-01", movie.Year),
-	}
-	needsPrimary := len(movie.ExistingFiles) == 0 && len(movie.RemoteFiles) > 0
-	// This companion already has a canonical library folder, so approval does not
-	// select or reserve a drive. Let separate approvals progress concurrently.
-	outcome, err := s.submitTorrent(r.Context(), submissionRequest{
-		Bytes:              data,
-		Filename:           "companion-" + movie.ID + ".torrent",
-		Meta:               meta,
-		MediaType:          mediaType,
-		Match:              match,
-		RequireExisting:    true,
-		UseMovieRemoteRoot: mediaType == "movie" && !needsPrimary,
-		UseTVRemoteRoot:    mediaType == "tv" && !needsPrimary,
-		ExistingDriveID:    movie.DriveID,
-		ExistingFolderName: movie.FolderName,
-	})
-	if err != nil {
-		markApprovalError(err)
-		writeErr(w, http.StatusConflict, err.Error())
-		return
-	}
-	if outcome == nil || outcome.Result == nil {
-		err = errors.New("qBittorrent submission returned no result")
-		markApprovalError(err)
-		writeErr(w, http.StatusInternalServerError, err.Error())
-		return
-	}
-	var markErr error
-	if mediaType == "tv" {
-		markErr = manager.MarkTVComplete(movie.ID, candidate, outcome.Result.Hash)
-	} else {
-		markErr = manager.MarkComplete(movie.ID, outcome.Result.Hash)
-	}
-	if markErr != nil {
-		writeErr(w, http.StatusInternalServerError, "torrent was submitted, but companion state could not be saved: "+markErr.Error())
-		return
-	}
-	writeJSON(w, http.StatusOK, map[string]any{
-		"movie":     movie,
-		"candidate": candidate,
-		"result":    outcome.Result,
-		"view":      manager.View(movie.ID),
-	})
-}
-
-func (s *Server) searchIntakeCompanion(w http.ResponseWriter, r *http.Request) {
-	in, ok := s.getIntake(r.PathValue("id"))
-	if !ok {
-		writeErr(w, http.StatusNotFound, "intake not found")
-		return
-	}
-	s.mu.RLock()
-	mediaType := in.Class.MediaType
-	if in.Library == "anime" || (mediaType != "movie" && mediaType != "tv") || in.Status != "submitted" || in.Match == nil || in.Result == nil || in.Dest == nil {
-		s.mu.RUnlock()
-		writeErr(w, http.StatusConflict, "only a successfully submitted normal movie or TV show can search for a companion")
-		return
-	}
-	driveID := in.Result.DriveID
-	path := in.Result.SavePath
-	folder := in.Dest.FolderName
-	match := *in.Match
-	s.mu.RUnlock()
-	var manager *companion.Manager
-	if mediaType == "tv" {
-		manager = s.tvCompanions
-	} else {
-		manager = s.companions
-	}
-	if manager == nil {
-		writeErr(w, http.StatusServiceUnavailable, "companion subsystem is unavailable")
-		return
-	}
-	var id string
-	var err error
-	if mediaType == "tv" {
-		id, err = manager.UpsertTV(driveID, path, folder, match.DisplayTitle(), match.Year(), match.ID)
-	} else {
-		id, err = manager.UpsertMovie(driveID, path, folder, match.DisplayTitle(), match.Year(), match.ID)
-	}
-	if err != nil {
-		writeErr(w, http.StatusConflict, err.Error())
-		return
-	}
-	if _, err := manager.SearchOne(r.Context(), id); err != nil {
-		writeErr(w, http.StatusBadGateway, err.Error())
-		return
-	}
-	writeJSON(w, http.StatusOK, manager.View(id))
 }
 
 func (s *Server) historyHandler(w http.ResponseWriter, r *http.Request) {

@@ -15,7 +15,7 @@ import (
 
 // Drive describes one physical drive with movie, TV, and optional anime roots.
 // Remote movie/TV roots are sibling directories on the same volume and are
-// used for alternate companion copies such as 1080p releases. Anime is shared
+// used for alternate remote copies such as 1080p releases. Anime is shared
 // from one root and has no remote equivalent.
 type Drive struct {
 	ID              string
@@ -119,7 +119,7 @@ func conventionalRemoteRoot(primaryRoot, primaryPrefix, remotePrefix string) (st
 
 // MovieRemotePath returns the corresponding remote movie folder for a drive
 // and canonical folder name. The folder itself does not need to exist yet;
-// companion approval creates it before adding the torrent.
+// a hardlink action or remote torrent submission creates it.
 func (s *Scan) MovieRemotePath(driveID, folderName string) (string, bool) {
 	for _, d := range s.drives {
 		if d.ID != driveID {
@@ -138,7 +138,7 @@ func (s *Scan) MovieRemotePath(driveID, folderName string) (string, bool) {
 
 // TVRemotePath returns the corresponding remote TV folder for a drive and
 // canonical folder name. It is kept alongside MovieRemotePath so drive
-// configuration remains symmetrical for both companion workflows.
+// configuration remains symmetrical for movie and TV workflows.
 func (s *Scan) TVRemotePath(driveID, folderName string) (string, bool) {
 	for _, d := range s.drives {
 		if d.ID != driveID {
@@ -162,11 +162,11 @@ func (s *Scan) Movies() ([]MovieFolder, error) {
 	return s.folders(func(d Drive) string { return d.MovieRoot }, "movie")
 }
 
-// CompanionMovies lists the union of immediate children in the primary and
+// MoviePairs lists the union of immediate children in the primary and
 // remote movie roots. Paths always point at the primary root so remote-only
 // titles can be downloaded or hardlinked into their canonical library path.
-func (s *Scan) CompanionMovies() ([]MovieFolder, error) {
-	return s.companionFolders(
+func (s *Scan) MoviePairs() ([]MovieFolder, error) {
+	return s.pairedFolders(
 		func(d Drive) string { return d.MovieRoot },
 		func(d Drive) (string, bool) {
 			if d.MovieRemoteRoot != "" {
@@ -185,9 +185,9 @@ func (s *Scan) TVShows() ([]Folder, error) {
 	return s.folders(func(d Drive) string { return d.TVRoot }, "TV")
 }
 
-// CompanionTVShows is the TV equivalent of CompanionMovies.
-func (s *Scan) CompanionTVShows() ([]Folder, error) {
-	return s.companionFolders(
+// TVPairs is the TV equivalent of MoviePairs.
+func (s *Scan) TVPairs() ([]Folder, error) {
+	return s.pairedFolders(
 		func(d Drive) string { return d.TVRoot },
 		func(d Drive) (string, bool) {
 			if d.TVRemoteRoot != "" {
@@ -199,7 +199,7 @@ func (s *Scan) CompanionTVShows() ([]Folder, error) {
 	)
 }
 
-func (s *Scan) companionFolders(primaryRootOf func(Drive) string, remoteRootOf func(Drive) (string, bool), label string) ([]Folder, error) {
+func (s *Scan) pairedFolders(primaryRootOf func(Drive) string, remoteRootOf func(Drive) (string, bool), label string) ([]Folder, error) {
 	var out []Folder
 	for _, d := range s.drives {
 		primaryRoot := primaryRootOf(d)
@@ -307,7 +307,7 @@ func (s *Scan) findRemote(canonical string, rootOf func(Drive) (string, bool)) [
 // RemoteMovieRoot returns the configured remote movie root for a drive, falling
 // back to the conventional /mN -> /mrN alias when only that one is mounted. It
 // is exported so the subtitle scanner resolves remote roots exactly like the
-// companion and hardlink workflows do.
+// hardlink workflows do.
 func RemoteMovieRoot(d Drive) (string, bool) {
 	if d.MovieRemoteRoot != "" {
 		return d.MovieRemoteRoot, true

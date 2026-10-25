@@ -1,5 +1,5 @@
-// Package prowlarr is the small slice of the Prowlarr API needed by the
-// optional companion-copy workflow.
+// Package prowlarr provides a generic client for indexer lookup, release
+// searches and torrent retrieval, retained for future integrations.
 package prowlarr
 
 import (

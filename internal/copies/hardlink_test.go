@@ -1,33 +1,33 @@
-package companion
+package copies
 
 import (
+	"context"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 
-	"cineroute/internal/config"
 	"cineroute/internal/library"
 )
 
 func TestHardlinkPreservesMovieAndTVTrees(t *testing.T) {
 	tests := []struct {
 		name      string
-		kind      companionKind
+		kind      string
 		mediaDir  string
 		remoteDir string
 		files     []string
 	}{
 		{
 			name:      "movie",
-			kind:      companionMovie,
+			kind:      "movie",
 			mediaDir:  "movies",
 			remoteDir: "movies-remote",
 			files:     []string{"Movie.2024.2160p.mkv", "Movie.2024.en.srt"},
 		},
 		{
 			name:      "TV pack",
-			kind:      companionTV,
+			kind:      "tv",
 			mediaDir:  "tv",
 			remoteDir: "tv-remote",
 			files:     []string{"Show.S01/Show.S01E01.mkv", "Show.S01/Show.S01E02.mkv"},
@@ -54,22 +54,19 @@ func TestHardlinkPreservesMovieAndTVTrees(t *testing.T) {
 			}
 
 			drive := library.Drive{ID: "hdd1"}
-			if tt.kind == companionTV {
+			if tt.kind == "tv" {
 				drive.TVRoot = mainRoot
 				drive.TVRemoteRoot = remoteRoot
 			} else {
 				drive.MovieRoot = mainRoot
 				drive.MovieRemoteRoot = remoteRoot
 			}
-			manager := &Manager{
-				cfg:      config.Default(),
-				lib:      library.NewScan([]library.Drive{drive}),
-				kind:     tt.kind,
-				state:    stateFile{Version: stateVersion, Movies: []*Movie{{ID: "item", DriveID: "hdd1", Path: source, FolderName: folderName, Status: StatusReview}}},
-				searches: map[string]searchState{"item": {}},
+			manager := NewManager(library.NewScan([]library.Drive{drive}), tt.kind)
+			if err := manager.Scan(context.Background()); err != nil {
+				t.Fatal(err)
 			}
-
-			result, err := manager.Hardlink("item")
+			id := manager.View("").Items[0].ID
+			result, err := manager.Hardlink(context.Background(), id)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -89,14 +86,8 @@ func TestHardlinkPreservesMovieAndTVTrees(t *testing.T) {
 					t.Fatalf("%s was copied instead of hardlinked", relative)
 				}
 			}
-			if manager.state.Movies[0].Status != StatusComplete || manager.state.Movies[0].AddedAt == nil {
-				t.Fatalf("hardlinked item state = %+v", manager.state.Movies[0])
-			}
-			if _, ok := manager.searches["item"]; ok {
-				t.Fatal("hardlink did not clear stale search candidates")
-			}
 
-			retry, err := manager.Hardlink("item")
+			retry, err := manager.Hardlink(context.Background(), id)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -121,18 +112,15 @@ func TestHardlinkRemoteOnlyMovieIntoPrimaryFolder(t *testing.T) {
 		t.Fatal(err)
 	}
 	mainFolder := filepath.Join(mainRoot, folderName)
-	manager := &Manager{
-		cfg:  config.Default(),
-		lib:  library.NewScan([]library.Drive{{ID: "hdd1", MovieRoot: mainRoot, MovieRemoteRoot: remoteRoot}}),
-		kind: companionMovie,
-		state: stateFile{Version: stateVersion, Movies: []*Movie{{
-			ID: "item", DriveID: "hdd1", Path: mainFolder, RemotePath: remoteFolder, FolderName: folderName,
-			RemoteFiles: []string{remoteFile}, Status: StatusPending,
-		}}},
-		searches: map[string]searchState{},
+	manager := NewManager(library.NewScan([]library.Drive{{ID: "hdd1", MovieRoot: mainRoot, MovieRemoteRoot: remoteRoot}}), "movie")
+	if err := os.MkdirAll(mainRoot, 0o755); err != nil {
+		t.Fatal(err)
 	}
-
-	result, err := manager.Hardlink("item")
+	if err := manager.Scan(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	id := manager.View("").Items[0].ID
+	result, err := manager.Hardlink(context.Background(), id)
 	if err != nil {
 		t.Fatal(err)
 	}

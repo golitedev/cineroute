@@ -13,7 +13,7 @@ starts it.
 
 The routing flow does not rename, move, or post-process downloaded content;
 original torrent filenames and internal folder structure are preserved
-verbatim. Hardlinks are managed separately from the companion workflow.
+verbatim. Hardlinks are managed from the Movies, TV and Hardlinks pages.
 
 ## Workflow
 
@@ -64,7 +64,7 @@ Secrets can also come from environment variables:
 | --- | --- |
 | TMDB API key | `CINEROUTE_TMDB_API_KEY` |
 | qBittorrent URL / user / password | `CINEROUTE_QBIT_URL` / `CINEROUTE_QBIT_USERNAME` / `CINEROUTE_QBIT_PASSWORD` |
-| Prowlarr URL / API key / indexer | `CINEROUTE_PROWLARR_URL` / `CINEROUTE_PROWLARR_API_KEY` / `CINEROUTE_PROWLARR_INDEXER` |
+| Prowlarr URL / API key (future integrations) | `CINEROUTE_PROWLARR_URL` / `CINEROUTE_PROWLARR_API_KEY` |
 | OpenSubtitles API key / user / password (Subtitles page) | `CINEROUTE_OS_API_KEY` / `CINEROUTE_OS_USERNAME` / `CINEROUTE_OS_PASSWORD` |
 | Enable or disable the Subtitles page | `CINEROUTE_SUBTITLES_ENABLED` |
 | Log level (`debug`, `info`, `warn`, `error`; default `info`) | `CINEROUTE_LOG_LEVEL` |
@@ -135,7 +135,7 @@ When migrating from UGOS, update the `drives` section of your existing
 `config.example.yaml`, keeping your credentials and other settings. Existing
 config entries override built-in defaults. Copy your existing CineRoute state
 to `/srv/docker/cineroute/data` if you want to keep it, update the Compose
-mounts, then recreate the container and rescan companions and subtitles to
+mounts, then recreate the container and rescan Movies, TV, hardlinks and subtitles to
 index the new paths.
 
 Set `CINEROUTE_LISTEN=0.0.0.0:8787` (already in the example) — the default
@@ -180,7 +180,7 @@ content path, file tree, empty category/tags, size, state).
 * **Anime is a separate shared library destination.** Select Anime during
   intake to route the title to the matching drive's `anime_root`. Existing
   anime stays on its current drive and new anime uses the drive with the most
-  free space. Anime has no remote copy, companion search, or hardlink workflow.
+  free space. Anime has no remote copy, hardlink workflow.
 * **Forgiving TMDB search:** if the year filter returns nothing (a year
   that is part of the title, like *Blade Runner 2049*, or a season pack
   carrying the season's air year instead of the show's first-air year), the
@@ -198,74 +198,24 @@ SQLite history, intake recovery after crash, singleton lease, archives,
 auto-submit mode, subtitles for the remote **TV** roots, OCR for
 image-based subtitles (PGS/DVD) and audio/voice-activity reference mode.
 
-## Companion copies
+## Movies, TV and hardlinks
 
-CineRoute can optionally search one Prowlarr indexer (normally `LAT-Team`) for
-potential companion releases for movies and TV shows already in the library.
-Use **Movie Companions** or **TV Companions** to scan the corresponding primary
-roots, then search the queue or open one item at a time. The list is paginated
-and candidate details are loaded only for the item being reviewed, which keeps
-a large backfill queue manageable.
+The **Movies** and **TV** pages scan the main and remote library roots across
+all configured drives. Each title shows its disk, video files and whether it
+exists in main, remote or both. Filter the inventory by title, disk or path,
+or select Main only, Remote only or Both copies.
 
-The library scan is filesystem-only: movie folders use `Title (Year)` names,
-while TV folders may use `Title (Year)` or simply `Title`; neither requires a
-TMDB lookup. TMDB IDs remain available for items entered through the normal
-intake flow and strengthen candidate matching when present.
+Open a title and use **Hardlink to remote** or **Hardlink to main** to fill
+whichever side has no video. The complete source tree, including subtitles,
+is preserved. Existing links to the same inode are safe to retry; symlinks,
+special files and conflicting destination files are rejected. A fresh scan
+before linking revalidates the title and destination. Titles with no video
+on either side are omitted. Inventories are filesystem-backed: scan again
+after restarting CineRoute or changing files externally.
 
-Search results are never filtered by CineRoute. Up to 50 Prowlarr releases are
-retained for each movie or show and ranked for manual review, with WEB-DL preferred,
-1080p treated as the target resolution, sub-8-GiB releases treated as the
-sweet spot, and compatible BluRay x264 as the next tier. 4K, REMUX, CAM,
-alternate-title, oversized, and low-seeder releases remain visible with lower
-or review-oriented ranking evidence. Language is shown as evidence but is not
-a major ranking signal; open the tracker details and manually approve a
-candidate.
-CineRoute never downloads a companion automatically. Approved torrents use
-the same stopped-add, verification and explicit-start transaction as normal
-intake. When a drive has `movie_remote_root` or `tv_remote_root` configured—or
-the conventional `/mN`/`/mrN` or `/tN`/`/trN` aliases are both mounted—the
-companion normally goes into the matching folder there; the folder is created
-if it is not already present. For a title found only in the remote root, an
-approved release instead goes into the normal folder on the same drive. The
-main library folder remains the authoritative drive anchor. Scans never rename
-or move files or folders.
-
-The feature uses small SQLite databases for the queue, search candidates and
-search history: normally `/data/companions.db` for movies and
-`/data/companions-tv.db` for TV. Existing `/data/companions.json` state is
-migrated automatically on first startup for the movie queue.
-Mount `/data` writable when running in Docker and configure Prowlarr with:
-
-```text
-CINEROUTE_PROWLARR_URL
-CINEROUTE_PROWLARR_API_KEY
-CINEROUTE_PROWLARR_INDEXER
-```
-
-Each companion item performs one Prowlarr search. Movie searches use the movie
-title and year; TV searches use the show title only. TV search results are
-ranked with the same evidence as movie results, but CineRoute hides individual
-episode releases such as `S03E04` and only allows season or series packs to be
-approved.
-Companion scans use the union of folders in the normal and remote roots. When
-both matching folders contain video files, a scan automatically classifies the
-movie or TV show as Added. Otherwise, each title with a video is placed in the searchable
-review queue regardless of its current quality or size, so language companions
-can be reviewed deliberately. Skipped items are never returned to that queue;
-when both copies are found, they are classified as Added. If one copy is deleted,
-the next scan returns an Added item to the search queue. If neither root contains
-a video, the item and its cached searches are removed, even if an empty folder
-or artwork remains. Obsolete drive IDs and paths are removed during that same
-reconciliation. A failed or canceled scan preserves the previous inventory.
-
-The **Hardlink** button on a movie or TV companion fills whichever side has no
-video. It normally recreates the main folder's tree below the remote root; for
-a remote-only title, it links the remote tree into the normal folder. Existing
-links to the same inode are accepted, while symlinks,
-special files and conflicting destination files are rejected. Main and remote
-roots must be below the same `/diskN` mount and the CineRoute UID/GID must be
-allowed to create files in the remote root. Hardlinks cannot cross filesystems,
-container mounts or Btrfs subvolumes.
+Main and remote roots must be below the same `/diskN` mount and the CineRoute
+UID/GID must be allowed to create files in the destination root. Hardlinks
+cannot cross filesystems, container mounts or Btrfs subvolumes.
 
 The **Manage hardlinks** tab scans all configured remote movie and TV roots and
 identifies hardlinks by inode, including links whose primary folder was renamed
@@ -287,24 +237,13 @@ stays intact.
 and unrelated remote files. The tab can be rescanned at any time and supports
 searching and status/media filters.
 
-Each companion page can run a limited next batch (default 20 items), cancel a
-running batch, and set the delay between actual Prowlarr searches.
+The Prowlarr client and optional URL/API-key configuration remain available
+for future integrations. The app does not perform tracker searches or offer
+release approvals. Old `companion` settings and `prowlarr.indexer_name` entries
+are ignored; existing workflow databases are no longer opened or migrated and
+can be archived separately.
 
-Prowlarr remains optional; normal torrent routing works without it. The
-configured LAT-Team indexer must already exist and be enabled in Prowlarr.
-After a normal movie or TV submission, **Find companion** opens the same
-review flow for that item.
-
-Companion searches are paced by `companion.search_interval_seconds` (1–300
-seconds, default 10). The setting applies between every Prowlarr search and
-manual searches; the UI can override it and stores that override in the
-corresponding companion database. The settings fields accept custom values:
-batch sizes from 1–1000 items and intervals from 1–300 seconds; the preset
-buttons are only shortcuts.
-
-CineRoute preserves original torrent filenames. It does not rename seeded
-files, and it does not flag filenames that Jellyfin may not group as another
-version.
+CineRoute preserves original torrent filenames and does not rename seeded files.
 
 ## Subtitles
 

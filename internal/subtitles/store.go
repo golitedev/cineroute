@@ -14,7 +14,7 @@ import (
 	_ "modernc.org/sqlite"
 )
 
-// store is the durable subtitle state. Unlike the companion store it writes one
+// store is the durable subtitle state. It writes one
 // row per item instead of rewriting the whole table, because a remote library
 // can hold thousands of video files.
 type store struct {

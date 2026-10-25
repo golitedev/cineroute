@@ -17,7 +17,6 @@ type Config struct {
 	TMDB           TMDB        `yaml:"tmdb"`
 	QBittorrent    QBittorrent `yaml:"qbittorrent"`
 	Prowlarr       Prowlarr    `yaml:"prowlarr"`
-	Companion      Companion   `yaml:"companion"`
 	Subtitles      Subtitles   `yaml:"subtitles"`
 	Library        Library     `yaml:"library"`
 	Drives         []Drive     `yaml:"drives"`
@@ -34,28 +33,9 @@ type QBittorrent struct {
 	Password string `yaml:"password"`
 }
 
-const (
-	DefaultCompanionSearchIntervalSeconds = 10
-	MinCompanionSearchIntervalSeconds     = 1
-	MaxCompanionSearchIntervalSeconds     = 300
-	DefaultCompanionSearchBatchSize       = 20
-	MinCompanionSearchBatchSize           = 1
-	MaxCompanionSearchBatchSize           = 1000
-)
-
 type Prowlarr struct {
-	URL         string `yaml:"url"`
-	APIKey      string `yaml:"api_key"`
-	IndexerName string `yaml:"indexer_name"`
-}
-
-type Companion struct {
-	Enabled               bool   `yaml:"enabled"`
-	StatePath             string `yaml:"state_path"`
-	MaxSizeGiB            int64  `yaml:"max_size_gib"`
-	MinSeeders            int    `yaml:"min_seeders"`
-	SearchLimit           int    `yaml:"search_limit"`
-	SearchIntervalSeconds int    `yaml:"search_interval_seconds"`
+	URL    string `yaml:"url"`
+	APIKey string `yaml:"api_key"`
 }
 
 type Library struct {
@@ -144,19 +124,8 @@ func Default() *Config {
 			URL:      "http://localhost:8080",
 			Username: "admin",
 		},
-		Prowlarr: Prowlarr{
-			URL:         "http://localhost:9696",
-			IndexerName: "LAT-Team",
-		},
-		Companion: Companion{
-			Enabled:               true,
-			StatePath:             "/data/companions.db",
-			MaxSizeGiB:            20,
-			MinSeeders:            1,
-			SearchLimit:           50,
-			SearchIntervalSeconds: DefaultCompanionSearchIntervalSeconds,
-		},
-		Library: Library{FolderFormat: "{title} ({year})"},
+		Prowlarr: Prowlarr{URL: "http://localhost:9696"},
+		Library:  Library{FolderFormat: "{title} ({year})"},
 		Subtitles: Subtitles{
 			Enabled:               true,
 			StatePath:             "/data/subtitles.db",
@@ -252,9 +221,6 @@ func applyEnv(cfg *Config) {
 	if v := os.Getenv("CINEROUTE_PROWLARR_API_KEY"); v != "" {
 		cfg.Prowlarr.APIKey = v
 	}
-	if v := os.Getenv("CINEROUTE_PROWLARR_INDEXER"); v != "" {
-		cfg.Prowlarr.IndexerName = v
-	}
 	if v := os.Getenv("CINEROUTE_OS_API_KEY"); v != "" {
 		cfg.Subtitles.OpenSubtitles.APIKey = v
 	}
@@ -275,21 +241,6 @@ func (c *Config) validate() error {
 	}
 	if c.QBittorrent.URL == "" {
 		return errors.New("qbittorrent.url must not be empty")
-	}
-	if c.Companion.StatePath == "" {
-		return errors.New("companion.state_path must not be empty")
-	}
-	if c.Companion.MaxSizeGiB <= 0 {
-		return errors.New("companion.max_size_gib must be greater than zero")
-	}
-	if c.Companion.MinSeeders < 0 {
-		return errors.New("companion.min_seeders must not be negative")
-	}
-	if c.Companion.SearchLimit <= 0 {
-		return errors.New("companion.search_limit must be greater than zero")
-	}
-	if c.Companion.SearchIntervalSeconds < MinCompanionSearchIntervalSeconds || c.Companion.SearchIntervalSeconds > MaxCompanionSearchIntervalSeconds {
-		return fmt.Errorf("companion.search_interval_seconds must be between %d and %d", MinCompanionSearchIntervalSeconds, MaxCompanionSearchIntervalSeconds)
 	}
 	seen := map[string]bool{}
 	for _, d := range c.Drives {

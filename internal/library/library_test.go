@@ -85,7 +85,7 @@ func TestTVShowsScanOnlyPrimaryRoots(t *testing.T) {
 	}
 }
 
-func TestCompanionFoldersIncludeRemoteOnlyMoviesAndTVShows(t *testing.T) {
+func TestPairedFoldersIncludeRemoteOnlyMoviesAndTVShows(t *testing.T) {
 	base := t.TempDir()
 	movies := filepath.Join(base, "movies")
 	moviesRemote := filepath.Join(base, "movies-remote")
@@ -103,19 +103,19 @@ func TestCompanionFoldersIncludeRemoteOnlyMoviesAndTVShows(t *testing.T) {
 	}
 	scan := NewScan([]Drive{{ID: "hdd1", MovieRoot: movies, MovieRemoteRoot: moviesRemote, TVRoot: tv, TVRemoteRoot: tvRemote}})
 
-	movieFolders, err := scan.CompanionMovies()
+	movieFolders, err := scan.MoviePairs()
 	if err != nil {
 		t.Fatal(err)
 	}
 	if len(movieFolders) != 2 || movieFolders[1].Name != "Remote Movie (2021)" || movieFolders[1].Path != filepath.Join(movies, "Remote Movie (2021)") {
-		t.Fatalf("companion movies = %+v", movieFolders)
+		t.Fatalf("movie pairs = %+v", movieFolders)
 	}
-	showFolders, err := scan.CompanionTVShows()
+	showFolders, err := scan.TVPairs()
 	if err != nil {
 		t.Fatal(err)
 	}
 	if len(showFolders) != 2 || showFolders[1].Name != "Remote Show (2023)" || showFolders[1].Path != filepath.Join(tv, "Remote Show (2023)") {
-		t.Fatalf("companion TV shows = %+v", showFolders)
+		t.Fatalf("TV pairs = %+v", showFolders)
 	}
 }
 

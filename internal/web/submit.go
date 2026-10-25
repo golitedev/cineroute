@@ -7,7 +7,6 @@ import (
 	"net/http"
 	"net/url"
 	"os"
-	"path/filepath"
 	"strings"
 	"time"
 
@@ -18,18 +17,13 @@ import (
 )
 
 type submissionRequest struct {
-	Bytes              []byte
-	Filename           string
-	Meta               *torrentmeta.MetaInfo
-	MediaType          string
-	Library            string
-	Match              tmdb.Result
-	Remote             bool
-	RequireExisting    bool
-	UseMovieRemoteRoot bool
-	UseTVRemoteRoot    bool
-	ExistingDriveID    string
-	ExistingFolderName string
+	Bytes     []byte
+	Filename  string
+	Meta      *torrentmeta.MetaInfo
+	MediaType string
+	Library   string
+	Match     tmdb.Result
+	Remote    bool
 }
 
 type submissionOutcome struct {
@@ -165,10 +159,8 @@ func (s *Server) submitLocked(ctx context.Context, in *Intake) error {
 	return err
 }
 
-// submitTorrent is the single qBittorrent submission transaction used by both
-// normal intake and companion approval. Normal intake holds the allocation lock
-// around its caller because it may select a new drive. Companion approval uses
-// RequireExisting and can run concurrently because it never allocates a drive.
+// submitTorrent runs the qBittorrent submission transaction. Its caller holds
+// the allocation lock across fresh destination selection and submission.
 func (s *Server) submitTorrent(ctx context.Context, req submissionRequest) (*submissionOutcome, error) {
 	if req.Meta == nil {
 		return nil, errors.New("torrent metadata is missing")
@@ -202,98 +194,26 @@ func (s *Server) submitTorrent(ctx context.Context, req submissionRequest) (*sub
 	if libraryName != req.MediaType && libraryName != "anime" {
 		return nil, errors.New("submission library must match the media type or be anime")
 	}
-	if libraryName == "anime" && (req.Remote || req.UseMovieRemoteRoot || req.UseTVRemoteRoot) {
+	if libraryName == "anime" && req.Remote {
 		return nil, errors.New("anime has no remote library")
 	}
-	if req.UseMovieRemoteRoot && isTV {
-		return nil, errors.New("remote companion destinations are only supported for movies")
-	}
-	if req.UseTVRemoteRoot && !isTV {
-		return nil, errors.New("TV remote companion destinations are only supported for TV shows")
-	}
-	itemLabel := "movie"
-	if libraryName == "anime" {
-		itemLabel = "anime title"
-	} else if isTV {
-		itemLabel = "TV show"
-	}
 	folder := library.FolderName(s.cfg.Library.FolderFormat, req.Match.DisplayTitle(), req.Match.Year())
-	var matches []library.Folder
+	var matches, remoteMatches []library.Folder
 	if libraryName == "anime" {
 		matches = s.lib.FindAnime(folder)
 	} else if isTV {
 		matches = s.lib.FindTV(folder)
+		remoteMatches = s.lib.FindTVRemote(folder)
 	} else {
 		matches = s.lib.FindMovie(folder)
+		remoteMatches = s.lib.FindMovieRemote(folder)
 	}
-	var routedExisting *mediaMatch
-	if !req.RequireExisting {
-		var remoteMatches []library.Folder
-		if libraryName != "anime" {
-			if isTV {
-				remoteMatches = s.lib.FindTVRemote(folder)
-			} else {
-				remoteMatches = s.lib.FindMovieRemote(folder)
-			}
-		}
-		routedExisting = resolveMediaMatch(matches, remoteMatches)
-		if routedExisting != nil && routedExisting.Conflict {
-			return nil, errors.New("this title exists on multiple drives; resolve the duplicate folders before submitting")
-		}
+	routedExisting := resolveMediaMatch(matches, remoteMatches)
+	if routedExisting != nil && routedExisting.Conflict {
+		return nil, errors.New("this title exists on multiple drives; resolve the duplicate folders before submitting")
 	}
-	if req.RequireExisting && req.ExistingDriveID != "" {
-		sameDrive := matches[:0]
-		for _, match := range matches {
-			if match.DriveID == req.ExistingDriveID {
-				sameDrive = append(sameDrive, match)
-			}
-		}
-		matches = sameDrive
-	}
-	// A companion discovered only in a remote root has no primary match yet.
-	// Revalidate that remote folder and synthesize its primary destination on
-	// the same drive so approval cannot be rerouted by free-space allocation.
-	if req.RequireExisting && len(matches) == 0 && req.ExistingDriveID != "" && req.ExistingFolderName != "" {
-		remotePath, ok := s.remotePath(isTV, req.ExistingDriveID, req.ExistingFolderName)
-		if !ok {
-			return nil, errors.New(s.remoteRootError(isTV, req.ExistingDriveID))
-		}
-		info, statErr := os.Stat(remotePath)
-		if statErr != nil || !info.IsDir() {
-			return nil, fmt.Errorf("remote %s folder no longer exists; rescan the library before approving the companion", itemLabel)
-		}
-		for _, drive := range s.lib.Drives() {
-			if drive.ID != req.ExistingDriveID {
-				continue
-			}
-			root := drive.MovieRoot
-			if libraryName == "anime" {
-				root = drive.AnimeRoot
-			} else if isTV {
-				root = drive.TVRoot
-			}
-			if root != "" {
-				folder = req.ExistingFolderName
-				matches = []library.Folder{{DriveID: drive.ID, Path: filepath.Join(root, folder), Name: folder}}
-			}
-			break
-		}
-	}
-	if req.RequireExisting {
-		switch len(matches) {
-		case 0:
-			return nil, fmt.Errorf("%s folder no longer exists; rescan the library before approving the companion", itemLabel)
-		case 1:
-			// Use the only canonical folder below.
-		default:
-			return nil, fmt.Errorf("%s exists on multiple drives; resolve the duplicate folders before approving the companion", itemLabel)
-		}
-	}
-
-	var savePath string
-	var driveID string
-	switch {
-	case routedExisting != nil:
+	var savePath, driveID string
+	if routedExisting != nil {
 		driveID = routedExisting.DriveID
 		if req.Remote {
 			if routedExisting.Remote != nil {
@@ -310,34 +230,7 @@ func (s *Server) submitTorrent(ctx context.Context, req submissionRequest) (*sub
 		} else {
 			savePath = s.primaryPath(isTV, driveID, folder)
 		}
-	case len(matches) == 1:
-		// An existing show/movie stays on its drive regardless of free
-		// space; a tight drive only produces a warning.
-		savePath = matches[0].Path
-		driveID = matches[0].DriveID
-		if req.Remote {
-			remotePath, ok := s.remotePath(isTV, driveID, folder)
-			if !ok {
-				return nil, errors.New(s.remoteRootError(isTV, driveID))
-			}
-			savePath = remotePath
-		} else if req.UseMovieRemoteRoot {
-			// An omitted remote root preserves the legacy companion
-			// destination for older configurations.
-			if remotePath, ok := s.lib.MovieRemotePath(driveID, folder); ok {
-				savePath = remotePath
-			}
-		} else if req.UseTVRemoteRoot {
-			if remotePath, ok := s.lib.TVRemotePath(driveID, folder); ok {
-				savePath = remotePath
-			}
-		}
-	case len(matches) > 1:
-		return nil, errors.New("this title exists on multiple drives; resolve the duplicates before submitting")
-	default:
-		if req.RequireExisting {
-			return nil, fmt.Errorf("%s folder no longer exists; rescan the library before approving the companion", itemLabel)
-		}
+	} else {
 		pending := s.pendingReservations()
 		drives := s.cfg.Drives
 		if libraryName == "anime" {
@@ -380,7 +273,7 @@ func (s *Server) submitTorrent(ctx context.Context, req submissionRequest) (*sub
 		FolderName:  folder,
 		Library:     libraryName,
 		Remote:      req.Remote,
-		Existing:    routedExisting != nil || len(matches) > 0,
+		Existing:    routedExisting != nil,
 		ContentPath: req.Meta.ContentPath(savePath),
 		RootFolder:  req.Meta.RootFolder,
 		NeededBytes: req.Meta.Size,
@@ -389,9 +282,6 @@ func (s *Server) submitTorrent(ctx context.Context, req submissionRequest) (*sub
 	if routedExisting != nil {
 		dest.ExistingAt = routedExisting.Location
 		dest.ExistingPaths = routedExisting.Paths
-	} else if len(matches) > 0 {
-		dest.ExistingAt = "main"
-		dest.ExistingPaths = []string{matches[0].Path}
 	}
 	if st, ok := s.driveStatus(driveID); ok {
 		dest.UsableSpace = st.Available

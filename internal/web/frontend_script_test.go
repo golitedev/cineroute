@@ -50,7 +50,7 @@ func TestSubtitleScriptIsTopLevel(t *testing.T) {
 		"setSubtitleSearch",
 		"clearSubtitleSearch",
 		"loadHardlinks",
-		"loadCompanions",
+		"loadCopies",
 		"loadStatus",
 	}
 	for _, name := range wanted {

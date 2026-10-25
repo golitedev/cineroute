@@ -1,4 +1,4 @@
-package companion
+package copies
 
 import (
 	"errors"
@@ -7,7 +7,6 @@ import (
 	"os"
 	"path/filepath"
 	"syscall"
-	"time"
 )
 
 // HardlinkResult describes one completed link between matching library roots.
@@ -31,57 +30,6 @@ type hardlinkEntry struct {
 	target string
 	dir    bool
 	same   bool
-}
-
-// Hardlink fills whichever side of an item's primary/remote pair has no video.
-// Existing links to the same inode make the operation safe to retry; any other
-// destination conflict is rejected.
-func (m *Manager) Hardlink(id string) (HardlinkResult, error) {
-	if !m.Enabled() {
-		return HardlinkResult{}, errors.New("1080p companions are disabled")
-	}
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	if m.stateErr != nil {
-		return HardlinkResult{}, m.stateErr
-	}
-	item := m.movieLocked(id)
-	if item == nil {
-		return HardlinkResult{}, fmt.Errorf("companion %s not found", m.itemLabel())
-	}
-	if item.Missing {
-		return HardlinkResult{}, fmt.Errorf("%s folder is no longer present in the configured library roots", m.itemLabel())
-	}
-	if item.Status == StatusSearching || item.Status == StatusSubmitting {
-		return HardlinkResult{}, fmt.Errorf("this companion is currently %s", item.Status)
-	}
-	destination, ok := m.remotePath(item.DriveID, item.FolderName)
-	if !ok || destination == "" {
-		return HardlinkResult{}, fmt.Errorf("drive %s has no %s remote root configured", item.DriveID, m.itemLabel())
-	}
-	source := item.Path
-	target := destination
-	if len(item.ExistingFiles) == 0 && len(item.RemoteFiles) > 0 {
-		source, target = destination, item.Path
-	}
-	result, err := hardlinkTree(source, target)
-	if err != nil {
-		return HardlinkResult{}, err
-	}
-
-	now := time.Now()
-	item.RemotePath = destination
-	m.inspectFolder(item, item.Path, destination, item.FolderName)
-	item.Status = StatusComplete
-	item.Error = ""
-	item.QBHash = ""
-	item.UpdatedAt = now
-	item.AddedAt = &now
-	delete(m.searches, id)
-	if err := m.persistLocked(); err != nil {
-		return HardlinkResult{}, fmt.Errorf("files were hardlinked, but companion state could not be saved: %w", err)
-	}
-	return result, nil
 }
 
 func hardlinkTree(sourceRoot, destinationRoot string) (HardlinkResult, error) {

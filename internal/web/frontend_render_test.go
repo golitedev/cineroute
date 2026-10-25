@@ -130,6 +130,19 @@ driver.push("expect($('subtitleDetail').innerHTML.includes('Attempts'), 'detail 
 driver.push("subtitleData.batch = { running: false, total: 0, done: 0 }; subtitleData.stats.pending = 0;");
 driver.push("renderSubtitles();");
 driver.push("expect($('subtitleRunButton').disabled, 'batch button should be disabled with nothing queued');");
+const copyItem = { id: "copy_1", drive_id: "disk1", folder_name: "Hugo (2011)", path: "/disk1/media/movies/Hugo (2011)", remote_path: "/disk1/media/movies-remote/Hugo (2011)", status: "main_only", existing_files: ["Hugo.mkv"], existing_file_sizes: {"Hugo.mkv": 123}, remote_files: [], remote_file_sizes: {} };
+driver.push("showView('copies',false,'movie');");
+driver.push("copyData = " + JSON.stringify({items:[copyItem]}) + "; openCopy='copy_1'; renderCopies();");
+driver.push("expect($('copyTitle').textContent === 'Movies', 'movie view title wrong');");
+driver.push("expect($('copyList').innerHTML.includes('Hugo (2011)'), 'movie library row missing');");
+driver.push("expect($('copyDetail').innerHTML.includes('Hardlink to remote'), 'main-only hardlink action missing');");
+driver.push("setCopyFilter('remote_only'); expect(!$('copyList').innerHTML.includes('Hugo (2011)'), 'remote-only filter includes main-only movie');");
+driver.push("showView('copies',false,'tv'); expect($('copyTitle').textContent === 'TV', 'TV view title wrong');");
+driver.push("expect(!$('copyList').innerHTML.includes('Hugo (2011)'), 'movie inventory leaked into TV view');");
+copyItem.status='remote_only'; copyItem.remote_files=copyItem.existing_files; copyItem.existing_files=[];
+driver.push("copyData = " + JSON.stringify({items:[copyItem]}) + "; openCopy='copy_1'; renderCopies();");
+driver.push("expect($('copyDetail').innerHTML.includes('Hardlink to main'), 'remote-only hardlink action missing');");
+driver.push("copyData.items[0].status='both'; renderCopies(); expect(!$('copyDetail').innerHTML.includes('onclick=\"hardlinkCopy'), 'both-copy title offers a new hardlink');");
 driver.push("console.log('RENDER_OK');");
 driver.push("} catch (error) { fail(error && error.stack ? error.stack : String(error)); }");
 

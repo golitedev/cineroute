@@ -29,21 +29,10 @@ qbittorrent:
   password: ""
 
 prowlarr:
-  # LAT-Team must already be configured inside Prowlarr.
-  # Alternatively: CINEROUTE_PROWLARR_URL, CINEROUTE_PROWLARR_API_KEY,
-  # CINEROUTE_PROWLARR_INDEXER
+  # Optional connection retained for future integrations.
+  # Alternatively: CINEROUTE_PROWLARR_URL and CINEROUTE_PROWLARR_API_KEY.
   url: "http://localhost:9696"
   api_key: ""
-  indexer_name: "LAT-Team"
-
-companion:
-  enabled: true
-  state_path: "/data/companions.db"
-  # These are soft ranking preferences; no Prowlarr release is filtered out.
-  max_size_gib: 20
-  min_seeders: 1
-  search_limit: 50
-  search_interval_seconds: 10
 
 # External subtitles for the remote movie libraries.
 # CineRoute searches OpenSubtitles.com for every target language a movie is

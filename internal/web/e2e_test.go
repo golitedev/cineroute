@@ -1084,16 +1084,6 @@ func TestAnimeDestinationUsesExistingSharedLibraryFolder(t *testing.T) {
 		t.Fatalf("anime submit failed: %+v", j.Intake)
 	}
 
-	resp, err = http.Post(httpSrv.URL+"/api/intakes/"+in.ID+"/companion-search", "application/json", strings.NewReader(`{}`))
-	if err != nil {
-		t.Fatal(err)
-	}
-	if resp.StatusCode != http.StatusConflict {
-		resp.Body.Close()
-		t.Fatalf("anime companion search status = %d, want %d", resp.StatusCode, http.StatusConflict)
-	}
-	resp.Body.Close()
-
 	fake.mu.Lock()
 	defer fake.mu.Unlock()
 	if len(fake.added) != 1 || fake.added[0].savepath != want {

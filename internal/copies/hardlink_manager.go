@@ -1,4 +1,4 @@
-package companion
+package copies
 
 import (
 	"context"
@@ -93,8 +93,7 @@ type HardlinkRemoveResult struct {
 }
 
 // HardlinkManager owns live discovery and safe maintenance of remote
-// hardlink trees. It does not depend on Prowlarr or the companion queues, so
-// existing hardlinks remain manageable even when companion searching is off.
+// hardlink trees independently of media browsing.
 type HardlinkManager struct {
 	lib *library.Scan
 	mu  sync.Mutex
