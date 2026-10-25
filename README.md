@@ -64,7 +64,8 @@ Secrets can also come from environment variables:
 | --- | --- |
 | TMDB API key | `CINEROUTE_TMDB_API_KEY` |
 | qBittorrent URL / user / password | `CINEROUTE_QBIT_URL` / `CINEROUTE_QBIT_USERNAME` / `CINEROUTE_QBIT_PASSWORD` |
-| Prowlarr URL / API key (future integrations) | `CINEROUTE_PROWLARR_URL` / `CINEROUTE_PROWLARR_API_KEY` |
+| Prowlarr URL / API key (Requests tracker configuration) | `CINEROUTE_PROWLARR_URL` / `CINEROUTE_PROWLARR_API_KEY` |
+| Request settings database | `CINEROUTE_REQUESTS_STATE_PATH` |
 | OpenSubtitles API key / user / password (Subtitles page) | `CINEROUTE_OS_API_KEY` / `CINEROUTE_OS_USERNAME` / `CINEROUTE_OS_PASSWORD` |
 | Enable or disable the Subtitles page | `CINEROUTE_SUBTITLES_ENABLED` |
 | Log level (`debug`, `info`, `warn`, `error`; default `info`) | `CINEROUTE_LOG_LEVEL` |
@@ -198,6 +199,53 @@ SQLite history, intake recovery after crash, singleton lease, archives,
 auto-submit mode, subtitles for the remote **TV** roots, OCR for
 image-based subtitles (PGS/DVD) and audio/voice-activity reference mode.
 
+## Requests settings
+
+The **Requests** tab, immediately after TV, configures administrator defaults
+for the upcoming request workflow. This stage saves policy only: user requests,
+scheduled searches, upgrades and automatic downloads are not active yet.
+The settings endpoints use the same authenticated administrator access as
+the rest of CineRoute.
+
+* **General:** allowed media types, automatic approval, per-user movie/series
+  limits and their time window, searches on approval, search pacing, retry
+  interval, release delay, minimum seeders, download concurrency and recovery.
+* **Trackers:** load indexers from the configured Prowlarr connection, select
+  torrent trackers and assign priorities (1 is strongest). Disabled and
+  non-torrent indexers cannot be newly selected. No trackers are selected by
+  default. Refreshing an unavailable server preserves the selected tracker IDs.
+* **Movies / TV:** independent Main or Remote destinations, automatic disk
+  placement or a selected disk for new titles, ordered allowed qualities,
+  upgrade targets, minimum keyword scores, codecs, audio languages and sizes.
+  Movie limits apply to a whole release; TV has separate episode and pack caps.
+  A maximum size of 0 means unlimited. TV monitoring, specials and season-pack
+  preference are separate from movie release availability.
+* **Keywords:** per-media text or regular-expression rules can prefer a release
+  with a positive or negative score, require a match, or reject a match. Every
+  required rule must match and any rejection blocks the release. Text matching
+  ignores case; regex matching is case-sensitive unless `(?i)` is specified.
+  Regexes are validated using Go's regular-expression syntax.
+
+Destinations default to **Remote** for both movies and TV. The chosen target
+will determine which library satisfies a request. Existing titles are still
+anchored by either main or remote folders, and shows stay on one disk. The
+new-title disk setting applies only when no existing title anchors the download;
+automatic selection uses the disk with the most free space. Library root paths
+come from the existing drive configuration.
+
+Use **Save settings** to persist the complete policy. Unsaved edits survive
+switching between settings panels and other tabs; Reload saved asks before
+discarding edits. Invalid settings are rejected without replacing saved policy.
+Settings survive restarts in `/data/requests.db`, configurable through
+`requests.state_path` or `CINEROUTE_REQUESTS_STATE_PATH`. Keep the existing
+`/data` volume writable; the read-only YAML configuration is not rewritten.
+
+The settings design was informed by upstream source inspected in temporary
+checkouts: [Seerr request defaults](https://github.com/seerr-team/seerr/blob/c57dca9/server/lib/settings/index.ts),
+[Radarr quality profiles](https://github.com/Radarr/Radarr/blob/4d9bd47/src/NzbDrone.Core/Profiles/Qualities/QualityProfile.cs)
+and [Sonarr release profiles](https://github.com/Sonarr/Sonarr/blob/465b519/src/NzbDrone.Core/Profiles/Releases/ReleaseProfile.cs).
+CineRoute stores its own policy and does not require these applications.
+
 ## Movies, TV and hardlinks
 
 The **Movies** and **TV** pages scan the main and remote library roots across
@@ -237,8 +285,8 @@ stays intact.
 and unrelated remote files. The tab can be rescanned at any time and supports
 searching and status/media filters.
 
-The Prowlarr client and optional URL/API-key configuration remain available
-for future integrations. The app does not perform tracker searches or offer
+The Prowlarr client and optional URL/API-key configuration supply the Requests
+tracker list. The app does not perform release searches or offer
 release approvals. Old `companion` settings and `prowlarr.indexer_name` entries
 are ignored; existing workflow databases are no longer opened or migrated and
 can be archived separately.

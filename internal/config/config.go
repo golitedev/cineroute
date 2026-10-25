@@ -17,6 +17,7 @@ type Config struct {
 	TMDB           TMDB        `yaml:"tmdb"`
 	QBittorrent    QBittorrent `yaml:"qbittorrent"`
 	Prowlarr       Prowlarr    `yaml:"prowlarr"`
+	Requests       Requests    `yaml:"requests"`
 	Subtitles      Subtitles   `yaml:"subtitles"`
 	Library        Library     `yaml:"library"`
 	Drives         []Drive     `yaml:"drives"`
@@ -36,6 +37,10 @@ type QBittorrent struct {
 type Prowlarr struct {
 	URL    string `yaml:"url"`
 	APIKey string `yaml:"api_key"`
+}
+
+type Requests struct {
+	StatePath string `yaml:"state_path"`
 }
 
 type Library struct {
@@ -125,6 +130,7 @@ func Default() *Config {
 			Username: "admin",
 		},
 		Prowlarr: Prowlarr{URL: "http://localhost:9696"},
+		Requests: Requests{StatePath: "/data/requests.db"},
 		Library:  Library{FolderFormat: "{title} ({year})"},
 		Subtitles: Subtitles{
 			Enabled:               true,
@@ -194,6 +200,9 @@ func Load(path string) (*Config, error) {
 }
 
 func applyEnv(cfg *Config) {
+	if v := os.Getenv("CINEROUTE_REQUESTS_STATE_PATH"); v != "" {
+		cfg.Requests.StatePath = v
+	}
 	if v := os.Getenv("CINEROUTE_LISTEN"); v != "" {
 		cfg.Listen = v
 	}
@@ -236,6 +245,9 @@ func applyEnv(cfg *Config) {
 }
 
 func (c *Config) validate() error {
+	if strings.TrimSpace(c.Requests.StatePath) == "" {
+		return errors.New("requests.state_path must not be empty")
+	}
 	if c.Listen == "" {
 		return errors.New("listen address must not be empty")
 	}

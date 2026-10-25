@@ -1,11 +1,15 @@
 package web
 
 import (
+	"encoding/json"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"cineroute/internal/config"
+	"cineroute/internal/requests"
 )
 
 // TestFrontendSubtitlesRender runs the page's own JavaScript against a stub DOM
@@ -24,6 +28,11 @@ func TestFrontendSubtitlesRender(t *testing.T) {
 		t.Fatalf("read template: %v", err)
 	}
 	script := extractInlineScript(t, string(data))
+	requestScript, err := os.ReadFile("templates/requests.js")
+	if err != nil {
+		t.Fatal(err)
+	}
+	script = string(requestScript) + "\n" + script
 	bootstrap := "loadStatus();loadHistory();refresh();"
 	index := strings.LastIndex(script, bootstrap)
 	if index < 0 {
@@ -36,7 +45,12 @@ func TestFrontendSubtitlesRender(t *testing.T) {
 	if err := os.WriteFile(headPath, []byte(script[:index]), 0o644); err != nil {
 		t.Fatalf("write page script: %v", err)
 	}
-	if err := os.WriteFile(driverPath, []byte(frontendDriver), 0o644); err != nil {
+	fixture, err := json.Marshal(map[string]any{"settings": requests.Defaults(), "qualities": requests.QualityOptions, "codecs": requests.CodecOptions, "drives": []config.Drive{{ID: "disk1", MovieRoot: "/disk1/media/movies", MovieRemoteRoot: "/disk1/media/movies-remote", TVRoot: "/disk1/media/tv", TVRemoteRoot: "/disk1/media/tv-remote"}}, "prowlarr_configured": true, "engine_available": false})
+	if err != nil {
+		t.Fatal(err)
+	}
+	driverSource := strings.ReplaceAll(frontendDriver, "__REQUEST_SETTINGS_FIXTURE__", string(fixture))
+	if err := os.WriteFile(driverPath, []byte(driverSource), 0o644); err != nil {
 		t.Fatalf("write driver: %v", err)
 	}
 
@@ -64,7 +78,7 @@ function makeEl() {
     isConnected: true, checked: false, files: [], placeholder: "", title: "",
     addEventListener() {}, removeEventListener() {}, appendChild() {}, removeChild() {},
     scrollIntoView() {}, focus() {}, select() {}, click() {}, setAttribute() {},
-    getAttribute() { return null; }, querySelectorAll() { return []; },
+    reportValidity() { return true; }, getAttribute() { return null; }, querySelectorAll() { return []; },
     querySelector() { return null; }, insertBefore() {}, closest() { return null; },
   };
 }
@@ -84,6 +98,7 @@ sandbox.window = sandbox; sandbox.self = sandbox; sandbox.globalThis = sandbox; 
 
 function fail(message) { console.log("FAILURE: " + message); process.exit(1); }
 function expect(condition, message) { if (!condition) fail(message); }
+function checkHandlers(html) { for(const match of html.matchAll(/on(?:click|input|change)="([^"]*)"/g)) { new vm.Script('(function(event){'+match[1]+'})'); } }
 
 const item = {
   id: "s_1", drive_id: "disk1", folder_name: "Hugo (2011)", video_name: "Hugo.2011.1080p.mkv",
@@ -101,7 +116,7 @@ const view = {
 };
 
 const driver = [];
-driver.push("try {");
+driver.push("(async () => { try {");
 driver.push("subtitleData = " + JSON.stringify(view) + ";");
 driver.push("renderSubtitles();");
 driver.push("expect($('subtitleRunButton').textContent.includes('next 20'), 'idle batch button should name the batch: ' + $('subtitleRunButton').textContent);");
@@ -143,9 +158,29 @@ copyItem.status='remote_only'; copyItem.remote_files=copyItem.existing_files; co
 driver.push("copyData = " + JSON.stringify({items:[copyItem]}) + "; openCopy='copy_1'; renderCopies();");
 driver.push("expect($('copyDetail').innerHTML.includes('Hardlink to main'), 'remote-only hardlink action missing');");
 driver.push("copyData.items[0].status='both'; renderCopies(); expect(!$('copyDetail').innerHTML.includes('onclick=\"hardlinkCopy'), 'both-copy title offers a new hardlink');");
+const requestFixture=__REQUEST_SETTINGS_FIXTURE__;
+driver.push("requestData="+JSON.stringify(requestFixture)+"; requestDraft=requestClone(requestData.settings);requestSavedJSON=JSON.stringify(requestDraft);renderRequests();checkHandlers($('requestsSettingsContent').innerHTML);");
+driver.push("expect($('requestsSettingsContent').innerHTML.includes('Permissions and approval'),'request defaults not rendered');");
+driver.push("setRequestField('movie.destination','main');setRequestField('movie.new_title_drive','disk1');setRequestPanel('movie');checkHandlers($('requestsSettingsContent').innerHTML);");
+driver.push("expect(requestDraft.tv.destination==='remote','movie destination changed TV destination');");
+driver.push("expect($('requestsSettingsContent').innerHTML.includes('value=\"main\" selected'), 'main destination is not selected');");
+driver.push("expect($('requestsSettingsContent').innerHTML.includes('/disk1/media/movies</code>'),'selected main root missing');");
+driver.push("moveRequestQuality('movie',1,-1);expect(requestDraft.movie.qualities[0]==='bluray-1080p','quality order not changed');");
+driver.push("addRequestKeyword('movie');setRequestKeyword('movie',0,'pattern','DUAL <tag>');setRequestKeyword('movie',0,'mode','required');");
+driver.push("expect(requestDraft.movie.keywords[0].score===0,'required keyword kept a preference score');");
+driver.push("expect($('requestsSettingsContent').innerHTML.includes('DUAL &lt;tag&gt;'),'keyword pattern is not escaped');");
+driver.push("setRequestPanel('tv');checkHandlers($('requestsSettingsContent').innerHTML);expect($('requestsSettingsContent').innerHTML.includes('Maximum season / series pack size'),'TV pack limit missing');");
+driver.push("requestIndexers=[{id:3,name:'Tracker',enable:true,protocol:'torrent'},{id:4,name:'Usenet',enable:true,protocol:'usenet'},{id:5,name:'Disabled',enable:false,protocol:'torrent'}];setRequestPanel('trackers');checkHandlers($('requestsSettingsContent').innerHTML);toggleRequestTracker(3,true);toggleRequestTracker(4,true);toggleRequestTracker(5,true);setRequestTrackerPriority(3,2);");
+driver.push("expect(requestDraft.trackers.length===1&&requestDraft.trackers[0].priority===2,'invalid tracker selected or priority lost');");
+driver.push("requestIndexers=[];requestIndexersLoaded=true;requestIndexerError='Prowlarr unavailable';renderRequests();expect($('requestsSettingsContent').innerHTML.includes('Tracker')&&requestDraft.trackers.length===1,'offline refresh discarded selected tracker');");
+driver.push("expect(requestDirty()&&requestDraft.movie.destination==='main','panel navigation discarded unsaved changes');");
+driver.push("fetch=async(path,opts)=>({ok:true,status:200,json:async()=>({...requestData,settings:JSON.parse(opts.body)})});await saveRequestSettings();expect(!requestDirty(),'successful save left a dirty draft');");
+driver.push("setRequestField('tv_limit',2);let resolveSave;fetch=async(path,opts)=>new Promise(resolve=>{resolveSave=()=>resolve({ok:true,status:200,json:async()=>({...requestData,settings:JSON.parse(opts.body)})})});const saving=saveRequestSettings();setRequestField('movie_limit',4);resolveSave();await saving;expect(requestDirty()&&requestDraft.movie_limit===4,'edits made during save were discarded');");
+driver.push("setRequestField('movie_limit',5);fetch=async()=>({ok:false,status:400,json:async()=>({error:'Invalid settings'})});await saveRequestSettings();expect(requestDirty()&&requestDraft.movie_limit===5&&$('requestsMessage').textContent==='Invalid settings','failed save discarded changes or hid validation error');");
 driver.push("console.log('RENDER_OK');");
-driver.push("} catch (error) { fail(error && error.stack ? error.stack : String(error)); }");
+driver.push("} catch (error) { fail(error && error.stack ? error.stack : String(error)); } })()");
 
+sandbox.checkHandlers = checkHandlers;
 sandbox.expect = expect;
 sandbox.fail = fail;
 vm.createContext(sandbox);

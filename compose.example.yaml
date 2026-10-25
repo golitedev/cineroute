@@ -27,7 +27,7 @@ services:
     volumes:
       # Configuration on the NAS:
       - /srv/docker/cineroute/config.yaml:/config/config.yaml:ro
-      # Subtitle state (must be writable by UID 1000 / GID 1000):
+      # Request settings and subtitle state (writable by UID 1000 / GID 1000):
       - /srv/docker/cineroute/data:/data
       # Subtitle work files (reference, downloaded, aligned). Disposable; keep
       # it on a fast path so /tmp does not fill the container's writable layer.

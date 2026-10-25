@@ -182,6 +182,26 @@ input[type=number]{width:90px}
 .hardlink-warning{background:#2b2412;border:1px solid #6b5214;border-radius:8px;padding:9px 11px;color:#e3b341;margin-top:12px;white-space:pre-wrap}
 @media(max-width:720px){.hardlink-stats{grid-template-columns:repeat(3,minmax(0,1fr))}.hardlink-card-head{flex-direction:column}.hardlink-card-actions{justify-content:flex-start}.hardlink-path-grid{grid-template-columns:1fr}}
 @media(max-width:480px){.hardlink-hero-top{flex-direction:column}.hardlink-scan-button{width:100%}.hardlink-stats{grid-template-columns:repeat(2,minmax(0,1fr))}.hardlink-file{grid-template-columns:1fr;gap:2px}.hardlink-file .file-meta{white-space:normal}}
+
+.request-nav{display:flex;gap:7px;flex-wrap:wrap;margin:0 0 14px}
+.request-nav button.active{border-color:var(--accent);color:#fff;background:#121a2e}
+.request-note{color:var(--dim);font-size:12px;margin:14px 0 8px;padding:10px 12px;border:1px solid var(--border);border-radius:7px;background:#12151b}
+.request-section+.request-section{border-top:1px solid var(--border);margin-top:22px;padding-top:18px}
+.request-section h3{font-size:14px;margin:0 0 10px}
+.request-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:14px 18px}
+.request-field{display:flex;flex-direction:column;gap:6px;min-width:0;font-size:12px}
+.request-field small,.request-check small{display:block;color:var(--dim);line-height:1.5;font-size:11px}
+#requestsView input[type=text],#requestsView input[type=number],#requestsView select{background:#0f1115;border:1px solid var(--border);border-radius:6px;color:var(--text);padding:8px 10px;font:inherit;min-width:0;width:100%}
+#requestsView select{cursor:pointer}
+#requestsView input:disabled,#requestsView select:disabled{opacity:.5}
+.request-check{display:flex;gap:9px;align-items:flex-start;font-size:13px;min-width:0}
+.request-check input{margin:4px 0 0;accent-color:var(--accent)}
+.request-roots{margin-top:12px;display:grid;gap:5px}.request-roots>div{display:flex;gap:12px;align-items:baseline}.request-roots span{color:var(--dim);font-size:12px}.request-roots code{font-size:11px;overflow-wrap:anywhere}
+.request-quality-list{display:grid;gap:6px}.request-quality{display:flex;gap:8px;align-items:center;border:1px solid var(--border);border-radius:7px;padding:8px 10px}.request-quality strong{flex:1;font-size:12px}.request-quality button{padding:4px 8px}
+.request-codecs{display:flex;flex-wrap:wrap;gap:10px 16px;margin:16px 0}.request-codecs>span{width:100%}.request-codecs label{font-size:12px}
+.request-keywords{display:grid;gap:12px}.request-keyword{display:grid;grid-template-columns:110px 135px minmax(0,1fr) 72px auto;gap:8px;align-items:end;padding:12px 0;border-bottom:1px solid var(--border)}.request-keyword label{display:flex;flex-direction:column;gap:5px;min-width:0}
+.request-trackers{display:grid;gap:10px;margin-top:14px}.request-tracker{display:grid;grid-template-columns:minmax(0,1fr) 90px;gap:12px;align-items:center;padding:10px 0;border-bottom:1px solid var(--border)}
+@media(max-width:600px){.request-grid{grid-template-columns:1fr}.request-keyword{grid-template-columns:1fr 1fr}.request-keyword .request-pattern{grid-column:1/-1}.request-quality{gap:5px;padding:8px}.request-quality button{padding:4px 6px}.request-roots>div{flex-direction:column;gap:0}}
 </style>
 </head>
 <body>
@@ -215,6 +235,7 @@ input[type=number]{width:90px}
   <button id="routeTab" class="primary" onclick="showView('route')">Route torrents</button>
   <button id="moviesTab" onclick="showView('copies',true,'movie')">Movies</button>
   <button id="tvTab" onclick="showView('copies',true,'tv')">TV</button>
+  <button id="requestsTab" onclick="showView('requests')">Requests</button>
   <button id="hardlinksTab" onclick="showView('hardlinks')">Hardlinks</button>
   <button id="subtitlesTab" onclick="showView('subtitles')">Subtitles</button>
 </div>
@@ -263,6 +284,29 @@ input[type=number]{width:90px}
     <div id="copyPagination" class="pagination"></div>
   </div>
   <div id="copyDetail" class="card copy-detail hidden"></div>
+</div>
+
+<div id="requestsView" class="hidden">
+  <div class="card">
+    <div class="copy-toolbar">
+      <div><h2 style="margin-bottom:4px">Requests</h2><div class="small">Configure request approval, trackers, destinations and release preferences.</div></div>
+      <div class="row"><button id="requestsReloadButton" type="button" onclick="loadRequests(true)">Reload saved</button><button id="requestsSaveButton" type="button" class="primary" disabled onclick="saveRequestSettings()">Save settings</button></div>
+    </div>
+    <p class="request-note">Settings are saved here now. User requests and automatic downloads will be added next.</p>
+    <div id="requestsSaveState" class="small" role="status" aria-live="polite"></div>
+    <div id="requestsLoading" class="small"></div>
+    <div id="requestsMessage" role="status" aria-live="polite"></div>
+  </div>
+  <div class="request-nav" id="requestPanelNav" aria-label="Request settings sections">
+    <button type="button" data-panel="general" class="active" onclick="setRequestPanel('general')">General</button>
+    <button type="button" data-panel="trackers" onclick="setRequestPanel('trackers')">Trackers</button>
+    <button type="button" data-panel="movie" onclick="setRequestPanel('movie')">Movies</button>
+    <button type="button" data-panel="tv" onclick="setRequestPanel('tv')">TV</button>
+  </div>
+  <form id="requestsForm" class="card" onsubmit="saveRequestSettings();return false">
+    <h2 id="requestsPanelTitle">Request defaults</h2>
+    <div id="requestsSettingsContent"></div>
+  </form>
 </div>
 
 <div id="hardlinkView" class="hidden">
@@ -359,6 +403,7 @@ input[type=number]{width:90px}
 </div>
 
 </main>
+<script src="/requests.js"></script>
 <script>
 const $=id=>document.getElementById(id);
 let intakes=[];
@@ -469,11 +514,14 @@ function showView(view,load=true,type){
   $("copyView").classList.toggle("hidden",view!=="copies");
   $("hardlinkView").classList.toggle("hidden",view!=="hardlinks");
   $("subtitlesView").classList.toggle("hidden",view!=="subtitles");
+  $("requestsView").classList.toggle("hidden",view!=="requests");
   $("routeTab").classList.toggle("primary",view==="route");
   $("moviesTab").classList.toggle("primary",view==="copies"&&copyType==="movie");
   $("tvTab").classList.toggle("primary",view==="copies"&&copyType==="tv");
   $("hardlinksTab").classList.toggle("primary",view==="hardlinks");
   $("subtitlesTab").classList.toggle("primary",view==="subtitles");
+  $("requestsTab").classList.toggle("primary",view==="requests");
+  if(view==="requests"&&load)loadRequests();
   if(view==="copies"&&load)loadCopies();
   if(view==="hardlinks"&&load)loadHardlinks();
   if(view==="subtitles"&&load)loadSubtitles();

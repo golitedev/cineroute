@@ -26,6 +26,7 @@ import (
 	"cineroute/internal/library"
 	"cineroute/internal/prowlarr"
 	"cineroute/internal/qbittorrent"
+	"cineroute/internal/requests"
 	"cineroute/internal/subtitles"
 	"cineroute/internal/tmdb"
 	"cineroute/internal/torrentmeta"
@@ -133,6 +134,7 @@ type Server struct {
 	tv        *copies.Manager
 	hardlinks *copies.HardlinkManager
 	subtitles *subtitles.Manager
+	requests  *requests.Store
 	allocMu   sync.Mutex
 	page      *template.Template
 
@@ -169,6 +171,7 @@ func New(cfg *config.Config, qb *qbittorrent.Client, tmdbClient *tmdb.Client, pr
 		tv:        copies.NewManager(scan, "tv"),
 		hardlinks: copies.NewHardlinkManager(scan),
 		subtitles: subtitles.NewManager(subtitleRuntimeConfig(cfg), scan),
+		requests:  requests.NewStore(cfg.Requests.StatePath),
 		intakes:   map[string]*Intake{},
 	}
 	s.page = template.Must(template.New("index.html").ParseFS(assetsFS, "templates/index.html"))
@@ -197,6 +200,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /favicon.png", s.serveAsset("logo/favicon.png"))
 	mux.HandleFunc("GET /favicon.svg", s.serveAsset("logo/favicon.svg"))
 	mux.HandleFunc("GET /logo.svg", s.serveAsset("logo/logo.svg"))
+	mux.HandleFunc("GET /requests.js", s.serveAsset("templates/requests.js"))
 	mux.HandleFunc("GET /health", s.health)
 	mux.HandleFunc("POST /api/login", s.login)
 	mux.HandleFunc("POST /api/logout", s.logout)
@@ -211,6 +215,9 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("POST /api/intakes/{id}/destination", s.setDestinationMode)
 	mux.HandleFunc("POST /api/intakes/{id}/submit", s.submit)
 	mux.HandleFunc("GET /api/copies", s.listCopies)
+	mux.HandleFunc("GET /api/requests/settings", s.requestSettings)
+	mux.HandleFunc("PUT /api/requests/settings", s.saveRequestSettings)
+	mux.HandleFunc("GET /api/requests/indexers", s.requestIndexers)
 	mux.HandleFunc("POST /api/copies/scan", s.scanCopies)
 	mux.HandleFunc("POST /api/copies/{id}/hardlink", s.hardlinkCopy)
 	mux.HandleFunc("GET /api/hardlinks", s.listHardlinks)
@@ -291,9 +298,15 @@ func (s *Server) serveAsset(name string) http.HandlerFunc {
 	if strings.HasSuffix(name, ".png") {
 		ct = "image/png"
 	}
+	if strings.HasSuffix(name, ".js") {
+		ct = "text/javascript; charset=utf-8"
+	}
 	return func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", ct)
 		w.Header().Set("Cache-Control", "public, max-age=86400")
+		if strings.HasSuffix(name, ".js") {
+			w.Header().Set("Cache-Control", "no-cache")
+		}
 		w.Write(data)
 	}
 }
@@ -306,7 +319,7 @@ func (s *Server) auth(next http.Handler) http.Handler {
 	user := s.cfg.AuthUsername
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		p := r.URL.Path
-		if p == "/" || p == "/health" || p == "/favicon.png" || p == "/favicon.svg" || p == "/logo.svg" || p == "/api/login" {
+		if p == "/" || p == "/health" || p == "/favicon.png" || p == "/favicon.svg" || p == "/logo.svg" || p == "/requests.js" || p == "/api/login" {
 			next.ServeHTTP(w, r)
 			return
 		}

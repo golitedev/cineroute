@@ -19,6 +19,11 @@ func TestSubtitleScriptIsTopLevel(t *testing.T) {
 		t.Fatalf("read template: %v", err)
 	}
 	script := extractInlineScript(t, string(data))
+	requestScript, err := os.ReadFile("templates/requests.js")
+	if err != nil {
+		t.Fatal(err)
+	}
+	script = string(requestScript) + "\n" + script
 	if script == "" {
 		t.Fatal("no inline script found in the template")
 	}
@@ -27,6 +32,11 @@ func TestSubtitleScriptIsTopLevel(t *testing.T) {
 	// functions they depend on. Every one of these must be global.
 	wanted := []string{
 		"showView",
+		"loadRequests",
+		"renderRequests",
+		"saveRequestSettings",
+		"renderRequestProfile",
+		"renderRequestTrackers",
 		"loadSubtitles",
 		"renderSubtitles",
 		"renderSubtitleDetail",

@@ -29,10 +29,15 @@ qbittorrent:
   password: ""
 
 prowlarr:
-  # Optional connection retained for future integrations.
+  # Used to load available torrent trackers in Requests settings.
   # Alternatively: CINEROUTE_PROWLARR_URL and CINEROUTE_PROWLARR_API_KEY.
   url: "http://localhost:9696"
   api_key: ""
+
+requests:
+  # Settings saved from the admin Requests page. Mount /data writable.
+  # Alternatively: CINEROUTE_REQUESTS_STATE_PATH.
+  state_path: "/data/requests.db"
 
 # External subtitles for the remote movie libraries.
 # CineRoute searches OpenSubtitles.com for every target language a movie is
