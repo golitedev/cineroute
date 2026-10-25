@@ -207,6 +207,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /logo.svg", s.serveAsset("logo/logo.svg"))
 	mux.HandleFunc("GET /requests.js", s.serveAsset("templates/requests.js"))
 	mux.HandleFunc("GET /catalog.js", s.serveAsset("templates/catalog.js"))
+	mux.HandleFunc("GET /viewport.js", s.serveAsset("templates/viewport.js"))
 	mux.HandleFunc("GET /app.css", s.serveAsset("templates/app.css"))
 	mux.HandleFunc("GET /health", s.health)
 	mux.HandleFunc("POST /api/login", s.login)

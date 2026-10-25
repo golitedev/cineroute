@@ -147,7 +147,7 @@ func (s *Server) authenticate(r *http.Request) (account, bool) {
 	return account{}, false
 }
 func publicPath(p string) bool {
-	return p == "/" || p == "/health" || p == "/favicon.png" || p == "/favicon.svg" || p == "/logo.svg" || p == "/requests.js" || p == "/catalog.js" || p == "/portal.js" || p == "/app.css" || p == "/api/login"
+	return p == "/" || p == "/health" || p == "/favicon.png" || p == "/favicon.svg" || p == "/logo.svg" || p == "/requests.js" || p == "/catalog.js" || p == "/viewport.js" || p == "/portal.js" || p == "/app.css" || p == "/api/login"
 }
 func userPath(r *http.Request) bool {
 	p := r.URL.Path

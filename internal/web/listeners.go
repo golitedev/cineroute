@@ -168,7 +168,7 @@ func (s *Server) PublicHandler() http.Handler {
 			return
 		}
 	})
-	for path, asset := range map[string]string{"/favicon.png": "logo/favicon.png", "/favicon.svg": "logo/favicon.svg", "/logo.svg": "logo/logo.svg", "/app.css": "templates/app.css", "/catalog.js": "templates/catalog.js", "/portal.js": "templates/portal.js"} {
+	for path, asset := range map[string]string{"/favicon.png": "logo/favicon.png", "/favicon.svg": "logo/favicon.svg", "/logo.svg": "logo/logo.svg", "/app.css": "templates/app.css", "/catalog.js": "templates/catalog.js", "/viewport.js": "templates/viewport.js", "/portal.js": "templates/portal.js"} {
 		mux.HandleFunc("GET "+path, s.serveAsset(asset))
 	}
 	mux.HandleFunc("GET /health", s.health)
