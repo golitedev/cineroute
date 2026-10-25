@@ -1,5 +1,5 @@
-// Package requests stores administrator policy for the upcoming request workflow.
-// Saving settings does not search indexers or submit downloads.
+// Package requests stores request policy, durable jobs and download receipts,
+// and manages conservative automated fulfillment.
 package requests
 
 import (

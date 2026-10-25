@@ -13,6 +13,8 @@ import (
 )
 
 type Result struct {
+	MediaType     string  `json:"media_type,omitempty"`
+	Adult         bool    `json:"adult,omitempty"`
 	ID            int     `json:"id"`
 	Title         string  `json:"title"`
 	Name          string  `json:"name"`

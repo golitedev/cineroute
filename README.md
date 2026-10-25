@@ -1,7 +1,10 @@
 # CineRoute
 
-Lightweight self-hosted web app that routes movie and TV `.torrent` files
-straight into a multi-drive media library.
+Self-hosted movie and TV requests, library routing and hardlink management
+across a multi-drive media library. Users search TMDB and request titles;
+administrators control approval, trackers, release profiles and destinations.
+CineRoute fulfills requests directly through Prowlarr and qBittorrent, without
+requiring Seerr, Radarr or Sonarr.
 
 Drop a torrent, CineRoute parses it (without downloading anything), detects
 whether it is a movie or TV show, extracts a search title, finds the canonical
@@ -47,7 +50,7 @@ Done
 
 ## Requirements
 
-* **Go 1.24+** to build, or use the Docker image.
+* **Go 1.25+** to build, or use the Docker image.
 * **qBittorrent 5.x** (Web API 2.11+) with the WebUI enabled.
 * Four HDDs with movie/TV roots (see config below). CineRoute and
 qBittorrent must see the **same** paths.
@@ -64,18 +67,24 @@ Secrets can also come from environment variables:
 | --- | --- |
 | TMDB API key | `CINEROUTE_TMDB_API_KEY` |
 | qBittorrent URL / user / password | `CINEROUTE_QBIT_URL` / `CINEROUTE_QBIT_USERNAME` / `CINEROUTE_QBIT_PASSWORD` |
-| Prowlarr URL / API key (Requests tracker configuration) | `CINEROUTE_PROWLARR_URL` / `CINEROUTE_PROWLARR_API_KEY` |
-| Request settings database | `CINEROUTE_REQUESTS_STATE_PATH` |
+| Prowlarr URL / API key (Requests searches and downloads) | `CINEROUTE_PROWLARR_URL` / `CINEROUTE_PROWLARR_API_KEY` |
+| Request state database | `CINEROUTE_REQUESTS_STATE_PATH` |
 | OpenSubtitles API key / user / password (Subtitles page) | `CINEROUTE_OS_API_KEY` / `CINEROUTE_OS_USERNAME` / `CINEROUTE_OS_PASSWORD` |
 | Enable or disable the Subtitles page | `CINEROUTE_SUBTITLES_ENABLED` |
 | Log level (`debug`, `info`, `warn`, `error`; default `info`) | `CINEROUTE_LOG_LEVEL` |
-| Web UI username (login form and basic auth, default `cineroute`) | `CINEROUTE_AUTH_USERNAME` |
-| Web UI password (login form with a 90-day session cookie; basic auth is the fallback) | `CINEROUTE_AUTH_PASSWORD` |
+| Legacy admin username (used only without `users`) | `CINEROUTE_AUTH_USERNAME` |
+| Legacy admin password (used only without `users`) | `CINEROUTE_AUTH_PASSWORD` |
 | Listen address | `CINEROUTE_LISTEN` |
 
 ```yaml
 listen: "127.0.0.1:8787"   # use 0.0.0.0:8787 inside a container
-auth_password: ""          # set a password or use CINEROUTE_AUTH_PASSWORD
+users:
+  - name: "admin"
+    role: "admin"
+    password: "replace-with-your-admin-password"
+  - name: "alice"
+    role: "user"
+    password: "replace-with-a-different-password"
 
 tmdb:
   api_key: ""              # v3 API key or v4 read access token, or CINEROUTE_TMDB_API_KEY
@@ -195,17 +204,44 @@ content path, file tree, empty category/tags, size, state).
 
 ## Not implemented yet
 
-SQLite history, intake recovery after crash, singleton lease, archives,
-auto-submit mode, subtitles for the remote **TV** roots, OCR for
+Persistent manual-intake history, manual-intake recovery after crash, archives,
+manual-intake auto-submit mode, subtitles for the remote **TV** roots, OCR for
 image-based subtitles (PGS/DVD) and audio/voice-activity reference mode.
 
-## Requests settings
+## Accounts and user requests
 
-The **Requests** tab, immediately after TV, configures administrator defaults
-for the upcoming request workflow. This stage saves policy only: user requests,
-scheduled searches, upgrades and automatic downloads are not active yet.
-The settings endpoints use the same authenticated administrator access as
-the rest of CineRoute.
+Create accounts in the YAML `users` list, using `name`, `role` (`admin` or
+`user`), and either `password` or bcrypt `password_hash`. Roles default to
+`user`; at least one enabled administrator is required. Names are unique
+ignoring case. Set `disabled: true` to disable an account. Restart after edits.
+To generate a hash without putting the password in a shell command:
+
+```sh
+read -r -s -p 'Password: ' request_password; echo
+printf '%s' "$request_password" | ./cineroute hash-password
+unset request_password
+```
+
+Paste the output into `password_hash` and remove `password` for that account.
+When `users` is populated it replaces the legacy `auth_username` /
+`auth_password` login. With no accounts and no legacy password, the original
+open-admin mode remains enabled. Existing installations can therefore migrate
+by adding an admin account and user accounts together.
+
+Admins retain the full management interface and can use **Search & request**
+to open the request portal. Users land on a single movie/show search bar with
+portrait posters, title details, TV season selection and their own request
+history with progress and cancellation. They cannot read administration APIs,
+other users' requests, filesystem paths, tracker URLs or credentials. TMDB API
+access stays on the server. Password, role, disable or removal changes invalidate
+the account's existing sessions after restart. Sessions last up to 90 days;
+keep `session.key` beside the request database persistent across restarts.
+
+The **Requests** admin tab, immediately after TV, contains the shared policy
+and a **Queue** for approval, decline, cancellation, retry and diagnostic details.
+Requests either enter this approval queue or are approved automatically according
+to policy. Limits are enforced per user; admins are exempt. Re-requesting a title
+merges seasons into the user's existing request instead of creating extra downloads.
 
 * **General:** allowed media types, automatic approval, per-user movie/series
   limits and their time window, searches on approval, search pacing, retry
@@ -227,8 +263,9 @@ the rest of CineRoute.
   Regexes are validated using Go's regular-expression syntax.
 
 Destinations default to **Remote** for both movies and TV. The chosen target
-will determine which library satisfies a request. Existing titles are still
-anchored by either main or remote folders, and shows stay on one disk. The
+determines which library satisfies a request. Each request captures its target
+and new-title disk setting when created; changing them applies to new requests.
+Existing titles are anchored by either main or remote folders, and shows stay on one disk. The
 new-title disk setting applies only when no existing title anchors the download;
 automatic selection uses the disk with the most free space. Library root paths
 come from the existing drive configuration.
@@ -236,9 +273,38 @@ come from the existing drive configuration.
 Use **Save settings** to persist the complete policy. Unsaved edits survive
 switching between settings panels and other tabs; Reload saved asks before
 discarding edits. Invalid settings are rejected without replacing saved policy.
-Settings survive restarts in `/data/requests.db`, configurable through
+Settings, request history, episode coverage, disk assignments and recovery
+receipts survive restarts in `/data/requests.db`, configurable through
 `requests.state_path` or `CINEROUTE_REQUESTS_STATE_PATH`. Keep the existing
 `/data` volume writable; the read-only YAML configuration is not rewritten.
+
+The worker searches only selected, enabled Prowlarr torrent indexers, ranks
+releases by allowed quality, keyword score, pack preference, tracker priority
+and seeders, and validates actual torrent files before adding anything. Unknown
+or ambiguous identities, qualities, episode numbering and overlapping packs
+remain waiting with an admin diagnostic. Language and codec rules use release
+and filename evidence; CineRoute does not inspect audio streams at search time.
+TV packs must contain only requested, aired episodes that are missing or eligible
+for upgrade. New episodes and future seasons are polled according to monitoring.
+Quality upgrades retain existing files and seeding torrents, adding a separate
+release only when it improves the profile; conflicting filenames are rejected.
+
+New downloads use the same stopped-add, destination/layout verification and
+start transaction as manual routing. Durable intents let a restart verify an
+existing add before resuming it. A completed matching torrent in the opposite
+library can have its selected torrent files hardlinked on the same disk without
+changing its seed location or linking unrelated episodes.
+A single database worker lease prevents multiple instances processing the same
+queue. The worker checks every 30 seconds, with search pacing and retry intervals
+from the policy. Stalled recovery pauses only request-managed torrents and keeps
+partial files; manually paused downloads remain paused. Cancelling a request
+withdraws monitoring, while files and downloads already started are retained.
+
+“Ready” means the expected files are present in the chosen library. Jellyfin
+must watch or scan those folders as usual. This workflow supports conventional
+season/episode numbering; ambiguous absolute/anime numbering is left for admin
+review rather than guessed. Configure TMDB, Prowlarr, selected trackers and
+qBittorrent before expecting automatic fulfillment.
 
 The settings design was informed by upstream source inspected in temporary
 checkouts: [Seerr request defaults](https://github.com/seerr-team/seerr/blob/c57dca9/server/lib/settings/index.ts),

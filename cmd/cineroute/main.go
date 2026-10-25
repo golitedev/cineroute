@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"flag"
+	"fmt"
 	"log/slog"
 	"net/http"
 	"os"
@@ -21,6 +22,15 @@ import (
 )
 
 func main() {
+	if len(os.Args) > 1 && os.Args[1] == "hash-password" {
+		hash, err := web.HashPassword(os.Stdin)
+		if err != nil {
+			slog.Error("hash password", "err", err)
+			os.Exit(1)
+		}
+		fmt.Println(hash)
+		return
+	}
 	var cfgPath string
 	var logLevel string
 	flag.StringVar(&cfgPath, "config", "", "path to config file (default: $CINEROUTE_CONFIG or ./config.yaml)")
@@ -47,7 +57,7 @@ func main() {
 	if cfg.TMDB.APIKey == "" {
 		slog.Warn("TMDB API key is not configured; TMDB search will be unavailable")
 	}
-	if cfg.AuthPassword == "" {
+	if cfg.AuthPassword == "" && len(cfg.Users) == 0 {
 		slog.Warn("no auth password configured; the web interface is unauthenticated")
 	}
 	if cfg.Subtitles.Enabled {
@@ -79,6 +89,11 @@ func main() {
 	}
 
 	srv := web.New(cfg, qb, tmdbClient, prowlarrClient)
+	if err := srv.Start(context.Background()); err != nil {
+		slog.Error("start request service", "err", err)
+		os.Exit(1)
+	}
+	defer srv.Close()
 	httpSrv := &http.Server{
 		Addr:              cfg.Listen,
 		Handler:           srv.Handler(),

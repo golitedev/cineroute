@@ -83,7 +83,7 @@ func TestRequestSettingsAuthenticationValidationAndRestart(t *testing.T) {
 	if err := json.Unmarshal(resp.Body.Bytes(), &view); err != nil {
 		t.Fatal(err)
 	}
-	if resp.Code != http.StatusOK || !reflect.DeepEqual(view.Settings, settings) || view.EngineAvailable {
+	if resp.Code != http.StatusOK || !reflect.DeepEqual(view.Settings, settings) || !view.EngineAvailable {
 		t.Fatalf("restart lost policy or advertised execution: %s", resp.Body.String())
 	}
 	cfg.Drives[0].TVRemoteRoot = ""

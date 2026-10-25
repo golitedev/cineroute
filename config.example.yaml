@@ -6,9 +6,23 @@
 # or the web UI is unreachable from the host.
 listen: "127.0.0.1:8787"
 
-# Optional username/password for the web interface. Quote them if they
-# contain special characters (# : " etc).
-# Alternatively: CINEROUTE_AUTH_USERNAME, CINEROUTE_AUTH_PASSWORD
+# Accounts are created here; restart CineRoute after editing. Admins manage
+# the whole app; users see only movie/TV search and their own requests.
+# Uncomment and replace these examples. At least one enabled admin is required.
+# Each account uses either password or password_hash, never both.
+# Generate a bcrypt hash with: ./cineroute hash-password < /path/to/password-file
+# users:
+#   - name: "admin"
+#     role: "admin"
+#     password: "replace-with-your-admin-password"
+#   - name: "alice"
+#     role: "user"
+#     password_hash: "$2a$...replace-with-generated-bcrypt-hash..."
+#     disabled: false
+
+# Legacy single-admin login, used only when users is empty.
+# Alternatively: CINEROUTE_AUTH_USERNAME, CINEROUTE_AUTH_PASSWORD.
+# An empty users list AND empty auth_password leaves the app open as admin.
 auth_username: "cineroute"
 auth_password: ""
 
@@ -29,13 +43,14 @@ qbittorrent:
   password: ""
 
 prowlarr:
-  # Used to load available torrent trackers in Requests settings.
+  # Used by Requests settings and automatic request searches/downloads.
   # Alternatively: CINEROUTE_PROWLARR_URL and CINEROUTE_PROWLARR_API_KEY.
   url: "http://localhost:9696"
   api_key: ""
 
 requests:
-  # Settings saved from the admin Requests page. Mount /data writable.
+  # Settings, requests, disk assignments and download recovery state.
+  # Mount /data writable and persistent; session.key is saved alongside this DB.
   # Alternatively: CINEROUTE_REQUESTS_STATE_PATH.
   state_path: "/data/requests.db"
 

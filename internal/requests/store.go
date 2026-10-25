@@ -79,12 +79,23 @@ func (s *Store) open() (*sql.DB, error) {
 	if err := os.MkdirAll(filepath.Dir(s.path), 0o755); err != nil {
 		return nil, fmt.Errorf("create request settings directory: %w", err)
 	}
+	file, err := os.OpenFile(s.path, os.O_CREATE|os.O_RDWR, 0o600)
+	if err != nil {
+		return nil, err
+	}
+	if err = file.Close(); err != nil {
+		return nil, err
+	}
 	db, err := sql.Open("sqlite", s.path)
 	if err != nil {
 		return nil, err
 	}
 	db.SetMaxOpenConns(1)
-	for _, query := range []string{"PRAGMA busy_timeout = 5000", "CREATE TABLE IF NOT EXISTS request_settings (id INTEGER PRIMARY KEY CHECK(id = 1), payload TEXT NOT NULL)"} {
+	if err := os.Chmod(s.path, 0o600); err != nil {
+		db.Close()
+		return nil, err
+	}
+	for _, query := range []string{"PRAGMA busy_timeout = 5000", "CREATE TABLE IF NOT EXISTS request_settings (id INTEGER PRIMARY KEY CHECK(id = 1), payload TEXT NOT NULL)", jobSchema} {
 		if _, err := db.Exec(query); err != nil {
 			db.Close()
 			return nil, fmt.Errorf("open request settings: %w", err)

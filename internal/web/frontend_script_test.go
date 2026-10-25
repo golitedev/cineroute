@@ -23,7 +23,11 @@ func TestSubtitleScriptIsTopLevel(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	script = string(requestScript) + "\n" + script
+	catalogScript, err := os.ReadFile("templates/catalog.js")
+	if err != nil {
+		t.Fatal(err)
+	}
+	script = string(requestScript) + "\n" + string(catalogScript) + "\n" + script
 	if script == "" {
 		t.Fatal("no inline script found in the template")
 	}

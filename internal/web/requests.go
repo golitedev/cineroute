@@ -8,6 +8,7 @@ import (
 	"log/slog"
 	"net/http"
 	"strings"
+	"time"
 
 	"cineroute/internal/config"
 	"cineroute/internal/requests"
@@ -26,7 +27,7 @@ func (s *Server) requestSettingsResponse(settings requests.Settings) any {
 		Drives             []config.Drive    `json:"drives"`
 		ProwlarrConfigured bool              `json:"prowlarr_configured"`
 		EngineAvailable    bool              `json:"engine_available"`
-	}{settings, requests.QualityOptions, requests.CodecOptions, drives, s.prowlarr.Configured(), false}
+	}{settings, requests.QualityOptions, requests.CodecOptions, drives, s.prowlarr.Configured(), true}
 }
 
 func (s *Server) requestSettings(w http.ResponseWriter, r *http.Request) {
@@ -64,6 +65,18 @@ func (s *Server) saveRequestSettings(w http.ResponseWriter, r *http.Request) {
 		slog.Error("save request settings", "err", err)
 		writeErr(w, http.StatusInternalServerError, "Request settings could not be saved. Check that the settings database is writable.")
 		return
+	}
+	if jobs, err := s.requests.Jobs(""); err == nil {
+		for _, job := range jobs {
+			if job.Status != "pending" && job.Status != "cancelled" && job.Status != "declined" && job.Status != "error" {
+				job.NextSearch = time.Now().UTC()
+				job.Status = "queued"
+				_ = s.requests.Update(job)
+			}
+		}
+	}
+	if s.engine != nil {
+		s.engine.Wake()
 	}
 	writeJSON(w, http.StatusOK, s.requestSettingsResponse(*settings))
 }

@@ -9,7 +9,6 @@ import (
 	"crypto/subtle"
 	"embed"
 	"encoding/base64"
-	"encoding/json"
 	"fmt"
 	"html/template"
 	"log/slog"
@@ -124,6 +123,7 @@ type SubmitResult struct {
 }
 
 type Server struct {
+	accounts  *accounts
 	cfg       *config.Config
 	prowlarr  *prowlarr.Client
 	qb        *qbittorrent.Client
@@ -135,6 +135,7 @@ type Server struct {
 	hardlinks *copies.HardlinkManager
 	subtitles *subtitles.Manager
 	requests  *requests.Store
+	engine    *requests.Engine
 	allocMu   sync.Mutex
 	page      *template.Template
 
@@ -162,6 +163,7 @@ func New(cfg *config.Config, qb *qbittorrent.Client, tmdbClient *tmdb.Client, pr
 	scan := library.NewScan(drives)
 	s := &Server{
 		cfg:       cfg,
+		accounts:  newAccounts(cfg),
 		qb:        qb,
 		prowlarr:  prowlarrClient,
 		tmdb:      tmdbClient,
@@ -174,6 +176,7 @@ func New(cfg *config.Config, qb *qbittorrent.Client, tmdbClient *tmdb.Client, pr
 		requests:  requests.NewStore(cfg.Requests.StatePath),
 		intakes:   map[string]*Intake{},
 	}
+	s.engine = requests.NewEngine(s.requests, tmdbClient, prowlarrClient, requestBackend{s})
 	s.page = template.Must(template.New("index.html").ParseFS(assetsFS, "templates/index.html"))
 	go s.cleanupLoop()
 	return s
@@ -201,9 +204,11 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /favicon.svg", s.serveAsset("logo/favicon.svg"))
 	mux.HandleFunc("GET /logo.svg", s.serveAsset("logo/logo.svg"))
 	mux.HandleFunc("GET /requests.js", s.serveAsset("templates/requests.js"))
+	mux.HandleFunc("GET /catalog.js", s.serveAsset("templates/catalog.js"))
 	mux.HandleFunc("GET /health", s.health)
 	mux.HandleFunc("POST /api/login", s.login)
 	mux.HandleFunc("POST /api/logout", s.logout)
+	mux.HandleFunc("GET /api/session", s.session)
 	mux.HandleFunc("GET /api/status", s.status)
 	mux.HandleFunc("GET /api/history", s.historyHandler)
 	mux.HandleFunc("GET /api/intakes", s.listIntakes)
@@ -215,6 +220,13 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("POST /api/intakes/{id}/destination", s.setDestinationMode)
 	mux.HandleFunc("POST /api/intakes/{id}/submit", s.submit)
 	mux.HandleFunc("GET /api/copies", s.listCopies)
+	mux.HandleFunc("GET /api/catalog/search", s.catalogSearch)
+	mux.HandleFunc("GET /api/catalog/{type}/{id}", s.catalogDetails)
+	mux.HandleFunc("GET /api/user/requests", s.userRequests)
+	mux.HandleFunc("POST /api/user/requests", s.createUserRequest)
+	mux.HandleFunc("POST /api/user/requests/{id}/cancel", s.cancelUserRequest)
+	mux.HandleFunc("GET /api/requests/queue", s.requestQueue)
+	mux.HandleFunc("POST /api/requests/queue/{id}/{action}", s.requestAction)
 	mux.HandleFunc("GET /api/requests/settings", s.requestSettings)
 	mux.HandleFunc("PUT /api/requests/settings", s.saveRequestSettings)
 	mux.HandleFunc("GET /api/requests/indexers", s.requestIndexers)
@@ -311,88 +323,13 @@ func (s *Server) serveAsset(name string) http.HandlerFunc {
 	}
 }
 
-// auth accepts a valid session cookie or Basic Auth credentials. Health
-// checks, the logo assets and the login endpoint are always public (the
-// login page itself shows the header logo); only the API is gated.
-func (s *Server) auth(next http.Handler) http.Handler {
-	pass := s.cfg.AuthPassword
-	user := s.cfg.AuthUsername
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		p := r.URL.Path
-		if p == "/" || p == "/health" || p == "/favicon.png" || p == "/favicon.svg" || p == "/logo.svg" || p == "/requests.js" || p == "/api/login" {
-			next.ServeHTTP(w, r)
-			return
-		}
-		if pass != "" {
-			if c, err := r.Cookie(sessionCookie); err == nil && validSession(pass, c.Value) {
-				next.ServeHTTP(w, r)
-				return
-			}
-			gotUser, pw, ok := r.BasicAuth()
-			if ok && gotUser == user &&
-				subtle.ConstantTimeCompare([]byte(pw), []byte(pass)) == 1 {
-				next.ServeHTTP(w, r)
-				return
-			}
-			// No WWW-Authenticate header here: advertising Basic Auth makes
-			// browsers pop their native credential dialog instead of using
-			// the login form, and the dialog's credentials never create the
-			// persistent session cookie. API clients can still send Basic
-			// Auth proactively (handled above); browsers see a plain JSON
-			// 401 and the frontend shows the sign-in card.
-			writeErr(w, http.StatusUnauthorized, "unauthorized")
-			return
-		}
-		next.ServeHTTP(w, r)
-	})
-}
-
-// login authenticates with the configured username and password and sets a
-// session cookie valid for sessionTTL. Logging in while auth is disabled is
-// a no-op.
-func (s *Server) login(w http.ResponseWriter, r *http.Request) {
-	pass := s.cfg.AuthPassword
-	if pass == "" {
-		writeJSON(w, http.StatusOK, apiResponse{})
-		return
-	}
-	var body struct {
-		Username string `json:"username"`
-		Password string `json:"password"`
-	}
-	r.Body = http.MaxBytesReader(w, r.Body, 1<<20)
-	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
-		writeErr(w, http.StatusBadRequest, "invalid body")
-		return
-	}
-	// An empty configured username means "any username" (keeps logins
-	// working for configs that never set auth_username); otherwise the
-	// username must match, compared in constant time.
-	userOK := s.cfg.AuthUsername == "" ||
-		subtle.ConstantTimeCompare([]byte(body.Username), []byte(s.cfg.AuthUsername)) == 1
-	if !userOK || subtle.ConstantTimeCompare([]byte(body.Password), []byte(pass)) != 1 {
-		writeErr(w, http.StatusUnauthorized, "invalid username or password")
-		return
-	}
-	expires := time.Now().Add(sessionTTL)
-	http.SetCookie(w, &http.Cookie{
-		Name:     sessionCookie,
-		Value:    sessionToken(pass, expires),
-		Path:     "/",
-		HttpOnly: true,
-		SameSite: http.SameSiteLaxMode,
-		Expires:  expires,
-		MaxAge:   int(sessionTTL / time.Second),
-	})
-	writeJSON(w, http.StatusOK, apiResponse{})
-}
-
 // logout clears the session cookie.
 func (s *Server) logout(w http.ResponseWriter, r *http.Request) {
 	http.SetCookie(w, &http.Cookie{
 		Name:     sessionCookie,
 		Value:    "",
 		Path:     "/",
+		Secure:   secureRequest(r),
 		HttpOnly: true,
 		SameSite: http.SameSiteLaxMode,
 		Expires:  time.Unix(1, 0),

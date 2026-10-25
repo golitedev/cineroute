@@ -65,7 +65,7 @@ th{color:var(--dim);font-weight:500;width:170px}
 @media(min-width:700px){.tmdb-list{--card:74px}}
 @media(max-width:520px){.tmdb-list{--card:54px;gap:5px}.tmdb-item .t{font-size:9px}}
 @media(max-width:400px){.tmdb-list{--card:46px;gap:4px}}
-.hidden{display:none}
+.hidden{display:none!important}
 .mono{font-family:ui-monospace,monospace;font-size:12px;word-break:break-all}
 .errbox{background:#2d1618;border:1px solid #7a2f2d;border-radius:8px;padding:10px 12px;color:#ff9b92;white-space:pre-wrap;margin-top:10px}
 .okbox{background:#12261a;border:1px solid #2c6a3a;border-radius:8px;padding:10px 12px;color:#7ee787;margin-top:10px}
@@ -202,12 +202,24 @@ input[type=number]{width:90px}
 .request-keywords{display:grid;gap:12px}.request-keyword{display:grid;grid-template-columns:110px 135px minmax(0,1fr) 72px auto;gap:8px;align-items:end;padding:12px 0;border-bottom:1px solid var(--border)}.request-keyword label{display:flex;flex-direction:column;gap:5px;min-width:0}
 .request-trackers{display:grid;gap:10px;margin-top:14px}.request-tracker{display:grid;grid-template-columns:minmax(0,1fr) 90px;gap:12px;align-items:center;padding:10px 0;border-bottom:1px solid var(--border)}
 @media(max-width:600px){.request-grid{grid-template-columns:1fr}.request-keyword{grid-template-columns:1fr 1fr}.request-keyword .request-pattern{grid-column:1/-1}.request-quality{gap:5px;padding:8px}.request-quality button{padding:4px 6px}.request-roots>div{flex-direction:column;gap:0}}
+
+.sr-only{position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap;border:0}
+header{flex-wrap:wrap}
+.catalog-hero{text-align:center;padding:56px 0 30px}.catalog-hero h2{font-size:30px;font-weight:650;text-transform:none;letter-spacing:-.03em;margin:0 0 8px}.catalog-hero>p{color:var(--dim);margin:0 0 22px}.catalog-hero.has-search{padding:22px 0}.catalog-hero.has-search h2{font-size:24px}
+.catalog-search{display:flex;gap:10px;padding:8px;border:1px solid #3a4354;border-radius:12px;background:var(--panel);box-shadow:0 8px 30px #0002}.catalog-search:focus-within{border-color:var(--accent)}.catalog-search input{flex:1;min-width:0;border:0;outline:none;background:transparent;color:var(--text);font:inherit;padding:8px 10px}.catalog-search button{padding:9px 18px}
+.catalog-filters{display:flex;gap:6px;justify-content:center;margin:14px 0}.catalog-filters button{background:transparent;border-color:transparent;color:var(--dim)}.catalog-filters button.active{background:#1d2b45;border-color:#355a96;color:var(--text)}
+.catalog-results{display:grid;grid-template-columns:repeat(auto-fill,minmax(125px,1fr));gap:20px 14px}.catalog-card{background:none;border:0;padding:0;text-align:left;min-width:0;display:flex;flex-direction:column;align-items:flex-start;gap:5px}.catalog-card:hover{background:none}.catalog-poster{display:block;aspect-ratio:2/3;width:100%;border-radius:8px;overflow:hidden;background:linear-gradient(145deg,#26334b,#161b25);border:1px solid var(--border)}.catalog-poster img{width:100%;height:100%;object-fit:cover;display:block}.catalog-card:hover .catalog-poster{border-color:var(--accent)}.catalog-card-title{font-size:13px;line-height:1.4;font-weight:600;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}.catalog-card-meta{font-size:11px;color:var(--dim)}.catalog-card .badge{font-size:10px}.catalog-no-poster{display:flex;align-items:center;justify-content:center;padding:16px;height:100%;text-align:center;color:var(--dim)}
+.catalog-detail-head{display:grid;grid-template-columns:125px minmax(0,1fr);gap:20px}.catalog-detail-head:has(>div:first-child){grid-template-columns:1fr}.catalog-detail-poster{width:125px;aspect-ratio:2/3;object-fit:cover;border-radius:7px}.catalog-detail-head h2{text-transform:none;font-size:19px;letter-spacing:0;margin:0}.catalog-detail-head p{font-size:13px;color:var(--dim)}.catalog-seasons{display:grid;grid-template-columns:repeat(auto-fill,minmax(145px,1fr));gap:8px}.catalog-season{display:flex;gap:9px;background:#12151b;border:1px solid var(--border);border-radius:7px;padding:10px;align-items:flex-start;font-size:13px}.catalog-season small{display:block;color:var(--dim);font-size:11px}.catalog-season input{accent-color:var(--accent);margin-top:4px}
+.portal-request{display:flex;gap:13px;padding:14px 0;border-top:1px solid var(--border);align-items:center}.portal-request:first-child{border-top:0}.portal-request-art{width:48px;min-width:48px;height:72px;padding:0;overflow:hidden;background:#202b40;border:0;border-radius:5px}.portal-request-art img{width:100%;height:100%;object-fit:cover}.portal-request-body{min-width:0;flex:1;display:flex;flex-direction:column;gap:4px}.portal-request-body strong{font-size:13px}.portal-request-body progress{width:100%;height:5px;accent-color:var(--accent)}.portal-request-actions{display:flex;flex-direction:column;align-items:flex-end;gap:8px}.portal-request-actions button{font-size:11px;padding:4px 8px}.catalog-attribution{font-size:10px;color:var(--dim);text-align:center;margin:24px 0}
+.admin-request{border-top:1px solid var(--border);padding:14px 0}.admin-request strong{font-size:14px}.request-diagnostic{font-size:11px;background:#191d25;color:var(--dim);padding:9px;border-radius:6px;overflow-wrap:anywhere}
+@media(max-width:600px){header{flex-wrap:wrap;gap:10px}header .tag{display:none}#accountBar{gap:5px}#accountBar button{padding:5px 8px;font-size:11px}.catalog-hero{padding:30px 0 20px}.catalog-hero h2{font-size:26px}.catalog-results{grid-template-columns:repeat(2,minmax(0,1fr));gap:18px 12px}.catalog-detail-head{grid-template-columns:90px minmax(0,1fr);gap:12px}.catalog-detail-poster{width:90px}.portal-request{gap:9px}.portal-request-actions{max-width:95px}.portal-request-actions .badge{white-space:normal;text-align:right}}
 </style>
 </head>
 <body>
 <header>
   <h1><img id="brandIcon" src="/favicon.svg" alt=""> <img id="brand" src="/logo.svg" alt="CineRoute"></h1>
-  <span class="tag">route torrents into the media library</span>
+  <span class="tag" id="headerTag">route torrents into the media library</span>
+  <div id="accountBar" class="row hidden" style="margin-left:auto"><span id="accountName" class="small"></span><button id="openPortalButton" type="button" onclick="openUserPortal()">Search &amp; request</button><button id="openAdminButton" type="button" class="hidden" onclick="openAdministration()">Administration</button><button type="button" onclick="signOut()">Sign out</button></div>
   <div id="statusbar" style="margin-left:auto"></div>
 </header>
 <main>
@@ -228,6 +240,23 @@ input[type=number]{width:90px}
   </div>
   <button class="primary login-btn" id="loginBtn" onclick="login()">Sign in</button>
   <div id="loginErr" class="errbox hidden"></div>
+</div>
+
+<div id="userShell" class="hidden">
+  <section id="catalogHero" class="catalog-hero">
+    <h2>Your next watch</h2><p>Search for a movie or show. We’ll take care of the rest.</p>
+    <form class="catalog-search" onsubmit="searchCatalog();return false">
+      <label class="sr-only" for="catalogQuery">Search movies and TV shows</label>
+      <input id="catalogQuery" type="search" minlength="2" maxlength="200" placeholder="Search movies and shows…" autocomplete="off" required>
+      <button id="catalogSearchButton" type="submit" class="primary">Search</button>
+    </form>
+    <div id="catalogFilters" class="catalog-filters"><button type="button" class="active" data-type="all" onclick="setCatalogFilter('all')">All</button><button type="button" data-type="movie" onclick="setCatalogFilter('movie')">Movies</button><button type="button" data-type="tv" onclick="setCatalogFilter('tv')">TV shows</button></div>
+    <div id="catalogMessage" class="small" role="status" aria-live="polite"></div>
+  </section>
+  <div id="catalogResults" class="catalog-results"></div><button id="catalogMore" type="button" class="hidden" style="margin:18px auto;display:block" onclick="searchCatalog(true)">Load more</button>
+  <section id="catalogDetail" class="card hidden"></section>
+  <section class="card" style="margin-top:24px"><div class="copy-toolbar"><h2>My requests</h2><button type="button" onclick="loadMyRequests()">Refresh</button></div><div id="myRequestMessage" class="small" role="status"></div><div id="myRequestList"></div></section>
+  <p class="catalog-attribution">Movie and TV metadata provided by TMDB. This product uses the TMDB API but is not endorsed or certified by TMDB.</p>
 </div>
 
 <div id="appShell" class="hidden">
@@ -292,12 +321,13 @@ input[type=number]{width:90px}
       <div><h2 style="margin-bottom:4px">Requests</h2><div class="small">Configure request approval, trackers, destinations and release preferences.</div></div>
       <div class="row"><button id="requestsReloadButton" type="button" onclick="loadRequests(true)">Reload saved</button><button id="requestsSaveButton" type="button" class="primary" disabled onclick="saveRequestSettings()">Save settings</button></div>
     </div>
-    <p class="request-note">Settings are saved here now. User requests and automatic downloads will be added next.</p>
+    <p class="request-note">These settings control user requests and automatic downloads. Existing titles stay on their assigned disk.</p>
     <div id="requestsSaveState" class="small" role="status" aria-live="polite"></div>
     <div id="requestsLoading" class="small"></div>
     <div id="requestsMessage" role="status" aria-live="polite"></div>
   </div>
   <div class="request-nav" id="requestPanelNav" aria-label="Request settings sections">
+    <button type="button" data-panel="queue" onclick="setRequestPanel('queue')">Queue</button>
     <button type="button" data-panel="general" class="active" onclick="setRequestPanel('general')">General</button>
     <button type="button" data-panel="trackers" onclick="setRequestPanel('trackers')">Trackers</button>
     <button type="button" data-panel="movie" onclick="setRequestPanel('movie')">Movies</button>
@@ -404,6 +434,7 @@ input[type=number]{width:90px}
 
 </main>
 <script src="/requests.js"></script>
+<script src="/catalog.js"></script>
 <script>
 const $=id=>document.getElementById(id);
 let intakes=[];
@@ -456,9 +487,7 @@ async function login(){
   btn.disabled=true;btn.textContent="Signing in…";
   try{
     await postJSON("/api/login",{username:user,password:pass});
-    showView("route",false);
-    $("uploadCard").classList.remove("hidden");
-    loadStatus();loadHistory();refresh();
+    await loadSession();
   }catch(e){
     $("loginErr").textContent=e.message;
     $("loginErr").classList.remove("hidden");
@@ -482,11 +511,15 @@ function togglePass(){
   i.focus();
 }
 function showApp(){
-  $("loginCard").classList.add("hidden");
-  $("appShell").classList.remove("hidden");
-  $("statusbar").style.display="";
+  if(!currentAccount)return;
+  const admin=currentAccount.role==="admin"&&!portalMode;
+  $("loginCard").classList.add("hidden");$("appShell").classList.toggle("hidden",!admin);$("userShell").classList.toggle("hidden",admin);
+  $("accountBar").classList.remove("hidden");$("accountName").textContent=currentAccount.name;
+  $("openPortalButton").classList.toggle("hidden",!admin);$("openAdminButton").classList.toggle("hidden",currentAccount.role!=="admin"||admin);
+  $("statusbar").style.display=admin?"":"none";$("headerTag").textContent=admin?"route torrents into the media library":"movies and shows, requested by you";
 }
 function showLogin(){
+  currentAccount=null;resetPortal();requestData=null;requestDraft=null;requestSavedJSON="";requestIndexers=[];requestIndexersLoaded=false;adminQueue=[];$("requestsSettingsContent").innerHTML="";$("userShell").classList.add("hidden");$("accountBar").classList.add("hidden");
   const opening=$("loginCard").classList.contains("hidden");
   $("appShell").classList.add("hidden");
   $("stack").innerHTML="";
@@ -529,8 +562,10 @@ function showView(view,load=true,type){
 
 // ---- status ----
 async function loadStatus(){
+  if(currentAccount?.role!=="admin")return;
   try{
     const s=await api("/api/status");
+    if(currentAccount?.role!=="admin")return;
     const b=$("statusbar");
     b.innerHTML="";
     const add=(txt,cls)=>b.appendChild(Object.assign(document.createElement("span"),{className:"badge "+cls,textContent:txt}));
@@ -794,7 +829,9 @@ async function hardlinkCopy(id,button){
 
 // ---- render ----
 function refresh(){
+  if(currentAccount?.role!=="admin")return;
   api("/api/intakes").then(j=>{
+    if(currentAccount?.role!=="admin")return;
     intakes=j.intakes||[];
     render();
   }).catch(()=>{intakes=[];render()});
@@ -971,8 +1008,10 @@ function cardTV(g){
 
 // ---- history ----
 async function loadHistory(){
+  if(currentAccount?.role!=="admin")return;
   try{
     const j=await api("/api/history");
+    if(currentAccount?.role!=="admin")return;
     if(!j.history||!j.history.length){$("historyCard").classList.add("hidden");return}
     $("historyCard").classList.remove("hidden");
     $("historyBody").innerHTML=j.history.slice().reverse().map(h=>{
@@ -1261,8 +1300,9 @@ async function skipSubtitleItem(id,button){
   try{const response=await postJSON("/api/subtitles/"+encodeURIComponent(id)+"/skip",{});subtitleData=response;renderSubtitles()}
   catch(e){alert(e.message);button.disabled=false}
 }
-loadStatus();loadHistory();refresh();
+loadSession();
 setInterval(loadStatus,30000);
+setInterval(()=>{if(currentAccount&&(portalMode||currentAccount.role!=="admin"))loadMyRequests();if(currentAccount?.role==="admin"&&requestPanel==="queue"&&!$("requestsView").classList.contains("hidden"))loadAdminQueue()},15000);
 </script>
 </body>
 </html>

@@ -13,6 +13,7 @@ type Config struct {
 	Listen         string      `yaml:"listen"`
 	AuthUsername   string      `yaml:"auth_username"`
 	AuthPassword   string      `yaml:"auth_password"`
+	Users          []User      `yaml:"users"`
 	MaxUploadBytes int64       `yaml:"max_upload_bytes"`
 	TMDB           TMDB        `yaml:"tmdb"`
 	QBittorrent    QBittorrent `yaml:"qbittorrent"`
@@ -41,6 +42,15 @@ type Prowlarr struct {
 
 type Requests struct {
 	StatePath string `yaml:"state_path"`
+}
+
+// User follows Romero's config-based accounts, with explicit CineRoute roles.
+type User struct {
+	Name         string `yaml:"name"`
+	Role         string `yaml:"role"`
+	Password     string `yaml:"password"`
+	PasswordHash string `yaml:"password_hash"`
+	Disabled     bool   `yaml:"disabled"`
 }
 
 type Library struct {
@@ -245,6 +255,9 @@ func applyEnv(cfg *Config) {
 }
 
 func (c *Config) validate() error {
+	if err := c.validateUsers(); err != nil {
+		return err
+	}
 	if strings.TrimSpace(c.Requests.StatePath) == "" {
 		return errors.New("requests.state_path must not be empty")
 	}

@@ -1,4 +1,4 @@
-// Administrator policy only. The request execution worker is a later feature.
+// Administrator request policy and queue. Server permissions remain authoritative.
 let requestData=null,requestDraft=null,requestSavedJSON="",requestPanel="general";
 let requestIndexers=[],requestIndexersLoaded=false,requestIndexerError="",requestSaving=false,requestLoading=false;
 const requestClone=value=>JSON.parse(JSON.stringify(value));
@@ -18,12 +18,14 @@ function requestMessage(message,error=false){
   const el=$('requestsMessage');el.textContent=message;el.className=message?(error?'errbox':'okbox'):'';
 }
 async function loadRequests(force=false){
+  if(currentAccount?.role!=="admin")return;const owner=currentAccount.name;
   if(requestLoading||requestSaving)return;
   if(requestData&&!force){renderRequests();return}
   if(force&&requestDirty()&&!confirm('Discard unsaved request settings and reload?'))return;
   requestLoading=true;$('requestsLoading').textContent='Loading request settings…';updateRequestSaveState();
   try{
     const data=await api('/api/requests/settings');
+    if(currentAccount?.role!=="admin"||currentAccount.name!==owner)return;
     requestData=data;requestDraft=requestClone(data.settings);requestSavedJSON=JSON.stringify(requestDraft);
     renderRequests();requestMessage('');
     if(data.prowlarr_configured&&!requestIndexersLoaded)loadRequestIndexers();
@@ -31,19 +33,21 @@ async function loadRequests(force=false){
   finally{requestLoading=false;$('requestsLoading').textContent='';updateRequestSaveState()}
 }
 async function saveRequestSettings(){
+  if(currentAccount?.role!=="admin")return;const owner=currentAccount.name;
   if(!requestDraft||requestSaving||requestLoading||!$('requestsForm').reportValidity())return;
   let snapshot;
   try{snapshot=JSON.stringify(requestDraft,(key,value)=>{if(typeof value==='number'&&!Number.isFinite(value))throw new Error('Fill in all numeric settings before saving.');return value})}catch(e){requestMessage(e.message,true);return}
   requestSaving=true;requestMessage('');updateRequestSaveState();
   try{
     const response=await api('/api/requests/settings',{method:'PUT',headers:{'Content-Type':'application/json'},body:snapshot});
+    if(currentAccount?.role!=="admin"||currentAccount.name!==owner)return;
     requestData=response;requestSavedJSON=JSON.stringify(response.settings);
     if(JSON.stringify(requestDraft)===snapshot)requestDraft=requestClone(response.settings);
     requestMessage(requestDirty()?'Saved. You have additional unsaved changes.':'Request settings saved.');
   }catch(e){requestMessage(e.message,true)}
   finally{requestSaving=false;updateRequestSaveState()}
 }
-function setRequestPanel(panel){requestPanel=panel;renderRequests()}
+function setRequestPanel(panel){requestPanel=panel;renderRequests();if(panel==='queue')loadAdminQueue()}
 function requestNumber(path,label,min,max,step=1,hint=''){
   return '<label class="request-field"><span>'+label+'</span><input type="number" required min="'+min+'" max="'+max+'" step="'+step+'" value="'+esc(requestValue(path))+'" oninput="setRequestField(\''+path+'\',this.value.length?Number(this.value):NaN)">'+(hint?'<small>'+hint+'</small>':'')+'</label>';
 }
@@ -56,13 +60,13 @@ function requestSelect(path,label,options,hint='',rerender=false){
 function renderRequests(){
   document.querySelectorAll('#requestPanelNav button').forEach(button=>button.classList.toggle('active',button.dataset.panel===requestPanel));
   if(!requestDraft)return;
-  const titles={general:'Request defaults',trackers:'Trackers',movie:'Movie profile',tv:'TV profile'};
+  const titles={queue:'Request queue',general:'Request defaults',trackers:'Trackers',movie:'Movie profile',tv:'TV profile'};
   $('requestsPanelTitle').textContent=titles[requestPanel];
-  $('requestsSettingsContent').innerHTML=requestPanel==='general'?renderRequestGeneral():requestPanel==='trackers'?renderRequestTrackers():renderRequestProfile(requestPanel);
+  $('requestsSettingsContent').innerHTML=requestPanel==='queue'?renderRequestQueue():requestPanel==='general'?renderRequestGeneral():requestPanel==='trackers'?renderRequestTrackers():renderRequestProfile(requestPanel);
   updateRequestSaveState();
 }
 function renderRequestGeneral(){
-  return '<div class="request-section"><h3>Permissions and approval</h3><p class="small">Defaults for future user requests. A limit of 0 means unlimited; a TV limit counts series.</p><div class="request-grid">'+requestCheck('allow_movies','Allow movie requests')+requestCheck('allow_tv','Allow TV requests')+requestCheck('auto_approve','Automatically approve requests')+requestCheck('search_on_approval','Search when a request is approved')+requestNumber('movie_limit','Movie limit per user',0,10000)+requestNumber('tv_limit','Series limit per user',0,10000)+requestNumber('limit_days','Limit window (days)',1,365)+'</div></div>'+
+  return '<div class="request-section"><h3>Permissions and approval</h3><p class="small">Defaults for user requests. A limit of 0 means unlimited; a TV limit counts series.</p><div class="request-grid">'+requestCheck('allow_movies','Allow movie requests')+requestCheck('allow_tv','Allow TV requests')+requestCheck('auto_approve','Automatically approve requests')+requestCheck('search_on_approval','Search when a request is approved')+requestNumber('movie_limit','Movie limit per user',0,10000)+requestNumber('tv_limit','Series limit per user',0,10000)+requestNumber('limit_days','Limit window (days)',1,365)+'</div></div>'+
     '<div class="request-section"><h3>Search and download policy</h3><div class="request-grid">'+requestNumber('search_interval_seconds','Delay between tracker searches (seconds)',1,3600)+requestNumber('retry_interval_hours','Retry missing releases after (hours)',1,720)+requestNumber('release_delay_minutes','Wait for a preferred release (minutes)',0,10080,1,'0 means no delay after approval.')+requestNumber('min_seeders','Minimum seeders',0,100000)+requestNumber('max_concurrent_downloads','Maximum simultaneous request downloads',1,100)+requestNumber('stalled_minutes','Consider stalled after (minutes)',0,10080,1,'0 disables automatic stalled-download recovery.')+requestCheck('retry_failed_downloads','Try another release after a failed download')+'</div></div>';
 }
 function requestDriveRoot(drive,kind,target){
@@ -118,8 +122,9 @@ function setRequestKeyword(kind,index,field,value){
   if(field==='mode'){if(value!=='preferred')rule.score=0;renderRequests()}else updateRequestSaveState();
 }
 async function loadRequestIndexers(){
+  if(currentAccount?.role!=="admin")return;const owner=currentAccount.name;
   $('requestsTrackerRefresh')?.setAttribute('disabled','disabled');
-  try{const response=await api('/api/requests/indexers');requestIndexers=response.indexers||[];requestIndexersLoaded=true;requestIndexerError=''}
+  try{const response=await api('/api/requests/indexers');if(currentAccount?.role!=="admin"||currentAccount.name!==owner)return;requestIndexers=response.indexers||[];requestIndexersLoaded=true;requestIndexerError=''}
   catch(e){requestIndexerError=e.message}
   if(requestPanel==='trackers')renderRequests();
 }

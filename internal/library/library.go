@@ -331,6 +331,7 @@ var VideoExtensions = map[string]bool{
 	".m4v":  true,
 	".avi":  true,
 	".webm": true,
+	".ts":   true, ".m2ts": true, ".mov": true,
 }
 
 // WalkVideoFiles returns the relative paths of every video file below root. It

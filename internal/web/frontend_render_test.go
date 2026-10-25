@@ -32,8 +32,12 @@ func TestFrontendSubtitlesRender(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	script = string(requestScript) + "\n" + script
-	bootstrap := "loadStatus();loadHistory();refresh();"
+	catalogScript, err := os.ReadFile("templates/catalog.js")
+	if err != nil {
+		t.Fatal(err)
+	}
+	script = string(requestScript) + "\n" + string(catalogScript) + "\n" + script
+	bootstrap := "loadSession();"
 	index := strings.LastIndex(script, bootstrap)
 	if index < 0 {
 		t.Fatalf("bootstrap call %q not found in the page script", bootstrap)
@@ -72,8 +76,9 @@ const fs = require("fs"), vm = require("vm");
 const script = fs.readFileSync(process.argv[2], "utf8");
 
 function makeEl() {
+  const classes=new Set();
   return {
-    classList: { add() {}, remove() {}, toggle() {}, contains() { return false; } },
+    classList: { add(...names) {names.forEach(name=>classes.add(name))}, remove(...names) {names.forEach(name=>classes.delete(name))}, toggle(name,on) {if(on===undefined)on=!classes.has(name);if(on)classes.add(name);else classes.delete(name)}, contains(name) { return classes.has(name); } },
     style: {}, dataset: {}, value: "", textContent: "", innerHTML: "", disabled: false,
     isConnected: true, checked: false, files: [], placeholder: "", title: "",
     addEventListener() {}, removeEventListener() {}, appendChild() {}, removeChild() {},
@@ -92,7 +97,7 @@ const sandbox = {
   document, console, alert(message) { console.log("ALERT: " + message); }, confirm() { return true; },
   fetch: async () => ({ ok: true, status: 200, json: async () => ({}) }),
   setTimeout() { return 0; }, clearTimeout() {}, setInterval() { return 0; }, clearInterval() {},
-  Number, String, Math, JSON, Object, Array, Date, parseFloat, parseInt, isFinite, Intl, Symbol, Error, RegExp, Map, Set,
+  AbortController, Number, String, Math, JSON, Object, Array, Date, parseFloat, parseInt, isFinite, Intl, Symbol, Error, RegExp, Map, Set,
 };
 sandbox.window = sandbox; sandbox.self = sandbox; sandbox.globalThis = sandbox; sandbox.location = { href: "" };
 
@@ -159,7 +164,7 @@ driver.push("copyData = " + JSON.stringify({items:[copyItem]}) + "; openCopy='co
 driver.push("expect($('copyDetail').innerHTML.includes('Hardlink to main'), 'remote-only hardlink action missing');");
 driver.push("copyData.items[0].status='both'; renderCopies(); expect(!$('copyDetail').innerHTML.includes('onclick=\"hardlinkCopy'), 'both-copy title offers a new hardlink');");
 const requestFixture=__REQUEST_SETTINGS_FIXTURE__;
-driver.push("requestData="+JSON.stringify(requestFixture)+"; requestDraft=requestClone(requestData.settings);requestSavedJSON=JSON.stringify(requestDraft);renderRequests();checkHandlers($('requestsSettingsContent').innerHTML);");
+driver.push("currentAccount={name:'admin',role:'admin'};requestData="+JSON.stringify(requestFixture)+"; requestDraft=requestClone(requestData.settings);requestSavedJSON=JSON.stringify(requestDraft);renderRequests();checkHandlers($('requestsSettingsContent').innerHTML);");
 driver.push("expect($('requestsSettingsContent').innerHTML.includes('Permissions and approval'),'request defaults not rendered');");
 driver.push("setRequestField('movie.destination','main');setRequestField('movie.new_title_drive','disk1');setRequestPanel('movie');checkHandlers($('requestsSettingsContent').innerHTML);");
 driver.push("expect(requestDraft.tv.destination==='remote','movie destination changed TV destination');");
@@ -177,6 +182,12 @@ driver.push("expect(requestDirty()&&requestDraft.movie.destination==='main','pan
 driver.push("fetch=async(path,opts)=>({ok:true,status:200,json:async()=>({...requestData,settings:JSON.parse(opts.body)})});await saveRequestSettings();expect(!requestDirty(),'successful save left a dirty draft');");
 driver.push("setRequestField('tv_limit',2);let resolveSave;fetch=async(path,opts)=>new Promise(resolve=>{resolveSave=()=>resolve({ok:true,status:200,json:async()=>({...requestData,settings:JSON.parse(opts.body)})})});const saving=saveRequestSettings();setRequestField('movie_limit',4);resolveSave();await saving;expect(requestDirty()&&requestDraft.movie_limit===4,'edits made during save were discarded');");
 driver.push("setRequestField('movie_limit',5);fetch=async()=>({ok:false,status:400,json:async()=>({error:'Invalid settings'})});await saveRequestSettings();expect(requestDirty()&&requestDraft.movie_limit===5&&$('requestsMessage').textContent==='Invalid settings','failed save discarded changes or hid validation error');");
+driver.push("currentAccount={name:'alice',role:'user'};portalMode=true;showApp();expect($('appShell').classList.contains('hidden')&&!$('userShell').classList.contains('hidden'),'user can see administration shell');");
+driver.push("const movieResult={id:101,title:'Example Movie',media_type:'movie',poster_path:'/poster.jpg',release_date:'2024-01-01'};const showResult={id:202,name:'Example Show',media_type:'tv',poster_path:'/show.jpg'};let sentRequest=null;const pendingRequest={id:'own_request',media:showResult,status:'pending',message:'Waiting for administrator approval',progress:0,seasons:[1],follow_future:true};");
+driver.push("fetch=async(path,opts)=>({ok:true,status:200,json:async()=>path.startsWith('/api/catalog/search')?{results:[movieResult,showResult],page:1,total_pages:1}:path.startsWith('/api/catalog/')?{media:showResult,seasons:[{season_number:1,name:'Season 1',episode_count:2,air_date:'2024-01-01'}],monitor:'requested_seasons',auto_approve:false}:path==='/api/user/requests'&&opts?.method==='POST'?(sentRequest=JSON.parse(opts.body),{request:pendingRequest}):{requests:[pendingRequest]}});$('catalogQuery').value='Example';await searchCatalog();checkHandlers($('catalogResults').innerHTML);expect($('catalogResults').innerHTML.includes('catalog-poster')&&$('catalogResults').innerHTML.includes('Example Show'),'movie/show poster search did not render');");
+driver.push("await openCatalogTitle('tv',202);checkHandlers($('catalogDetail').innerHTML);expect($('catalogDetail').innerHTML.includes('Choose seasons')&&$('catalogDetail').innerHTML.includes('Request approval'),'TV season selection or approval state missing');");
+driver.push("document.querySelectorAll=selector=>selector==='#catalogSeasons input:checked'?[{value:'1'}]:[];$('catalogFollowFuture').checked=true;await submitCatalogRequest();expect(sentRequest.tmdb_id===202&&sentRequest.seasons[0]===1&&sentRequest.follow_future&&!('destination' in sentRequest),'user request parameters are incorrect');expect(catalogJobs[0].status==='pending'&&$('myRequestList').innerHTML.includes('Awaiting approval'),'personal request status missing');checkHandlers($('myRequestList').innerHTML);");
+driver.push("showLogin();expect(catalogJobs.length===0&&$('myRequestList').innerHTML===''&&$('appShell').classList.contains('hidden'),'sign-out/login boundary retained another account data');");
 driver.push("console.log('RENDER_OK');");
 driver.push("} catch (error) { fail(error && error.stack ? error.stack : String(error)); } })()");
 

@@ -33,6 +33,27 @@ type hardlinkEntry struct {
 }
 
 func hardlinkTree(sourceRoot, destinationRoot string) (HardlinkResult, error) {
+	return hardlinkSelectedTree(sourceRoot, destinationRoot, nil)
+}
+
+// LinkFiles links only the specified relative files and their parent folders.
+// It applies the same conflict and symlink checks as the full-tree operation.
+func LinkFiles(sourceRoot, destinationRoot string, paths []string) (HardlinkResult, error) {
+	selected := map[string]bool{}
+	for _, path := range paths {
+		path = filepath.Clean(path)
+		if path == "." || filepath.IsAbs(path) || startsWithParent(path) {
+			return HardlinkResult{}, errors.New("hardlink selection must contain relative file paths")
+		}
+		selected[path] = true
+	}
+	if len(selected) == 0 {
+		return HardlinkResult{}, errors.New("hardlink selection is empty")
+	}
+	return hardlinkSelectedTree(sourceRoot, destinationRoot, selected)
+}
+
+func hardlinkSelectedTree(sourceRoot, destinationRoot string, selected map[string]bool) (HardlinkResult, error) {
 	sourceRoot = filepath.Clean(sourceRoot)
 	destinationRoot = filepath.Clean(destinationRoot)
 	result := HardlinkResult{SourcePath: sourceRoot, DestinationPath: destinationRoot}
@@ -41,6 +62,13 @@ func hardlinkTree(sourceRoot, destinationRoot string) (HardlinkResult, error) {
 	}
 
 	entries := []hardlinkEntry{{source: sourceRoot, target: destinationRoot, dir: true}}
+	wanted := map[string]bool{}
+	for path := range selected {
+		for p := path; p != "."; p = filepath.Dir(p) {
+			wanted[p] = true
+		}
+	}
+	selectedFiles := 0
 	err := filepath.WalkDir(sourceRoot, func(path string, entry fs.DirEntry, walkErr error) error {
 		if walkErr != nil {
 			return walkErr
@@ -52,6 +80,12 @@ func hardlinkTree(sourceRoot, destinationRoot string) (HardlinkResult, error) {
 		if err != nil || relative == "." || relative == ".." || filepath.IsAbs(relative) {
 			return fmt.Errorf("derive safe hardlink path for %q", path)
 		}
+		if selected != nil && !wanted[relative] {
+			if entry.IsDir() {
+				return filepath.SkipDir
+			}
+			return nil
+		}
 		info, err := entry.Info()
 		if err != nil {
 			return err
@@ -62,6 +96,12 @@ func hardlinkTree(sourceRoot, destinationRoot string) (HardlinkResult, error) {
 		if !info.IsDir() && !info.Mode().IsRegular() {
 			return fmt.Errorf("hardlink source contains a non-regular file: %s", relative)
 		}
+		if selected != nil && selected[relative] {
+			if !info.Mode().IsRegular() {
+				return fmt.Errorf("selected hardlink source is not a regular file: %s", relative)
+			}
+			selectedFiles++
+		}
 		entries = append(entries, hardlinkEntry{
 			source: path,
 			target: filepath.Join(destinationRoot, relative),
@@ -71,6 +111,9 @@ func hardlinkTree(sourceRoot, destinationRoot string) (HardlinkResult, error) {
 	})
 	if err != nil {
 		return result, fmt.Errorf("inspect hardlink source tree: %w", err)
+	}
+	if selected != nil && selectedFiles != len(selected) {
+		return result, errors.New("selected hardlink source files are missing")
 	}
 
 	files := 0

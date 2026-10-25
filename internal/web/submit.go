@@ -10,6 +10,7 @@ import (
 	"strings"
 	"time"
 
+	"cineroute/internal/config"
 	"cineroute/internal/library"
 	"cineroute/internal/qbittorrent"
 	"cineroute/internal/tmdb"
@@ -17,13 +18,18 @@ import (
 )
 
 type submissionRequest struct {
-	Bytes     []byte
-	Filename  string
-	Meta      *torrentmeta.MetaInfo
-	MediaType string
-	Library   string
-	Match     tmdb.Result
-	Remote    bool
+	Bytes          []byte
+	Filename       string
+	Meta           *torrentmeta.MetaInfo
+	MediaType      string
+	Library        string
+	Match          tmdb.Result
+	Remote         bool
+	FolderName     string
+	PreferredDrive string
+	PinnedDrive    string
+	Reservations   map[string]int64
+	BeforeAdd      func(*Destination) error
 }
 
 type submissionOutcome struct {
@@ -198,6 +204,9 @@ func (s *Server) submitTorrent(ctx context.Context, req submissionRequest) (*sub
 		return nil, errors.New("anime has no remote library")
 	}
 	folder := library.FolderName(s.cfg.Library.FolderFormat, req.Match.DisplayTitle(), req.Match.Year())
+	if req.FolderName != "" {
+		folder = req.FolderName
+	}
 	var matches, remoteMatches []library.Folder
 	if libraryName == "anime" {
 		matches = s.lib.FindAnime(folder)
@@ -211,6 +220,9 @@ func (s *Server) submitTorrent(ctx context.Context, req submissionRequest) (*sub
 	routedExisting := resolveMediaMatch(matches, remoteMatches)
 	if routedExisting != nil && routedExisting.Conflict {
 		return nil, errors.New("this title exists on multiple drives; resolve the duplicate folders before submitting")
+	}
+	if routedExisting != nil && req.PinnedDrive != "" && routedExisting.DriveID != req.PinnedDrive {
+		return nil, errors.New("title assignment conflicts with its existing library folders")
 	}
 	var savePath, driveID string
 	if routedExisting != nil {
@@ -232,6 +244,9 @@ func (s *Server) submitTorrent(ctx context.Context, req submissionRequest) (*sub
 		}
 	} else {
 		pending := s.pendingReservations()
+		for id, size := range req.Reservations {
+			pending[id] += size
+		}
 		drives := s.cfg.Drives
 		if libraryName == "anime" {
 			drives = s.animeDrives()
@@ -243,6 +258,19 @@ func (s *Server) submitTorrent(ctx context.Context, req submissionRequest) (*sub
 			if len(drives) == 0 {
 				return nil, errors.New(s.remoteRootError(isTV, ""))
 			}
+		}
+		selectedDrive := req.PinnedDrive
+		if selectedDrive == "" {
+			selectedDrive = req.PreferredDrive
+		}
+		if selectedDrive != "" {
+			filtered := []config.Drive{}
+			for _, drive := range drives {
+				if drive.ID == selectedDrive {
+					filtered = append(filtered, drive)
+				}
+			}
+			drives = filtered
 		}
 		sel, err := s.alloc.Select(drives, pending, req.Meta.Size)
 		if err != nil {
@@ -294,6 +322,11 @@ func (s *Server) submitTorrent(ctx context.Context, req submissionRequest) (*sub
 		}
 	}
 	out := &submissionOutcome{Dest: dest}
+	if req.BeforeAdd != nil {
+		if err := req.BeforeAdd(dest); err != nil {
+			return out, err
+		}
+	}
 
 	// 4. Create only the canonical parent folder.
 	if err := os.Mkdir(savePath, 0o755); err != nil && !errors.Is(err, os.ErrExist) {
@@ -431,6 +464,10 @@ func (s *Server) waitStopped(ctx context.Context, hash string) (*qbittorrent.Tor
 // torrent and the expected destination. The torrent is never started on
 // failure.
 func (s *Server) verify(ctx context.Context, tor *qbittorrent.Torrent, meta *torrentmeta.MetaInfo, wantSave, wantContent string) error {
+	return s.verifyTorrent(ctx, tor, meta, wantSave, wantContent, true)
+}
+
+func (s *Server) verifyTorrent(ctx context.Context, tor *qbittorrent.Torrent, meta *torrentmeta.MetaInfo, wantSave, wantContent string, requireStopped bool) error {
 	problems := []string{}
 	if want := meta.PrimaryHash(); want != "" && !strings.EqualFold(tor.Hash, want) {
 		problems = append(problems, fmt.Sprintf("hash: got %s want %s", tor.Hash, want))
@@ -453,7 +490,7 @@ func (s *Server) verify(ctx context.Context, tor *qbittorrent.Torrent, meta *tor
 	if tor.TotalSize != meta.Size {
 		problems = append(problems, fmt.Sprintf("total_size: got %d want %d", tor.TotalSize, meta.Size))
 	}
-	if !tor.Stopped() {
+	if requireStopped && !tor.Stopped() {
 		problems = append(problems, fmt.Sprintf("state: got %q, expected stopped", tor.State))
 	}
 	if len(problems) == 0 {

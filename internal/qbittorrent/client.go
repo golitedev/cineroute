@@ -159,15 +159,19 @@ func (c *Client) postBody(ctx context.Context, path string, rebuild func() (io.R
 }
 
 type Torrent struct {
-	Hash        string `json:"hash"`
-	Name        string `json:"name"`
-	SavePath    string `json:"save_path"`
-	ContentPath string `json:"content_path"`
-	Category    string `json:"category"`
-	Tags        string `json:"tags"`
-	AutoTMM     bool   `json:"auto_tmm"`
-	TotalSize   int64  `json:"total_size"`
-	State       string `json:"state"`
+	Hash         string  `json:"hash"`
+	Name         string  `json:"name"`
+	SavePath     string  `json:"save_path"`
+	ContentPath  string  `json:"content_path"`
+	Category     string  `json:"category"`
+	Tags         string  `json:"tags"`
+	AutoTMM      bool    `json:"auto_tmm"`
+	TotalSize    int64   `json:"total_size"`
+	State        string  `json:"state"`
+	Progress     float64 `json:"progress"`
+	AmountLeft   int64   `json:"amount_left"`
+	LastActivity int64   `json:"last_activity"`
+	CompletionOn int64   `json:"completion_on"`
 }
 
 type TorrentFile struct {
@@ -271,6 +275,11 @@ func (c *Client) AddTorrent(ctx context.Context, data []byte, opts AddOptions) e
 
 func (c *Client) Start(ctx context.Context, hash string) error {
 	_, err := c.post(ctx, "/api/v2/torrents/start", url.Values{"hashes": {hash}})
+	return err
+}
+
+func (c *Client) Stop(ctx context.Context, hash string) error {
+	_, err := c.post(ctx, "/api/v2/torrents/stop", url.Values{"hashes": {hash}})
 	return err
 }
 

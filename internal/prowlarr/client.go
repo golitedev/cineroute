@@ -103,6 +103,26 @@ func (c *Client) Search(ctx context.Context, indexerID int, query string, limit 
 	return out, nil
 }
 
+// SearchIndexers restricts an automatic search to the administrator's selected
+// indexers. An empty selection never means all indexers.
+func (c *Client) SearchIndexers(ctx context.Context, ids []int, query string, limit int) ([]Release, error) {
+	if !c.Configured() || len(ids) == 0 {
+		return nil, fmt.Errorf("no configured trackers selected")
+	}
+	q := url.Values{"query": {query}, "type": {"search"}, "limit": {strconv.Itoa(limit)}}
+	for _, id := range ids {
+		if id <= 0 {
+			return nil, fmt.Errorf("invalid indexer ID")
+		}
+		q.Add("indexerIds", strconv.Itoa(id))
+	}
+	var out []Release
+	if err := c.getJSON(ctx, "/api/v1/search", q, &out); err != nil {
+		return nil, fmt.Errorf("Prowlarr search failed")
+	}
+	return out, nil
+}
+
 // DownloadTorrent fetches a selected Prowlarr proxy URL. The URL is supplied
 // by a server-side search result, never directly by the browser. Prowlarr
 // proxy URLs can contain the API key, so errors deliberately do not include

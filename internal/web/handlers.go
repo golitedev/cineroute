@@ -174,7 +174,7 @@ func (s *Server) status(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	out.Storage = storage
-	out.Auth = s.cfg.AuthPassword != ""
+	out.Auth = s.authEnabled()
 	if s.subtitles != nil && s.cfg.Subtitles.Enabled {
 		status := s.subtitlesStatus(r.Context())
 		out.Subtitles = &status
