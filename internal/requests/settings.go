@@ -64,6 +64,7 @@ type Profile struct {
 }
 
 type Settings struct {
+	CatalogAvailability    string    `json:"catalog_availability"`
 	Version                int       `json:"version"`
 	AllowMovies            bool      `json:"allow_movies"`
 	AllowTV                bool      `json:"allow_tv"`
@@ -93,7 +94,8 @@ func Defaults() Settings {
 		return Profile{Destination: "remote", Qualities: []string{"webdl-1080p", "bluray-1080p", "webrip-1080p"}, Codecs: []string{"h264", "hevc"}, AudioLanguages: []string{}, PreferredAudioLanguages: []string{}, PreferredSubtitleLanguages: []string{}, MaxSizeGiB: max, MaxPackSizeGiB: pack, UpgradeUntil: "webdl-1080p", Keywords: []Keyword{}}
 	}
 	return Settings{
-		Version: 1, AllowMovies: true, AllowTV: true, AutoApprove: true,
+		CatalogAvailability: "all",
+		Version:             1, AllowMovies: true, AllowTV: true, AutoApprove: true,
 		LimitDays: 7, SearchOnApproval: true, SearchIntervalSeconds: 10,
 		RetryIntervalHours: 6, RetryFailedDownloads: true, StalledMinutes: 120,
 		MaxConcurrentDownloads: 3, MinSeeders: 1, MovieAvailability: "released",
@@ -103,6 +105,9 @@ func Defaults() Settings {
 }
 
 func (s Settings) Validate() error {
+	if !slices.Contains([]string{"", "all", "digital"}, s.CatalogAvailability) {
+		return fmt.Errorf("catalog_availability must be all or digital")
+	}
 	if s.Trackers == nil {
 		return fmt.Errorf("trackers must be a list; use an empty list when none are selected")
 	}

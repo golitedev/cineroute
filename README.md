@@ -320,6 +320,34 @@ The portal labels fallback results as similar titles, and users must select the
 intended title before requesting it. This is best-effort assistance, not a local
 copy of the entire TMDB catalog or TMDB website scraping.
 
+In **Requests → General → Catalog visibility**, the administrator can choose
+all titles (including upcoming releases), or **Digitally released movies / aired
+TV shows only**. The latter requires a reached TMDB digital release date (type 4)
+in any country for movies; theatrical, physical-only and unknown dates do not
+qualify. TV uses a reached first-air or regular-episode air date because TMDB
+does not provide the equivalent movie release-type dates for TV series. The
+filter covers search, title details and new requests, so a direct TMDB ID cannot
+bypass it. Native TMDB ordering/page numbers are preserved; Load more stays
+available if an earlier page contains only hidden titles. Release checks have
+a 15-minute cache, at most four concurrent requests and a ten-second page budget.
+Existing requests remain visible and are not requeued by a visibility-only
+policy change. **Movie availability** separately controls when the worker starts
+searching trackers for a requested movie.
+
+Movie and TV request details include **Prefer Spanish audio**. It is a soft,
+per-user request preference, not a language requirement or an admin-policy edit.
+Within the same quality, confirmed Spanish audio ranks before other language
+preferences. Lat-Team receives the highest effective tracker priority only if
+the administrator selected it and it is enabled in Prowlarr. Its identity comes
+from the configured Prowlarr definition (or an exact normalized display name),
+never a release's claimed tracker name. Tracker priority remains a tie-breaker:
+confirmed Spanish on another tracker beats unknown audio on Lat-Team, and all
+quality/codec/size/keyword/audio filters still apply. All selected trackers are
+still searched. Changing the checkbox updates the same request, preserves
+approval and quota accounting, and is shown in personal requests and admin
+queue/history. Existing copies and shared active downloads may still satisfy
+the request without a separate Spanish version or replacement.
+
 The **Requests** admin tab, immediately after TV, contains the shared policy
 and a **Queue** for approval, decline, cancellation, retry and diagnostic details.
 Requests either enter this approval queue or are approved automatically according
@@ -370,7 +398,8 @@ merges seasons into the user's existing request instead of creating extra downlo
   (six-hour reports, five-minute configuration/failure refresh), and never expose
   tracker keys to either browser or persist keys in the requests database.
   Admin History shows the selected release's reported languages and its language
-  points at selection time. Users receive no language controls or overrides.
+  points at selection time. Users have only the fixed Spanish-audio preference;
+  other language/format settings and tracker selections remain admin-only.
 * **History:** after TV, see requests from every user, their destination, current
   status, progress, retry time and all recorded download attempts. Search by title,
   user, tracker, disk or hash, filter by status and page through older requests.

@@ -17,29 +17,32 @@ import (
 
 var ErrQuota = errors.New("request limit reached for this period")
 var ErrNotFound = errors.New("request not found")
+var ErrPreferencesChanged = errors.New("request preferences changed; use the current preference")
 
 type Job struct {
-	ID             string       `json:"id"`
-	Owner          string       `json:"owner"`
-	Media          tmdb.Details `json:"media"`
-	Target         string       `json:"target"`
-	PreferredDrive string       `json:"preferred_drive"`
-	Seasons        []int        `json:"seasons"`
-	FollowFuture   bool         `json:"follow_future"`
-	OnlyFuture     bool         `json:"only_future"`
-	Episodes       []string     `json:"episodes"`
-	Status         string       `json:"status"`
-	Message        string       `json:"message"`
-	AdminError     string       `json:"admin_error"`
-	Progress       float64      `json:"progress"`
-	CreatedAt      time.Time    `json:"created_at"`
-	UpdatedAt      time.Time    `json:"updated_at"`
-	ApprovedAt     time.Time    `json:"approved_at"`
-	NextSearch     time.Time    `json:"next_search"`
-	RetryAt        time.Time    `json:"retry_at"`
+	PreferSpanishAudio bool         `json:"prefer_spanish_audio"`
+	ID                 string       `json:"id"`
+	Owner              string       `json:"owner"`
+	Media              tmdb.Details `json:"media"`
+	Target             string       `json:"target"`
+	PreferredDrive     string       `json:"preferred_drive"`
+	Seasons            []int        `json:"seasons"`
+	FollowFuture       bool         `json:"follow_future"`
+	OnlyFuture         bool         `json:"only_future"`
+	Episodes           []string     `json:"episodes"`
+	Status             string       `json:"status"`
+	Message            string       `json:"message"`
+	AdminError         string       `json:"admin_error"`
+	Progress           float64      `json:"progress"`
+	CreatedAt          time.Time    `json:"created_at"`
+	UpdatedAt          time.Time    `json:"updated_at"`
+	ApprovedAt         time.Time    `json:"approved_at"`
+	NextSearch         time.Time    `json:"next_search"`
+	RetryAt            time.Time    `json:"retry_at"`
 }
 
 type Download struct {
+	PreferSpanishAudio  bool                    `json:"prefer_spanish_audio,omitempty"`
 	Languages           medialanguages.Metadata `json:"languages"`
 	LanguageScore       int                     `json:"language_score"`
 	SubtitleFormatScore int                     `json:"subtitle_format_score"`
@@ -94,7 +97,7 @@ func NewID() string {
 }
 func terminal(status string) bool { return status == "cancelled" || status == "declined" }
 
-func (s *Store) Create(job Job, settings Settings, admin bool) (Job, error) {
+func (s *Store) Create(job Job, settings Settings, admin bool, spanishPreference ...*bool) (Job, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	db, err := s.open()
@@ -108,6 +111,13 @@ func (s *Store) Create(job Job, settings Settings, admin bool) (Job, error) {
 	}
 	defer tx.Rollback()
 	job.Owner = strings.ToLower(job.Owner)
+	var preference *bool
+	if len(spanishPreference) > 0 {
+		preference = spanishPreference[0]
+	}
+	if preference != nil {
+		job.PreferSpanishAudio = *preference
+	}
 	now := time.Now().UTC()
 	job.CreatedAt, job.UpdatedAt = now, now
 	var previous string
@@ -119,6 +129,11 @@ func (s *Store) Create(job Job, settings Settings, admin bool) (Job, error) {
 		}
 		if !terminal(old.Status) {
 			changed := false
+			preferenceChanged := preference != nil && old.PreferSpanishAudio != *preference
+			if preferenceChanged {
+				old.PreferSpanishAudio = *preference
+				changed = true
+			}
 			for _, season := range job.Seasons {
 				if !slices.Contains(old.Seasons, season) {
 					old.Seasons = append(old.Seasons, season)
@@ -137,6 +152,9 @@ func (s *Store) Create(job Job, settings Settings, admin bool) (Job, error) {
 			job.NextSearch = now
 			if old.Status != "pending" {
 				job.Status = "queued"
+				if preferenceChanged {
+					job.Message = "Request preferences updated; queued for a suitable release"
+				}
 			}
 		} else {
 			job.ID = old.ID
@@ -262,6 +280,8 @@ func (s *Store) Update(job Job) error {
 		}
 	}
 	job.FollowFuture = job.FollowFuture || current.FollowFuture
+	// A worker snapshot cannot overwrite a preference changed in the portal.
+	job.PreferSpanishAudio = current.PreferSpanishAudio
 	if current.RetryAt.After(job.RetryAt) {
 		job.RetryAt = current.RetryAt
 	}

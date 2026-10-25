@@ -18,6 +18,7 @@ import (
 )
 
 type Candidate struct {
+	RequestedAudioScore int
 	Release             prowlarr.Release
 	Quality             string
 	Rank                int
@@ -282,6 +283,9 @@ func ImprovesExisting(quality string, score int, old Existing, p Profile) bool {
 func Better(a, b Candidate, preferPacks bool) bool {
 	if a.Rank != b.Rank {
 		return a.Rank < b.Rank
+	}
+	if a.RequestedAudioScore != b.RequestedAudioScore {
+		return a.RequestedAudioScore > b.RequestedAudioScore
 	}
 	if a.LanguageScore != b.LanguageScore {
 		return a.LanguageScore > b.LanguageScore

@@ -48,10 +48,11 @@ func (c *Client) Configured() bool {
 }
 
 type Indexer struct {
-	ID       int    `json:"id"`
-	Name     string `json:"name"`
-	Enable   bool   `json:"enable"`
-	Protocol string `json:"protocol"`
+	DefinitionName string `json:"definitionName,omitempty"`
+	ID             int    `json:"id"`
+	Name           string `json:"name"`
+	Enable         bool   `json:"enable"`
+	Protocol       string `json:"protocol"`
 }
 
 type Release struct {

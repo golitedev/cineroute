@@ -11,10 +11,11 @@ import (
 )
 
 type CatalogPage struct {
-	Page           int      `json:"page"`
-	TotalPages     int      `json:"total_pages"`
-	Results        []Result `json:"results"`
-	SimilarMatches bool     `json:"similar_matches,omitempty"`
+	Page                 int      `json:"page"`
+	TotalPages           int      `json:"total_pages"`
+	Results              []Result `json:"results"`
+	SimilarMatches       bool     `json:"similar_matches,omitempty"`
+	AvailabilityFiltered bool     `json:"availability_filtered,omitempty"`
 }
 type Season struct {
 	Number       int    `json:"season_number"`
@@ -36,6 +37,7 @@ type Details struct {
 	Runtime          int      `json:"runtime"`
 	Status           string   `json:"status"`
 	InProduction     bool     `json:"in_production"`
+	LastEpisodeToAir *Episode `json:"last_episode_to_air"`
 	Seasons          []Season `json:"seasons"`
 	IMDBID           string   `json:"imdb_id"`
 	ExternalIDs      struct {

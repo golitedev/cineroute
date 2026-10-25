@@ -2,6 +2,7 @@ package requests
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 	"slices"
@@ -201,6 +202,7 @@ func (e *Engine) process(ctx context.Context, job *Job, settings Settings, downl
 	if job.Media.MediaType == "tv" {
 		p = settings.TV
 	}
+	p = requestProfile(p, *job)
 	inventory, err := e.Backend.Inventory(ctx, *job, *downloads)
 	if err != nil {
 		return err
@@ -405,6 +407,9 @@ func (e *Engine) process(ctx context.Context, job *Job, settings Settings, downl
 			if indexer.ID == tracker.ID && indexer.Enable && indexer.Protocol == "torrent" {
 				ids = append(ids, indexer.ID)
 				priorities[indexer.ID] = tracker.Priority
+				if job.PreferSpanishAudio && isLatTeam(indexer) {
+					priorities[indexer.ID] = 0
+				}
 			}
 		}
 	}
@@ -488,6 +493,9 @@ func (e *Engine) process(ctx context.Context, job *Job, settings Settings, downl
 				rejected[err.Error()]++
 				continue
 			}
+			if job.PreferSpanishAudio && slices.Contains(release.Languages.Audio, "es") {
+				candidate.RequestedAudioScore = 1
+			}
 			if job.Media.MediaType == "movie" && inventory.Movie != nil && !ImprovesExisting(candidate.Quality, candidate.Score, *inventory.Movie, p) {
 				continue
 			}
@@ -537,6 +545,7 @@ func (e *Engine) process(ctx context.Context, job *Job, settings Settings, downl
 		planned := false
 		recordSource := func(d Download) Download {
 			d.RequestID, d.RequestedBy = job.ID, job.Owner
+			d.PreferSpanishAudio = job.PreferSpanishAudio
 			d.IndexerID, d.Indexer, d.InfoURL = candidate.Release.IndexerID, candidate.Release.Indexer, candidate.Release.InfoURL
 			d.Languages, d.LanguageScore = candidate.Release.Languages, candidate.LanguageScore
 			d.SubtitleFormatScore = candidate.SubtitleFormatScore
@@ -558,6 +567,9 @@ func (e *Engine) process(ctx context.Context, job *Job, settings Settings, downl
 			return nil
 		})
 		if err != nil {
+			if errors.Is(err, ErrPreferencesChanged) {
+				return nil
+			}
 			if planned {
 				job.Status = "error"
 				job.Message = "A download is awaiting verification"

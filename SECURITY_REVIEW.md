@@ -16,8 +16,25 @@ Reviewed admin entry points include torrent intake/type/match/destination/submit
 copy scans/hardlinks, hardlink deletion/relinking, subtitle settings/jobs/cleanup,
 request settings/indexers and queue approval/retry/cancellation. These actions
 remain registered only on the admin handler. A public user supplies a TMDB ID
-and season selections, not filesystem paths, tracker URLs or routing settings.
+and season selections plus an optional Spanish-audio boolean, not filesystem
+paths, tracker URLs, tracker priorities or routing settings.
 Server-side policy still controls destinations and release selection.
+
+The Spanish preference is stored per user's request and cannot auto-enable
+Lat-Team or change saved policy. Effective Lat-Team priority uses its configured
+Prowlarr definition/name rather than untrusted release labels. Legacy omitted
+checkbox values preserve the existing preference; worker writes cannot erase a
+concurrent preference edit, and a stale preference is rejected before submission.
+Approval, quotas, existing-file protections and shared-download placement remain
+in force. The public interface does not expose individual tracker configurations.
+
+Released-only catalog visibility is an admin setting enforced server-side on
+search, details and new-request creation. Movie digital dates and TV air dates
+come from TMDB, with unknown dates hidden. A 1,024-title/15-minute cache, four
+global lookup slots, a 20-title page limit and a ten-second filtering budget
+bound public-triggered metadata work. Failed availability lookups return an
+error rather than silently treating an outage as no matches. Changing only
+catalog visibility does not requeue downloads or alter existing requests.
 
 UNIT3D language priorities are admin-only policy. The worker reads saved tracker
 credentials from Prowlarr into a private, five-minute in-memory configuration

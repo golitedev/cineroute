@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"cineroute/internal/requests"
+	"cineroute/internal/tmdb"
 )
 
 func (s *Server) catalogSearch(w http.ResponseWriter, r *http.Request) {
@@ -45,6 +46,13 @@ func (s *Server) catalogSearch(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	result.Results = filtered
+	if settings.CatalogAvailability == "digital" {
+		result, err = s.tmdb.FilterReleasedCatalog(r.Context(), result)
+		if err != nil {
+			writeErr(w, 502, "Release availability could not be checked. Try again shortly.")
+			return
+		}
+	}
 	writeJSON(w, 200, result)
 }
 func (s *Server) catalogDetails(w http.ResponseWriter, r *http.Request) {
@@ -73,6 +81,10 @@ func (s *Server) catalogDetails(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, 403, "Requests for this media type are disabled.")
 		return
 	}
+	if settings.CatalogAvailability == "digital" && !tmdb.DigitallyAvailable(details, time.Now()) {
+		writeErr(w, 404, "This title has no confirmed digital release or TV airing yet.")
+		return
+	}
 	seasons := details.Seasons[:0]
 	for _, season := range details.Seasons {
 		if season.Number != 0 || settings.IncludeSpecials {
@@ -84,18 +96,19 @@ func (s *Server) catalogDetails(w http.ResponseWriter, r *http.Request) {
 }
 
 type publicJob struct {
-	ID           string    `json:"id"`
-	Media        any       `json:"media"`
-	Status       string    `json:"status"`
-	Message      string    `json:"message"`
-	Progress     float64   `json:"progress"`
-	Seasons      []int     `json:"seasons"`
-	FollowFuture bool      `json:"follow_future"`
-	CreatedAt    time.Time `json:"created_at"`
+	PreferSpanishAudio bool      `json:"prefer_spanish_audio"`
+	ID                 string    `json:"id"`
+	Media              any       `json:"media"`
+	Status             string    `json:"status"`
+	Message            string    `json:"message"`
+	Progress           float64   `json:"progress"`
+	Seasons            []int     `json:"seasons"`
+	FollowFuture       bool      `json:"follow_future"`
+	CreatedAt          time.Time `json:"created_at"`
 }
 
 func jobView(job requests.Job) publicJob {
-	return publicJob{job.ID, job.Media.Result, job.Status, job.Message, job.Progress, job.Seasons, job.FollowFuture, job.CreatedAt}
+	return publicJob{PreferSpanishAudio: job.PreferSpanishAudio, ID: job.ID, Media: job.Media.Result, Status: job.Status, Message: job.Message, Progress: job.Progress, Seasons: job.Seasons, FollowFuture: job.FollowFuture, CreatedAt: job.CreatedAt}
 }
 func (s *Server) userRequests(w http.ResponseWriter, r *http.Request) {
 	jobs, err := s.requests.Jobs(actor(r).Name)
@@ -115,10 +128,11 @@ func (s *Server) createUserRequest(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var body struct {
-		MediaType    string `json:"media_type"`
-		TMDBID       int    `json:"tmdb_id"`
-		Seasons      []int  `json:"seasons"`
-		FollowFuture bool   `json:"follow_future"`
+		MediaType          string `json:"media_type"`
+		TMDBID             int    `json:"tmdb_id"`
+		Seasons            []int  `json:"seasons"`
+		FollowFuture       bool   `json:"follow_future"`
+		PreferSpanishAudio *bool  `json:"prefer_spanish_audio"`
 	}
 	r.Body = http.MaxBytesReader(w, r.Body, 16<<10)
 	decoder := json.NewDecoder(r.Body)
@@ -139,6 +153,10 @@ func (s *Server) createUserRequest(w http.ResponseWriter, r *http.Request) {
 	media, err := s.tmdb.Details(r.Context(), body.MediaType, body.TMDBID)
 	if err != nil || media.ID != body.TMDBID || media.Adult || media.DisplayTitle() == "" {
 		writeErr(w, 502, "This title could not be verified.")
+		return
+	}
+	if settings.CatalogAvailability == "digital" && !tmdb.DigitallyAvailable(media, time.Now()) {
+		writeErr(w, 400, "This title has no confirmed digital release or TV airing yet.")
 		return
 	}
 	profile := profileFor(settings, body.MediaType)
@@ -195,7 +213,7 @@ func (s *Server) createUserRequest(w http.ResponseWriter, r *http.Request) {
 			job.NextSearch = now.Add(time.Duration(settings.RetryIntervalHours) * time.Hour)
 		}
 	}
-	created, err := s.requests.Create(job, settings, a.Role == "admin")
+	created, err := s.requests.Create(job, settings, a.Role == "admin", body.PreferSpanishAudio)
 	if errors.Is(err, requests.ErrQuota) {
 		writeErr(w, 429, err.Error())
 		return

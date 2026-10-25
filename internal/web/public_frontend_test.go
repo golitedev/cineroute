@@ -36,7 +36,7 @@ const elements=new Map();
 const document={getElementById(id){if(!elements.has(id)){const classes=new Set(['hidden']);elements.set(id,{value:'',innerHTML:'',textContent:'',disabled:false,type:'password',classList:{add:x=>classes.add(x),remove:x=>classes.delete(x),contains:x=>classes.has(x),toggle(x,value){value?classes.add(x):classes.delete(x)}},addEventListener(){},setAttribute(){},focus(){},scrollIntoView(){}})}return elements.get(id)},querySelectorAll(){return []}};
 const setInterval=()=>0;
 const assert=(condition,message)=>{if(!condition)throw new Error(message)};
-let signedIn=false,created=false;
+let signedIn=false,created=false,requestedSpanish=false;
 const media={id:101,title:'Example Movie',media_type:'movie',release_date:'2024-01-01',poster_path:'/movie.jpg'};
 const fetch=async(path,options={})=>{
  let body={},status=200;
@@ -47,9 +47,9 @@ const fetch=async(path,options={})=>{
  else if(path==='/api/catalog/movie/101')body={media,seasons:[],auto_approve:true};
  else if(path==='/api/user/requests'&&options.method==='POST'){
   assert(options.headers['X-CineRoute-CSRF']==='test-csrf-token','request missing CSRF');
-  const submitted=JSON.parse(options.body);assert(submitted.tmdb_id===101&&!('destination' in submitted),'unexpected request payload');created=true;body={request:{message:'Queued'}};
+  const submitted=JSON.parse(options.body);assert(submitted.tmdb_id===101&&!('destination' in submitted),'unexpected request payload');assert(typeof submitted.prefer_spanish_audio==='boolean'&&!('trackers' in submitted)&&!('priority' in submitted),'Spanish preference must be a constrained boolean');requestedSpanish=submitted.prefer_spanish_audio;created=true;body={request:{message:'Queued',prefer_spanish_audio:requestedSpanish}};
  }
- else if(path==='/api/user/requests')body={requests:created?[{id:'request-one',media,status:'queued',message:'Queued'}]:[]};
+ else if(path==='/api/user/requests')body={requests:created?[{id:'request-one',media,status:'queued',message:'Queued',prefer_spanish_audio:requestedSpanish}]:[]};
  else if(path==='/api/logout'){assert(options.headers['X-CineRoute-CSRF']==='test-csrf-token','logout missing CSRF');signedIn=false}
  else throw new Error('unexpected/admin API: '+path);
  return {ok:status===200,status,json:async()=>body};
@@ -64,9 +64,9 @@ const publicFrontendChecks = `
  $('catalogQuery').value='Example';await searchCatalog();
  assert($('catalogResults').innerHTML.includes('Example Movie'),'search not rendered');
  assert($('catalogMessage').textContent.includes('similar titles'),'fallback results are not labelled');
- await openCatalogTitle('movie',101);await submitCatalogRequest();
- assert(created&&$('myRequestList').innerHTML.includes('Example Movie'),'request flow did not finish');
+ await openCatalogTitle('movie',101);assert($('catalogDetail').innerHTML.includes('catalogSpanishAudio'),'Spanish preference checkbox missing');setCatalogSpanishAudio(true);await submitCatalogRequest();
+ assert(created&&requestedSpanish&&$('myRequestList').innerHTML.includes('Spanish audio preferred'),'Spanish request flow did not finish');await openCatalogTitle('movie',101);assert(catalogSpanishAudio&&$('catalogDetail').innerHTML.includes('checked'),'saved Spanish preference not restored');setCatalogSpanishAudio(false);assert(!$('catalogRequestButton').disabled&&$('catalogRequestButton').textContent==='Update request','existing movie preference cannot be updated');await submitCatalogRequest();assert(!requestedSpanish&&!$('myRequestList').innerHTML.includes('Spanish audio preferred'),'unchecking preference failed');
  await signOut();
- assert(!currentAccount&&csrf===''&&$('myRequestList').innerHTML==='','logout retained session/request data');
+ assert(!currentAccount&&csrf===''&&!catalogSpanishAudio&&$('myRequestList').innerHTML==='','logout retained session/request data');
 })().catch(error=>{console.error(error);process.exitCode=1});
 `

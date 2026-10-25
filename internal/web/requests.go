@@ -7,6 +7,7 @@ import (
 	"io"
 	"log/slog"
 	"net/http"
+	"reflect"
 	"strings"
 	"time"
 
@@ -63,12 +64,15 @@ func (s *Server) saveRequestSettings(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusBadRequest, err.Error())
 		return
 	}
+	previous, loadErr := s.requests.Load()
+	previous.CatalogAvailability = settings.CatalogAvailability
+	searchPolicyChanged := loadErr != nil || !reflect.DeepEqual(previous, *settings)
 	if err := s.requests.Save(*settings); err != nil {
 		slog.Error("save request settings", "err", err)
 		writeErr(w, http.StatusInternalServerError, "Request settings could not be saved. Check that the settings database is writable.")
 		return
 	}
-	if jobs, err := s.requests.Jobs(""); err == nil {
+	if jobs, err := s.requests.Jobs(""); searchPolicyChanged && err == nil {
 		for _, job := range jobs {
 			if job.Status != "pending" && job.Status != "cancelled" && job.Status != "declined" && job.Status != "error" {
 				job.NextSearch = time.Now().UTC()
@@ -77,7 +81,7 @@ func (s *Server) saveRequestSettings(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 	}
-	if s.engine != nil {
+	if searchPolicyChanged && s.engine != nil {
 		s.engine.Wake()
 	}
 	writeJSON(w, http.StatusOK, s.requestSettingsResponse(*settings))
