@@ -2,7 +2,7 @@
 
 # Build natively on the runner and cross-compile the target binary. This keeps
 # the ARM64 build out of QEMU emulation while still producing both images.
-FROM --platform=$BUILDPLATFORM golang:1.26-alpine AS build
+FROM --platform=$BUILDPLATFORM golang:1.26.10-alpine AS build
 ARG TARGETOS
 ARG TARGETARCH
 WORKDIR /src
@@ -45,5 +45,5 @@ RUN apk add --no-cache ffmpeg tzdata ca-certificates
 COPY --from=build /cineroute /cineroute
 COPY --from=alass /usr/local/bin/alass /usr/local/bin/alass
 USER 1000:1000
-EXPOSE 8787
+EXPOSE 8787 8788
 ENTRYPOINT ["/cineroute"]

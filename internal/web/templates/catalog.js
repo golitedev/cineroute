@@ -1,6 +1,5 @@
 // Role-aware discovery and personal requests. Server permissions remain authoritative.
 let currentAccount=null,portalMode=false,catalogItems=[],catalogPage=1,catalogPages=1,catalogFilter='all',catalogJobs=[],catalogDetail=null,catalogSearchToken=0,catalogDetailToken=0,catalogJobsToken=0,catalogController=null;
-let adminQueue=[],adminQueueLoading=false;
 const mediaTitle=media=>media.title||media.name||'';
 const mediaYear=media=>(media.release_date||media.first_air_date||'').slice(0,4);
 const posterURL=path=>/^\/[A-Za-z0-9_.-]+\.(jpg|png|webp)$/i.test(path||'')?'https://image.tmdb.org/t/p/w342'+path:'';
@@ -9,18 +8,6 @@ const portalStatusClass=status=>status==='complete'?'ok':status==='error'||statu
 function resetPortal(){
   catalogSearchToken++;catalogDetailToken++;catalogJobsToken++;catalogController?.abort();catalogItems=[];catalogJobs=[];catalogDetail=null;catalogPage=1;
   $('catalogQuery').value='';$('catalogResults').innerHTML='';$('catalogDetail').innerHTML='';$('catalogDetail').classList.add('hidden');$('catalogMessage').textContent='';$('myRequestList').innerHTML='';
-}
-async function loadSession(){
-  try{
-    const session=await api('/api/session');currentAccount=session.account;portalMode=currentAccount.role!=='admin';showApp();
-    if(currentAccount.role==='admin'){showView('route',false);loadStatus();loadHistory();refresh()}else{loadMyRequests();$('catalogQuery').focus()}
-  }catch(e){showLogin()}
-}
-function openUserPortal(){if(!currentAccount)return;portalMode=true;showApp();loadMyRequests();$('catalogQuery').focus()}
-function openAdministration(){if(currentAccount?.role!=='admin')return;portalMode=false;showApp();loadStatus();refresh()}
-async function signOut(){
-  try{await postJSON('/api/logout',{})}catch(e){};
-  currentAccount=null;portalMode=false;resetPortal();requestData=null;requestDraft=null;requestSavedJSON='';showLogin();
 }
 function setCatalogFilter(value){catalogFilter=value;document.querySelectorAll('#catalogFilters button').forEach(button=>button.classList.toggle('active',button.dataset.type===value));if($('catalogQuery').value.trim().length>=2)searchCatalog()}
 async function searchCatalog(more=false){
@@ -76,10 +63,3 @@ function renderMyRequests(){
   }).join('')||'<p class="small">Your requested movies and shows will appear here.</p>';
 }
 async function cancelMyRequest(id,button){if(!confirm('Cancel this request? Existing downloaded files and shared downloads are kept.'))return;button.disabled=true;try{await postJSON('/api/user/requests/'+encodeURIComponent(id)+'/cancel',{});await loadMyRequests()}catch(e){$('myRequestMessage').textContent=e.message;button.disabled=false}}
-async function loadAdminQueue(){
-  if(currentAccount?.role!=='admin'||adminQueueLoading)return;adminQueueLoading=true;
-  try{const response=await api('/api/requests/queue');if(currentAccount?.role!=='admin')return;adminQueue=response.requests||[];if(requestPanel==='queue')$('requestsSettingsContent').innerHTML=renderRequestQueue()}
-  catch(e){requestMessage(e.message,true)}finally{adminQueueLoading=false}
-}
-function renderRequestQueue(){return '<div class="copy-toolbar"><p class="small">'+adminQueue.length+' requests · '+adminQueue.filter(row=>row.request.status==='pending').length+' awaiting approval</p><button type="button" onclick="loadAdminQueue()">Refresh queue</button></div>'+adminQueue.map(row=>{const job=row.request;let actions=job.status==='pending'?['approve','decline']:!['cancelled','declined'].includes(job.status)?['retry','cancel']:[];return '<article class="admin-request"><div class="copy-toolbar"><div><strong>'+esc(mediaTitle(job.media))+'</strong><div class="small">'+esc(row.owner)+' · '+esc(row.destination)+' · '+portalStatus(job.status)+'</div></div><div class="row">'+actions.map(action=>'<button type="button" data-id="'+esc(job.id)+'" data-action="'+action+'" onclick="adminRequestAction(this.dataset.id,this.dataset.action,this)">'+action[0].toUpperCase()+action.slice(1)+'</button>').join('')+'</div></div><p class="small">'+esc(job.message)+'</p>'+(row.diagnostic?'<div class="request-diagnostic">'+esc(row.diagnostic)+'</div>':'')+'</article>'}).join('')+(adminQueue.length?'':'<p class="small">No requests yet. Use Search & request to add one.</p>')}
-async function adminRequestAction(id,action,button){button.disabled=true;try{await postJSON('/api/requests/queue/'+encodeURIComponent(id)+'/'+action,{});await loadAdminQueue()}catch(e){requestMessage(e.message,true);button.disabled=false}}

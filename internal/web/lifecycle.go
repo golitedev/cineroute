@@ -6,6 +6,9 @@ import (
 )
 
 func (s *Server) Start(ctx context.Context) error {
+	if err := s.cfg.ValidateServing(); err != nil {
+		return err
+	}
 	if s.accounts.err != nil {
 		return fmt.Errorf("initialize account sessions: %w", s.accounts.err)
 	}

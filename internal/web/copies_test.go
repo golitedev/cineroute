@@ -32,7 +32,7 @@ func TestLibraryCopiesScanAndHardlinkWithoutTrackerRequests(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	handler := New(cfg, nil, nil, prowlarr.New(tracker.URL, "configured-key", time.Second)).Handler()
+	handler := testAdminHandler(New(cfg, nil, nil, prowlarr.New(tracker.URL, "configured-key", time.Second)))
 	for _, tc := range []struct {
 		kind, root, destination, file string
 	}{

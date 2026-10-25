@@ -49,7 +49,7 @@ func TestHardlinkManagementAPIListsAndRemovesLinks(t *testing.T) {
 		TVRemoteRoot:    tvRemote,
 	}}
 	srv := New(cfg, nil, nil)
-	handler := srv.Handler()
+	handler := testAdminHandler(srv)
 
 	list := httptest.NewRecorder()
 	handler.ServeHTTP(list, httptest.NewRequest(http.MethodGet, "/api/hardlinks", nil))

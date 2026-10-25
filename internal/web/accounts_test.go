@@ -19,9 +19,11 @@ func TestConfigAccountsEnforceRolesAndInvalidateSessions(t *testing.T) {
 	}
 	cfg.Users = []config.User{{Name: "admin", Role: "admin", Password: "admin-secret"}, {Name: "Alice", Role: "user", PasswordHash: string(hash)}, {Name: "bob", Role: "user", Password: "bob-secret"}}
 	srv := New(cfg, nil, nil)
-	handler := srv.Handler()
+	handler := srv.PublicHandler()
 	login := httptest.NewRecorder()
-	handler.ServeHTTP(login, httptest.NewRequest(http.MethodPost, "/api/login", strings.NewReader(`{"username":"ALICE","password":"alice-secret"}`)))
+	req := httptest.NewRequest(http.MethodPost, "/api/login", strings.NewReader(`{"username":"ALICE","password":"alice-secret"}`))
+	req.Header.Set("Content-Type", "application/json")
+	handler.ServeHTTP(login, req)
 	if login.Code != 200 {
 		t.Fatalf("login: %d %s", login.Code, login.Body.String())
 	}
@@ -73,13 +75,13 @@ func TestConfigAccountsEnforceRolesAndInvalidateSessions(t *testing.T) {
 			case "removed":
 				changed.Users = append(changed.Users[:1], changed.Users[2:]...)
 			}
-			out := call(New(&changed, nil, nil).Handler(), "GET", "/api/session", cookies[0])
+			out := call(New(&changed, nil, nil).PublicHandler(), "GET", "/api/session", cookies[0])
 			if out.Code != 401 {
 				t.Fatalf("old session survived %s: %d", change, out.Code)
 			}
 		})
 	}
-	restarted := New(cfg, nil, nil).Handler()
+	restarted := New(cfg, nil, nil).PublicHandler()
 	if out := call(restarted, "GET", "/api/session", cookies[0]); out.Code != 200 {
 		t.Fatalf("session lost on restart: %d", out.Code)
 	}

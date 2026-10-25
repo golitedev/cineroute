@@ -144,3 +144,24 @@ function toggleRequestTracker(id,checked){
   renderRequests();
 }
 function setRequestTrackerPriority(id,value){const tracker=requestDraft.trackers.find(t=>t.id===id);if(tracker){tracker.priority=value;updateRequestSaveState()}}
+
+let adminQueue=[],adminQueueLoading=false;
+async function loadSession(){
+  try{
+    const session=await api('/api/session');currentAccount=session.account;csrf=session.csrf_token||'';portalMode=currentAccount.role!=='admin';showApp();
+    if(currentAccount.role==='admin'){showView('route',false);loadStatus();loadHistory();refresh()}else{loadMyRequests();$('catalogQuery').focus()}
+  }catch(e){showLogin()}
+}
+function openUserPortal(){if(!currentAccount)return;portalMode=true;showApp();loadMyRequests();$('catalogQuery').focus()}
+function openAdministration(){if(currentAccount?.role!=='admin')return;portalMode=false;showApp();loadStatus();refresh()}
+async function signOut(){
+  try{await postJSON('/api/logout',{})}catch(e){};
+  currentAccount=null;portalMode=false;resetPortal();requestData=null;requestDraft=null;requestSavedJSON='';showLogin();
+}
+async function loadAdminQueue(){
+  if(currentAccount?.role!=='admin'||adminQueueLoading)return;adminQueueLoading=true;
+  try{const response=await api('/api/requests/queue');if(currentAccount?.role!=='admin')return;adminQueue=response.requests||[];if(requestPanel==='queue')$('requestsSettingsContent').innerHTML=renderRequestQueue()}
+  catch(e){requestMessage(e.message,true)}finally{adminQueueLoading=false}
+}
+function renderRequestQueue(){return '<div class="copy-toolbar"><p class="small">'+adminQueue.length+' requests · '+adminQueue.filter(row=>row.request.status==='pending').length+' awaiting approval</p><button type="button" onclick="loadAdminQueue()">Refresh queue</button></div>'+adminQueue.map(row=>{const job=row.request;let actions=job.status==='pending'?['approve','decline']:!['cancelled','declined'].includes(job.status)?['retry','cancel']:[];return '<article class="admin-request"><div class="copy-toolbar"><div><strong>'+esc(mediaTitle(job.media))+'</strong><div class="small">'+esc(row.owner)+' · '+esc(row.destination)+' · '+portalStatus(job.status)+'</div></div><div class="row">'+actions.map(action=>'<button type="button" data-id="'+esc(job.id)+'" data-action="'+action+'" onclick="adminRequestAction(this.dataset.id,this.dataset.action,this)">'+action[0].toUpperCase()+action.slice(1)+'</button>').join('')+'</div></div><p class="small">'+esc(job.message)+'</p>'+(row.diagnostic?'<div class="request-diagnostic">'+esc(row.diagnostic)+'</div>':'')+'</article>'}).join('')+(adminQueue.length?'':'<p class="small">No requests yet. Use Search & request to add one.</p>')}
+async function adminRequestAction(id,action,button){button.disabled=true;try{await postJSON('/api/requests/queue/'+encodeURIComponent(id)+'/'+action,{});await loadAdminQueue()}catch(e){requestMessage(e.message,true);button.disabled=false}}

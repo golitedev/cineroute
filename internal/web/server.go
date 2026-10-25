@@ -37,11 +37,13 @@ var assetsFS embed.FS
 
 const intakeTTL = 2 * time.Hour
 
-const sessionCookie = "cineroute_session"
-const sessionTTL = 90 * 24 * time.Hour
+const sessionCookie = "cineroute_admin_session"
+const publicSessionCookie = "cineroute_user_session"
+const sessionTTL = 12 * time.Hour
+const publicSessionTTL = 90 * 24 * time.Hour
 
-// sessionToken signs an expiry timestamp with the auth password as the key,
-// so sessions survive restarts but are invalidated when the password changes.
+// sessionToken signs a legacy expiry with a derived server secret. The caller
+// binds that secret to the persistent session key and admin credentials.
 func sessionToken(pass string, expires time.Time) string {
 	mac := hmac.New(sha256.New, []byte(pass))
 	fmt.Fprintf(mac, "cineroute-session:%d", expires.Unix())
@@ -177,7 +179,7 @@ func New(cfg *config.Config, qb *qbittorrent.Client, tmdbClient *tmdb.Client, pr
 		intakes:   map[string]*Intake{},
 	}
 	s.engine = requests.NewEngine(s.requests, tmdbClient, prowlarrClient, requestBackend{s})
-	s.page = template.Must(template.New("index.html").ParseFS(assetsFS, "templates/index.html"))
+	s.page = template.Must(template.New("index.html").ParseFS(assetsFS, "templates/index.html", "templates/public.html"))
 	go s.cleanupLoop()
 	return s
 }
@@ -205,6 +207,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /logo.svg", s.serveAsset("logo/logo.svg"))
 	mux.HandleFunc("GET /requests.js", s.serveAsset("templates/requests.js"))
 	mux.HandleFunc("GET /catalog.js", s.serveAsset("templates/catalog.js"))
+	mux.HandleFunc("GET /app.css", s.serveAsset("templates/app.css"))
 	mux.HandleFunc("GET /health", s.health)
 	mux.HandleFunc("POST /api/login", s.login)
 	mux.HandleFunc("POST /api/logout", s.logout)
@@ -247,7 +250,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("POST /api/subtitles/{id}/retry", s.retrySubtitleItem)
 	mux.HandleFunc("POST /api/subtitles/{id}/skip", s.skipSubtitleItem)
 	mux.HandleFunc("POST /api/subtitles/{id}/reset", s.resetSubtitleItem)
-	return s.logRequests(s.auth(mux))
+	return s.logRequests(s.listenerBoundary(adminListener, s.auth(mux)))
 }
 
 // statusRecorder captures the response status and size for the request log.
@@ -310,32 +313,20 @@ func (s *Server) serveAsset(name string) http.HandlerFunc {
 	if strings.HasSuffix(name, ".png") {
 		ct = "image/png"
 	}
+	if strings.HasSuffix(name, ".css") {
+		ct = "text/css; charset=utf-8"
+	}
 	if strings.HasSuffix(name, ".js") {
 		ct = "text/javascript; charset=utf-8"
 	}
 	return func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", ct)
 		w.Header().Set("Cache-Control", "public, max-age=86400")
-		if strings.HasSuffix(name, ".js") {
+		if strings.HasSuffix(name, ".js") || strings.HasSuffix(name, ".css") {
 			w.Header().Set("Cache-Control", "no-cache")
 		}
 		w.Write(data)
 	}
-}
-
-// logout clears the session cookie.
-func (s *Server) logout(w http.ResponseWriter, r *http.Request) {
-	http.SetCookie(w, &http.Cookie{
-		Name:     sessionCookie,
-		Value:    "",
-		Path:     "/",
-		Secure:   secureRequest(r),
-		HttpOnly: true,
-		SameSite: http.SameSiteLaxMode,
-		Expires:  time.Unix(1, 0),
-		MaxAge:   -1,
-	})
-	writeJSON(w, http.StatusOK, apiResponse{})
 }
 
 func (s *Server) getIntake(id string) (*Intake, bool) {

@@ -41,7 +41,7 @@ func newSubtitleTestServer(t *testing.T) (*Server, *httptest.Server, string) {
 		TVRoot:          filepath.Join(base, "tv"),
 	}}
 	srv := New(cfg, nil, nil)
-	httpSrv := httptest.NewServer(srv.Handler())
+	httpSrv := httptest.NewServer(testAdminHandler(srv))
 	t.Cleanup(httpSrv.Close)
 	return srv, httpSrv, remote
 }

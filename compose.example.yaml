@@ -13,6 +13,8 @@ services:
       CINEROUTE_CONFIG: /config/config.yaml
       # 127.0.0.1 would be unreachable from outside the container:
       CINEROUTE_LISTEN: 0.0.0.0:8787
+      # Requires config.yaml users with at least one admin and one user.
+      CINEROUTE_PUBLIC_LISTEN: 0.0.0.0:8788
       CINEROUTE_TMDB_API_KEY: ${CINEROUTE_TMDB_API_KEY:-}
       CINEROUTE_QBIT_URL: ${CINEROUTE_QBIT_URL:-http://192.168.18.29:8080}
       CINEROUTE_QBIT_USERNAME: ${CINEROUTE_QBIT_USERNAME:-}
@@ -38,5 +40,14 @@ services:
       - /mnt/disk3/data:/disk3
       - /mnt/disk4/data:/disk4
     ports:
-      - "8787:8787"
+      # Bind administration to the NAS LAN IP, never all host interfaces.
+      - "${CINEROUTE_ADMIN_BIND_IP:-192.168.18.29}:8787:8787"
+      # For cloudflared running on the Docker host: localhost:8788.
+      # With cloudflared on a shared Docker network use cineroute:8788 instead;
+      # this host publication can then be removed.
+      - "127.0.0.1:8788:8788"
+    read_only: true
+    cap_drop: [ALL]
+    security_opt:
+      - no-new-privileges:true
     restart: unless-stopped

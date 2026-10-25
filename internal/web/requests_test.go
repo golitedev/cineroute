@@ -38,6 +38,7 @@ func requestCall(t *testing.T, handler http.Handler, method, path string, settin
 		}
 	}
 	req := httptest.NewRequest(method, path, bytes.NewReader(body))
+	testLANRequest(req)
 	if authenticated {
 		req.SetBasicAuth("cineroute", "admin-secret")
 	}
@@ -113,7 +114,7 @@ func TestRequestTrackersOnlyReadIndexerConfiguration(t *testing.T) {
 	}))
 	defer upstream.Close()
 	cfg := requestTestConfig(t)
-	handler := New(cfg, nil, nil, prowlarr.New(upstream.URL, "private-key", time.Second)).Handler()
+	handler := testAdminHandler(New(cfg, nil, nil, prowlarr.New(upstream.URL, "private-key", time.Second)))
 	resp := requestCall(t, handler, http.MethodGet, "/api/requests/settings", nil, false)
 	if resp.Code != http.StatusOK || calls.Load() != 0 {
 		t.Fatal("loading settings contacted indexers")
@@ -122,7 +123,7 @@ func TestRequestTrackersOnlyReadIndexerConfiguration(t *testing.T) {
 	if resp.Code != http.StatusOK || calls.Load() != 1 || !strings.Contains(resp.Body.String(), `"protocol":"torrent"`) || strings.Contains(resp.Body.String(), "private-key") {
 		t.Fatalf("indexer response: %d %s", resp.Code, resp.Body.String())
 	}
-	withoutProwlarr := New(cfg, nil, nil).Handler()
+	withoutProwlarr := testAdminHandler(New(cfg, nil, nil))
 	if resp := requestCall(t, withoutProwlarr, http.MethodGet, "/api/requests/indexers", nil, false); resp.Code != http.StatusServiceUnavailable {
 		t.Fatalf("unconfigured Prowlarr: %d", resp.Code)
 	}
@@ -130,7 +131,7 @@ func TestRequestTrackersOnlyReadIndexerConfiguration(t *testing.T) {
 
 func TestRequestSettingsRejectMalformedUpdates(t *testing.T) {
 	cfg := requestTestConfig(t)
-	handler := New(cfg, nil, nil).Handler()
+	handler := testAdminHandler(New(cfg, nil, nil))
 	settings := requests.Defaults()
 	if resp := requestCall(t, handler, http.MethodPut, "/api/requests/settings", settings, false); resp.Code != http.StatusOK {
 		t.Fatalf("initial save: %s", resp.Body.String())

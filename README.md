@@ -50,7 +50,7 @@ Done
 
 ## Requirements
 
-* **Go 1.25+** to build, or use the Docker image.
+* **Go 1.26.10+** to build, or use the Docker image.
 * **qBittorrent 5.x** (Web API 2.11+) with the WebUI enabled.
 * Four HDDs with movie/TV roots (see config below). CineRoute and
 qBittorrent must see the **same** paths.
@@ -74,10 +74,12 @@ Secrets can also come from environment variables:
 | Log level (`debug`, `info`, `warn`, `error`; default `info`) | `CINEROUTE_LOG_LEVEL` |
 | Legacy admin username (used only without `users`) | `CINEROUTE_AUTH_USERNAME` |
 | Legacy admin password (used only without `users`) | `CINEROUTE_AUTH_PASSWORD` |
-| Listen address | `CINEROUTE_LISTEN` |
+| Admin listen address | `CINEROUTE_LISTEN` |
+| Public request portal address (empty disables) | `CINEROUTE_PUBLIC_LISTEN` |
 
 ```yaml
-listen: "127.0.0.1:8787"   # use 0.0.0.0:8787 inside a container
+listen: "127.0.0.1:8787"   # admin; use 0.0.0.0:8787 inside a container
+public_listen: "127.0.0.1:8788" # public portal; 0.0.0.0:8788 inside a container
 users:
   - name: "admin"
     role: "admin"
@@ -150,6 +152,73 @@ index the new paths.
 
 Set `CINEROUTE_LISTEN=0.0.0.0:8787` (already in the example) — the default
 `127.0.0.1` listen address is unreachable from outside the container.
+
+### LAN administration and Cloudflare Tunnel
+
+One process/container serves two independent interfaces:
+
+| Listener | Default/example | Access |
+| --- | --- | --- |
+| `listen` / `CINEROUTE_LISTEN` | port 8787 | Admin accounts, direct LAN only |
+| `public_listen` / `CINEROUTE_PUBLIC_LISTEN` | port 8788 | User accounts, request portal only |
+
+`public_listen` defaults to empty (disabled). Enable it and add at least one
+admin and one user in the config. The public router contains no administration
+routes, page markup or administration JavaScript. Admin credentials and admin
+sessions are rejected on this listener. Admins can still search and request
+from **Search & request** on the LAN interface.
+
+Use `http://192.168.18.29:8787` for administration. The Compose example publishes
+8787 specifically on the NAS LAN IP (`CINEROUTE_ADMIN_BIND_IP` overrides it),
+and publishes 8788 only on host loopback. Point a host-installed `cloudflared`
+at **`http://127.0.0.1:8788`**. If `cloudflared` is another container on a shared
+Docker network, point it at **`http://cineroute:8788`** and remove the unnecessary
+8788 host publication. Never target 8787 with a tunnel or router port forward.
+For example, a locally managed tunnel can use:
+
+```yaml
+ingress:
+  - hostname: requests.example.com
+    service: http://127.0.0.1:8788
+  - service: http_status:404
+```
+
+For a dashboard-managed tunnel, set the published application's HTTP service
+URL to the same public listener. No admin hostname is needed.
+[Cloudflare ingress configuration](https://developers.cloudflare.com/tunnel/features/locally-managed-tunnels/configuration-file/)
+documents hostname routing and the final catch-all.
+
+`admin.allowed_networks` restricts the actual TCP peer to private/loopback
+CIDRs; narrow it to your LAN as shown in `config.example.yaml`. Defaults allow
+loopback, RFC 1918 and IPv6 ULA networks. Public CIDRs and empty lists are
+rejected. Docker may present a private bridge peer for connections from the
+host; add that bridge CIDR if required. Forwarded addresses never grant access:
+the admin listener rejects proxy/Cloudflare forwarding headers outright.
+Local reverse proxies in front of administration are intentionally unsupported.
+
+With `admin.allowed_hosts: []`, administration accepts `localhost` and literal
+private/loopback IP hosts. If you use a LAN name, configure exact names/IPs,
+for example `["nas.lan", "192.168.18.29", "127.0.0.1", "localhost"]`. There are
+no wildcard hostnames. This check, together with same-origin browser checks,
+limits DNS rebinding and access from the public portal's browser origin.
+
+Cookie-authenticated mutations require the CSRF token returned by
+`GET /api/session` in `X-CineRoute-CSRF`; both interfaces' JavaScript handles it.
+Explicit Basic Auth remains available to non-browser clients, with rate limits
+on failed password attempts. Admin pages/API responses are not cacheable and
+cannot be embedded in frames. Both listeners must bind successfully before the
+single shared request worker starts.
+
+Docker port publishing can bypass UFW rules, so retain explicit host-IP port
+bindings rather than relying on a generic UFW deny rule.
+[Docker networking documentation](https://docs.docker.com/engine/network/packet-filtering-firewalls/)
+explains the interaction. The example also runs without Linux capabilities,
+disables privilege escalation and makes the container root filesystem read-only;
+media, state and scratch mounts remain writable for the app's existing functions.
+
+See [SECURITY_REVIEW.md](SECURITY_REVIEW.md) for the review scope, verified
+boundaries and remaining deployment assumptions. No firewall, tunnel or live
+NAS configuration is changed by these source changes.
 
 ### Prebuilt image (GHCR)
 
@@ -224,9 +293,10 @@ unset request_password
 
 Paste the output into `password_hash` and remove `password` for that account.
 When `users` is populated it replaces the legacy `auth_username` /
-`auth_password` login. With no accounts and no legacy password, the original
-open-admin mode remains enabled. Existing installations can therefore migrate
-by adding an admin account and user accounts together.
+`auth_password` login. Anonymous administration is disabled: without admin
+credentials the service refuses to start. The public listener also requires an
+enabled account with role `user`; legacy credentials authorize administration
+only. Existing installations can migrate by adding admin and user accounts together.
 
 Admins retain the full management interface and can use **Search & request**
 to open the request portal. Users land on a single movie/show search bar with
@@ -234,8 +304,10 @@ portrait posters, title details, TV season selection and their own request
 history with progress and cancellation. They cannot read administration APIs,
 other users' requests, filesystem paths, tracker URLs or credentials. TMDB API
 access stays on the server. Password, role, disable or removal changes invalidate
-the account's existing sessions after restart. Sessions last up to 90 days;
-keep `session.key` beside the request database persistent across restarts.
+the account's existing sessions after restart. Admin sessions last up to 12 hours
+and use SameSite Strict; user sessions last up to 90 days. Separate cookie names
+and signatures isolate the listeners. Keep `session.key` beside the request
+database persistent across restarts. This update requires signing in again.
 
 The **Requests** admin tab, immediately after TV, contains the shared policy
 and a **Queue** for approval, decline, cancellation, retry and diagnostic details.

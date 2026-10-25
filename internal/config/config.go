@@ -11,6 +11,8 @@ import (
 
 type Config struct {
 	Listen         string      `yaml:"listen"`
+	PublicListen   string      `yaml:"public_listen"`
+	Admin          Admin       `yaml:"admin"`
 	AuthUsername   string      `yaml:"auth_username"`
 	AuthPassword   string      `yaml:"auth_password"`
 	Users          []User      `yaml:"users"`
@@ -130,6 +132,7 @@ type Drive struct {
 func Default() *Config {
 	return &Config{
 		Listen:         "127.0.0.1:8787",
+		Admin:          Admin{AllowedNetworks: []string{"127.0.0.0/8", "::1/128", "10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16", "fc00::/7"}},
 		AuthUsername:   "cineroute",
 		MaxUploadBytes: 64 << 20,
 		TMDB: TMDB{
@@ -210,6 +213,9 @@ func Load(path string) (*Config, error) {
 }
 
 func applyEnv(cfg *Config) {
+	if v, ok := os.LookupEnv("CINEROUTE_PUBLIC_LISTEN"); ok {
+		cfg.PublicListen = v
+	}
 	if v := os.Getenv("CINEROUTE_REQUESTS_STATE_PATH"); v != "" {
 		cfg.Requests.StatePath = v
 	}
@@ -255,6 +261,9 @@ func applyEnv(cfg *Config) {
 }
 
 func (c *Config) validate() error {
+	if err := c.validateListeners(); err != nil {
+		return err
+	}
 	if err := c.validateUsers(); err != nil {
 		return err
 	}

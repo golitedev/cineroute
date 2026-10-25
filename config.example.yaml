@@ -6,6 +6,22 @@
 # or the web UI is unreachable from the host.
 listen: "127.0.0.1:8787"
 
+# Internet request portal, on its own listener. Empty disables it.
+# Use 0.0.0.0:8788 inside Docker; tunnel ONLY this port.
+# Requires an enabled role:user account as well as an admin account below.
+# Alternatively: CINEROUTE_PUBLIC_LISTEN.
+public_listen: ""
+
+admin:
+  # Checked against the actual TCP peer; proxy headers are rejected outright.
+  # Narrow this list to your LAN and loopback. Direct Docker peers may require
+  # adding that private bridge CIDR when accessing the published port locally.
+  allowed_networks: ["127.0.0.0/8", "::1/128", "192.168.18.0/24"]
+  # Empty: only localhost and literal private/loopback IP hosts are accepted.
+  # Set exact names/IPs here if you use a LAN hostname; no wildcard/port.
+  # Example: ["192.168.18.29", "nas.lan", "localhost", "127.0.0.1"]
+  allowed_hosts: []
+
 # Accounts are created here; restart CineRoute after editing. Admins manage
 # the whole app; users see only movie/TV search and their own requests.
 # Uncomment and replace these examples. At least one enabled admin is required.
@@ -22,7 +38,7 @@ listen: "127.0.0.1:8787"
 
 # Legacy single-admin login, used only when users is empty.
 # Alternatively: CINEROUTE_AUTH_USERNAME, CINEROUTE_AUTH_PASSWORD.
-# An empty users list AND empty auth_password leaves the app open as admin.
+# An empty users list AND empty auth_password prevents the server from starting.
 auth_username: "cineroute"
 auth_password: ""
 

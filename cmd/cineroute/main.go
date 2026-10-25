@@ -6,6 +6,7 @@ import (
 	"flag"
 	"fmt"
 	"log/slog"
+	"net"
 	"net/http"
 	"os"
 	"os/exec"
@@ -54,11 +55,12 @@ func main() {
 		slog.Error("configuration", "err", err)
 		os.Exit(1)
 	}
+	if err := cfg.ValidateServing(); err != nil {
+		slog.Error("HTTP security configuration", "err", err)
+		os.Exit(1)
+	}
 	if cfg.TMDB.APIKey == "" {
 		slog.Warn("TMDB API key is not configured; TMDB search will be unavailable")
-	}
-	if cfg.AuthPassword == "" && len(cfg.Users) == 0 {
-		slog.Warn("no auth password configured; the web interface is unauthenticated")
 	}
 	if cfg.Subtitles.Enabled {
 		if cfg.Subtitles.OpenSubtitles.APIKey == "" {
@@ -89,32 +91,78 @@ func main() {
 	}
 
 	srv := web.New(cfg, qb, tmdbClient, prowlarrClient)
-	if err := srv.Start(context.Background()); err != nil {
-		slog.Error("start request service", "err", err)
+	if err := serve(srv, cfg); err != nil {
+		slog.Error("HTTP service", "err", err)
 		os.Exit(1)
 	}
-	defer srv.Close()
-	httpSrv := &http.Server{
-		Addr:              cfg.Listen,
-		Handler:           srv.Handler(),
-		ReadHeaderTimeout: 10 * time.Second,
-	}
+}
 
-	go func() {
-		slog.Info("cineroute listening", "addr", cfg.Listen)
-		if err := httpSrv.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
-			slog.Error("http server", "err", err)
-			os.Exit(1)
+// Bind every configured socket before starting workers or serving either UI.
+// A failed public bind must not leave a partially started admin service.
+func serve(srv *web.Server, cfg *config.Config) error {
+	type listener struct {
+		server *http.Server
+		socket net.Listener
+		name   string
+	}
+	listeners := []listener{}
+	defer func() {
+		for _, entry := range listeners {
+			entry.socket.Close()
 		}
 	}()
-
+	for _, entry := range []struct {
+		address string
+		handler http.Handler
+		name    string
+	}{
+		{cfg.Listen, srv.Handler(), "admin"},
+		{cfg.PublicListen, srv.PublicHandler(), "public"},
+	} {
+		if entry.address == "" {
+			continue
+		}
+		socket, err := net.Listen("tcp", entry.address)
+		if err != nil {
+			return fmt.Errorf("bind %s listener: %w", entry.name, err)
+		}
+		httpSrv := &http.Server{Addr: entry.address, Handler: entry.handler, ReadHeaderTimeout: 10 * time.Second, ReadTimeout: 2 * time.Minute, IdleTimeout: 60 * time.Second, MaxHeaderBytes: 32 << 10}
+		if entry.name == "public" {
+			httpSrv.ReadTimeout = 20 * time.Second
+			httpSrv.WriteTimeout = 45 * time.Second
+		}
+		listeners = append(listeners, listener{httpSrv, socket, entry.name})
+	}
+	if err := srv.Start(context.Background()); err != nil {
+		return err
+	}
+	defer srv.Close()
+	errorsCh := make(chan error, len(listeners))
+	for _, entry := range listeners {
+		slog.Info("cineroute listening", "interface", entry.name, "addr", entry.server.Addr)
+		go func() {
+			if err := entry.server.Serve(entry.socket); err != nil && !errors.Is(err, http.ErrServerClosed) {
+				errorsCh <- fmt.Errorf("%s listener: %w", entry.name, err)
+			}
+		}()
+	}
 	stop := make(chan os.Signal, 1)
 	signal.Notify(stop, syscall.SIGINT, syscall.SIGTERM)
-	<-stop
+	defer signal.Stop(stop)
+	var result error
+	select {
+	case <-stop:
+	case result = <-errorsCh:
+	}
 	slog.Info("shutting down")
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
-	_ = httpSrv.Shutdown(ctx)
+	for _, entry := range listeners {
+		if err := entry.server.Shutdown(ctx); err != nil {
+			entry.server.Close()
+		}
+	}
+	return result
 }
 
 // applyLogLevel sets the level of the default slog logger, which keeps the

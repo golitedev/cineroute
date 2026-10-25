@@ -331,7 +331,7 @@ func newTestServer(t *testing.T) (*Server, *fakeQB, *httptest.Server, map[string
 		t.Fatal(err)
 	}
 	srv := New(cfg, qbClient, tc)
-	httpSrv := httptest.NewServer(srv.Handler())
+	httpSrv := httptest.NewServer(testAdminHandler(srv))
 	t.Cleanup(httpSrv.Close)
 	return srv, qb, httpSrv, roots
 }
@@ -351,6 +351,7 @@ func TestSessionAuth(t *testing.T) {
 	cfg := config.Default()
 	cfg.AuthUsername = "alice"
 	cfg.AuthPassword = "secret"
+	cfg.Requests.StatePath = filepath.Join(t.TempDir(), "requests.db")
 	cfg.QBittorrent.URL = "http://unused:1"
 	cfg.Drives = nil
 	srv := New(cfg, nil, nil)
@@ -418,14 +419,14 @@ func TestSessionAuth(t *testing.T) {
 	cookies := resp.Cookies()
 	var sess *http.Cookie
 	for _, c := range cookies {
-		if c.Name == "cineroute_session" {
+		if c.Name == sessionCookie {
 			sess = c
 		}
 	}
 	if sess == nil {
 		t.Fatal("no session cookie set")
 	}
-	if sess.MaxAge != int((90*24*time.Hour)/time.Second) {
+	if sess.MaxAge != int(sessionTTL/time.Second) {
 		t.Fatalf("session max age: %d", sess.MaxAge)
 	}
 	if !sess.HttpOnly {
@@ -459,11 +460,15 @@ func TestSessionAuth(t *testing.T) {
 
 // newAuthServer builds a fresh CineRoute server gated by the given username
 // and password, without qBittorrent/TMDB, for auth-focused tests.
-func newAuthServer(t *testing.T, user, pass string) *httptest.Server {
+func newAuthServer(t *testing.T, user, pass string, statePaths ...string) *httptest.Server {
 	t.Helper()
 	cfg := config.Default()
 	cfg.AuthUsername = user
 	cfg.AuthPassword = pass
+	cfg.Requests.StatePath = filepath.Join(t.TempDir(), "requests.db")
+	if len(statePaths) > 0 {
+		cfg.Requests.StatePath = statePaths[0]
+	}
 	cfg.QBittorrent.URL = "http://unused:1"
 	cfg.Drives = nil
 	srv := New(cfg, nil, nil)
@@ -541,17 +546,17 @@ func TestUnauthenticated401NoBasicChallenge(t *testing.T) {
 	}
 }
 
-// The login cookie must be a persistent 90-day session cookie usable over
+// The login cookie must be a persistent 12-hour admin session cookie usable over
 // plain HTTP on the LAN.
 func TestLoginSetsPersistentSessionCookie(t *testing.T) {
 	httpSrv := newAuthServer(t, "alice", "secret")
 	sess := loginCookie(t, httpSrv, "alice", "secret")
 
-	wantMaxAge := int((90 * 24 * time.Hour) / time.Second)
+	wantMaxAge := int(sessionTTL / time.Second)
 	if sess.MaxAge != wantMaxAge {
 		t.Fatalf("session MaxAge: got %d, want %d", sess.MaxAge, wantMaxAge)
 	}
-	if sess.Expires.Before(time.Now().Add(89 * 24 * time.Hour)) {
+	if sess.Expires.Before(time.Now().Add(11 * time.Hour)) {
 		t.Fatalf("session expiry is too soon: %v", sess.Expires)
 	}
 	if !sess.HttpOnly {
@@ -560,8 +565,8 @@ func TestLoginSetsPersistentSessionCookie(t *testing.T) {
 	if sess.Path != "/" {
 		t.Fatalf("session cookie path: got %q, want %q", sess.Path, "/")
 	}
-	if sess.SameSite != http.SameSiteLaxMode {
-		t.Fatalf("session SameSite: got %v, want Lax", sess.SameSite)
+	if sess.SameSite != http.SameSiteStrictMode {
+		t.Fatalf("session SameSite: got %v, want Strict", sess.SameSite)
 	}
 	if sess.Value == "" || !strings.Contains(sess.Value, ".") {
 		t.Fatalf("session token should be expiry.signature, got %q", sess.Value)
@@ -584,15 +589,14 @@ func TestSessionCookieAuthorizesProtectedEndpoints(t *testing.T) {
 	}
 }
 
-// The session token is signed with the configured password, not kept in an
-// in-memory store, so it must survive a full server (process/container)
-// restart: a brand-new instance with the same password accepts the old
-// cookie.
+// A persisted signing key keeps sessions valid after restart. The configured
+// credentials remain part of the signature, so password changes invalidate them.
 func TestSessionSurvivesNewServerInstance(t *testing.T) {
-	httpSrv1 := newAuthServer(t, "alice", "secret")
+	state := filepath.Join(t.TempDir(), "requests.db")
+	httpSrv1 := newAuthServer(t, "alice", "secret", state)
 	sess := loginCookie(t, httpSrv1, "alice", "secret")
 
-	httpSrv2 := newAuthServer(t, "alice", "secret")
+	httpSrv2 := newAuthServer(t, "alice", "secret", state)
 	req := mustReq(t, http.MethodGet, httpSrv2.URL+"/api/status", nil)
 	req.AddCookie(sess)
 	resp, _ := getStatus(t, httpSrv2, req)
@@ -605,10 +609,11 @@ func TestSessionSurvivesNewServerInstance(t *testing.T) {
 // Changing the configured auth password must invalidate every existing
 // session token.
 func TestPasswordChangeInvalidatesOldSessions(t *testing.T) {
-	httpSrv1 := newAuthServer(t, "alice", "secret-a")
+	state := filepath.Join(t.TempDir(), "requests.db")
+	httpSrv1 := newAuthServer(t, "alice", "secret-a", state)
 	sess := loginCookie(t, httpSrv1, "alice", "secret-a")
 
-	httpSrv2 := newAuthServer(t, "alice", "secret-b")
+	httpSrv2 := newAuthServer(t, "alice", "secret-b", state)
 	req := mustReq(t, http.MethodGet, httpSrv2.URL+"/api/status", nil)
 	req.AddCookie(sess)
 	resp, _ := getStatus(t, httpSrv2, req)
@@ -680,6 +685,7 @@ func TestLogoutClearsSessionCookie(t *testing.T) {
 	logoutReq := mustReq(t, http.MethodPost, httpSrv.URL+"/api/logout",
 		strings.NewReader(`{}`))
 	logoutReq.AddCookie(sess)
+	logoutReq.Header.Set("X-CineRoute-CSRF", csrfToken(logoutReq))
 	resp, err := http.DefaultClient.Do(logoutReq)
 	if err != nil {
 		t.Fatal(err)
@@ -706,7 +712,7 @@ func TestLogoutClearsSessionCookie(t *testing.T) {
 	if !del.Expires.Before(time.Now()) {
 		t.Fatalf("deletion cookie expiry should be in the past: %v", del.Expires)
 	}
-	if !del.HttpOnly || del.SameSite != http.SameSiteLaxMode {
+	if !del.HttpOnly || del.SameSite != http.SameSiteStrictMode {
 		t.Fatalf("deletion cookie attributes must match the session cookie: %+v", del)
 	}
 }
@@ -1204,7 +1210,7 @@ func TestMissingTMDBKeyShowsError(t *testing.T) {
 	cfg.Drives = []config.Drive{{ID: "hdd1", MovieRoot: filepath.Join(base, "m1"), TVRoot: filepath.Join(base, "t1")}}
 	qbClient, _ := qbittorrent.New(qbSrv.URL, "a", "b", 5*time.Second)
 	srv := New(cfg, qbClient, nil)
-	httpSrv := httptest.NewServer(srv.Handler())
+	httpSrv := httptest.NewServer(testAdminHandler(srv))
 	defer httpSrv.Close()
 
 	raw := singleFileTorrent("Some.Movie.2021.1080p.mkv", 100)
@@ -1296,7 +1302,7 @@ func TestTMDBFallbackChain(t *testing.T) {
 
 	qbClient, _ := qbittorrent.New(qbSrv.URL, "a", "b", 5*time.Second)
 	srv := New(cfg, qbClient, tc)
-	httpSrv := httptest.NewServer(srv.Handler())
+	httpSrv := httptest.NewServer(testAdminHandler(srv))
 	defer httpSrv.Close()
 
 	raw := singleFileTorrent("Blade.Runner.2049.2160p.WEB-DL.DDP5.1.mkv", 100)
@@ -1449,7 +1455,7 @@ func TestAutoConfirmFirstResultAndCanSwitch(t *testing.T) {
 
 	qbClient, _ := qbittorrent.New(qbSrv.URL, "a", "b", 5*time.Second)
 	srv := New(cfg, qbClient, tc)
-	httpSrv := httptest.NewServer(srv.Handler())
+	httpSrv := httptest.NewServer(testAdminHandler(srv))
 	defer httpSrv.Close()
 
 	raw := singleFileTorrent("Some.Movie.2021.1080p.mkv", 100)

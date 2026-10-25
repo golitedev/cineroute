@@ -112,7 +112,12 @@ func userWorkflowCall(t *testing.T, s *Server, user, method, path, body string) 
 	r := httptest.NewRequest(method, path, strings.NewReader(body))
 	r.SetBasicAuth(user, user+"-secret")
 	out := httptest.NewRecorder()
-	s.Handler().ServeHTTP(out, r)
+	if user == "admin" {
+		testLANRequest(r)
+		s.Handler().ServeHTTP(out, r)
+	} else {
+		s.PublicHandler().ServeHTTP(out, r)
+	}
 	return out
 }
 func createWorkflowJob(t *testing.T, f *workflowFixture, user string, tv bool) requests.Job {
@@ -250,7 +255,7 @@ func TestRequestOwnershipApprovalAndQuotas(t *testing.T) {
 	if out := userWorkflowCall(t, f.s, "alice", "POST", "/api/user/requests/"+bob.ID+"/cancel", ""); out.Code != 404 {
 		t.Fatalf("cross-user cancel: %d", out.Code)
 	}
-	if out := userWorkflowCall(t, f.s, "alice", "POST", "/api/requests/queue/"+alice.ID+"/approve", ""); out.Code != 403 {
+	if out := userWorkflowCall(t, f.s, "alice", "POST", "/api/requests/queue/"+alice.ID+"/approve", ""); out.Code != 403 && out.Code != 401 {
 		t.Fatalf("user approved own request: %d", out.Code)
 	}
 	if out := userWorkflowCall(t, f.s, "admin", "POST", "/api/requests/queue/"+alice.ID+"/approve", ""); out.Code != 200 {
@@ -463,5 +468,44 @@ func TestMovieUpgradeKeepsOriginalAndCompletesAtCutoff(t *testing.T) {
 	}
 	if content, err := os.ReadFile(original); err != nil || string(content) != "original seed" {
 		t.Fatalf("original changed: %s %v", content, err)
+	}
+}
+
+func TestCookieRequestsWorkThroughPublicListenerWithSharedAdminQueue(t *testing.T) {
+	f := newWorkflowFixture(t, false)
+	cookie := securityLogin(t, f.s, publicListener, "alice", "alice-secret")
+	token := securityCSRF(t, f.s.PublicHandler(), cookie)
+	makeRequest := func(withToken bool) *httptest.ResponseRecorder {
+		r := httptest.NewRequest("POST", "https://requests.example.com/api/user/requests", strings.NewReader(`{"media_type":"movie","tmdb_id":101}`))
+		r.AddCookie(cookie)
+		r.Header.Set("Content-Type", "application/json")
+		r.Header.Set("Origin", "https://requests.example.com")
+		r.Header.Set("Sec-Fetch-Site", "same-origin")
+		r.Header.Set("X-Forwarded-Proto", "https")
+		r.Header.Set("CF-Connecting-IP", "203.0.113.25")
+		if withToken {
+			r.Header.Set("X-CineRoute-CSRF", token)
+		}
+		return securityCall(f.s.PublicHandler(), r)
+	}
+	if out := makeRequest(false); out.Code != 403 {
+		t.Fatalf("public request bypassed CSRF: %d", out.Code)
+	}
+	if out := makeRequest(true); out.Code != 201 {
+		t.Fatalf("public cookie request: %d %s", out.Code, out.Body.String())
+	}
+	if err := f.s.engine.Tick(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	admin := securityLogin(t, f.s, adminListener, "admin", "admin-secret")
+	r := securityRequest("GET", "/api/requests/queue")
+	r.AddCookie(admin)
+	queue := securityCall(f.s.Handler(), r)
+	if queue.Code != 200 || !strings.Contains(queue.Body.String(), `"owner":"alice"`) || !strings.Contains(queue.Body.String(), `"status":"downloading"`) {
+		t.Fatalf("shared admin queue: %d %s", queue.Code, queue.Body.String())
+	}
+	downloads, _ := f.s.requests.Downloads()
+	if len(downloads) != 1 {
+		t.Fatalf("public request did not use shared worker: %d", len(downloads))
 	}
 }
