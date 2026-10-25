@@ -508,8 +508,21 @@ func (e *Engine) process(ctx context.Context, job *Job, settings Settings, downl
 			return fmt.Errorf("request worker lease changed")
 		}
 		planned := false
+		recordSource := func(d Download) Download {
+			d.RequestID, d.RequestedBy = job.ID, job.Owner
+			d.IndexerID, d.Indexer, d.InfoURL = candidate.Release.IndexerID, candidate.Release.Indexer, candidate.Release.InfoURL
+			if d.Indexer == "" {
+				for _, tracker := range settings.Trackers {
+					if tracker.ID == d.IndexerID {
+						d.Indexer = tracker.Name
+						break
+					}
+				}
+			}
+			return d
+		}
 		download, err := e.Backend.Submit(ctx, *job, candidate, meta, raw, keys, func(d Download) error {
-			if err := e.Store.SaveDownload(d); err != nil {
+			if err := e.Store.SaveDownload(recordSource(d)); err != nil {
 				return err
 			}
 			planned = true
@@ -525,6 +538,7 @@ func (e *Engine) process(ctx context.Context, job *Job, settings Settings, downl
 			rejected[err.Error()]++
 			continue
 		}
+		download = recordSource(download)
 		if err = e.Store.SaveDownload(download); err != nil {
 			return err
 		}

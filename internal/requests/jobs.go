@@ -39,6 +39,14 @@ type Job struct {
 }
 
 type Download struct {
+	RequestID    string           `json:"request_id,omitempty"`
+	RequestedBy  string           `json:"requested_by,omitempty"`
+	IndexerID    int              `json:"indexer_id,omitempty"`
+	Indexer      string           `json:"indexer,omitempty"`
+	InfoURL      string           `json:"info_url,omitempty"`
+	TorrentState string           `json:"torrent_state,omitempty"`
+	ObservedAt   time.Time        `json:"observed_at"`
+	CompletedAt  time.Time        `json:"completed_at"`
 	Hash         string           `json:"hash"`
 	MediaType    string           `json:"media_type"`
 	TMDBID       int              `json:"tmdb_id"`

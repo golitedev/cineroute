@@ -20,7 +20,7 @@ function requestMessage(message,error=false){
 async function loadRequests(force=false){
   if(currentAccount?.role!=="admin")return;const owner=currentAccount.name;
   if(requestLoading||requestSaving)return;
-  if(requestData&&!force){renderRequests();return}
+  if(requestData&&!force){renderRequests();if(requestPanel==='history')loadAdminRequestHistory();return}
   if(force&&requestDirty()&&!confirm('Discard unsaved request settings and reload?'))return;
   requestLoading=true;$('requestsLoading').textContent='Loading request settings…';updateRequestSaveState();
   try{
@@ -28,6 +28,7 @@ async function loadRequests(force=false){
     if(currentAccount?.role!=="admin"||currentAccount.name!==owner)return;
     requestData=data;requestDraft=requestClone(data.settings);requestSavedJSON=JSON.stringify(requestDraft);
     renderRequests();requestMessage('');
+    if(requestPanel==='history')loadAdminRequestHistory();
     if(data.prowlarr_configured&&!requestIndexersLoaded)loadRequestIndexers();
   }catch(e){requestMessage(e.message,true)}
   finally{requestLoading=false;$('requestsLoading').textContent='';updateRequestSaveState()}
@@ -47,7 +48,7 @@ async function saveRequestSettings(){
   }catch(e){requestMessage(e.message,true)}
   finally{requestSaving=false;updateRequestSaveState()}
 }
-function setRequestPanel(panel){requestPanel=panel;renderRequests();if(panel==='queue')loadAdminQueue()}
+function setRequestPanel(panel){requestPanel=panel;renderRequests();if(panel==='queue')loadAdminQueue();if(panel==='history')loadAdminRequestHistory()}
 function requestNumber(path,label,min,max,step=1,hint=''){
   return '<label class="request-field"><span>'+label+'</span><input type="number" required min="'+min+'" max="'+max+'" step="'+step+'" value="'+esc(requestValue(path))+'" oninput="setRequestField(\''+path+'\',this.value.length?Number(this.value):NaN)">'+(hint?'<small>'+hint+'</small>':'')+'</label>';
 }
@@ -60,9 +61,9 @@ function requestSelect(path,label,options,hint='',rerender=false){
 function renderRequests(){
   document.querySelectorAll('#requestPanelNav button').forEach(button=>button.classList.toggle('active',button.dataset.panel===requestPanel));
   if(!requestDraft)return;
-  const titles={queue:'Request queue',general:'Request defaults',trackers:'Trackers',movie:'Movie profile',tv:'TV profile'};
+  const titles={queue:'Request queue',general:'Request defaults',trackers:'Trackers',movie:'Movie profile',tv:'TV profile',history:'Request history'};
   $('requestsPanelTitle').textContent=titles[requestPanel];
-  $('requestsSettingsContent').innerHTML=requestPanel==='queue'?renderRequestQueue():requestPanel==='general'?renderRequestGeneral():requestPanel==='trackers'?renderRequestTrackers():renderRequestProfile(requestPanel);
+  $('requestsSettingsContent').innerHTML=requestPanel==='queue'?renderRequestQueue():requestPanel==='history'?renderRequestHistory():requestPanel==='general'?renderRequestGeneral():requestPanel==='trackers'?renderRequestTrackers():renderRequestProfile(requestPanel);
   updateRequestSaveState();
 }
 function renderRequestGeneral(){
@@ -165,3 +166,55 @@ async function loadAdminQueue(){
 }
 function renderRequestQueue(){return '<div class="copy-toolbar"><p class="small">'+adminQueue.length+' requests · '+adminQueue.filter(row=>row.request.status==='pending').length+' awaiting approval</p><button type="button" onclick="loadAdminQueue()">Refresh queue</button></div>'+adminQueue.map(row=>{const job=row.request;let actions=job.status==='pending'?['approve','decline']:!['cancelled','declined'].includes(job.status)?['retry','cancel']:[];return '<article class="admin-request"><div class="copy-toolbar"><div><strong>'+esc(mediaTitle(job.media))+'</strong><div class="small">'+esc(row.owner)+' · '+esc(row.destination)+' · '+portalStatus(job.status)+'</div></div><div class="row">'+actions.map(action=>'<button type="button" data-id="'+esc(job.id)+'" data-action="'+action+'" onclick="adminRequestAction(this.dataset.id,this.dataset.action,this)">'+action[0].toUpperCase()+action.slice(1)+'</button>').join('')+'</div></div><p class="small">'+esc(job.message)+'</p>'+(row.diagnostic?'<div class="request-diagnostic">'+esc(row.diagnostic)+'</div>':'')+'</article>'}).join('')+(adminQueue.length?'':'<p class="small">No requests yet. Use Search & request to add one.</p>')}
 async function adminRequestAction(id,action,button){button.disabled=true;try{await postJSON('/api/requests/queue/'+encodeURIComponent(id)+'/'+action,{});await loadAdminQueue()}catch(e){requestMessage(e.message,true);button.disabled=false}}
+// Admin-only history uses stored worker observations; viewing it never searches
+// trackers, adds torrents or changes request policy.
+let requestHistoryData=null,requestHistoryQuery='',requestHistoryStatus='all',requestHistoryPage=1,requestHistoryLoading=false,requestHistoryError='',requestHistoryToken=0,requestHistoryController=null,requestHistoryTimer=null;
+function resetRequestHistory(){requestHistoryToken++;requestHistoryController?.abort();clearTimeout(requestHistoryTimer);requestHistoryTimer=null;requestHistoryData=null;requestHistoryQuery='';requestHistoryStatus='all';requestHistoryPage=1;requestHistoryLoading=false;requestHistoryError=''}
+const requestHistoryStatusLabel=status=>({planned:'Verifying download',stalled:'Stalled',paused:'Paused',checking:'Checking files',metadata:'Fetching metadata',failed:'Failed attempt',waiting:'Waiting',error:'Needs attention',complete:'Ready in library'}[status]||portalStatus(status));
+const requestHistoryStatusClass=status=>status==='complete'?'ok':['failed','error','stalled'].includes(status)?'err':['pending','paused','waiting','queued','metadata','checking'].includes(status)?'warn':'';
+function requestHistoryDate(value){if(!value||value.startsWith('0001-'))return '';const date=new Date(value);return Number.isNaN(date.getTime())?'':date.toLocaleString()}
+function requestHistoryTrackerURL(value){try{const url=new URL(value);return ['http:','https:'].includes(url.protocol)&&!url.username&&!url.password?url.href:''}catch{return ''}}
+function requestHistoryPercent(value){return Math.round(Math.min(1,Math.max(0,Number(value)||0))*100)}
+function renderRequestHistory(){
+  const statuses=['all','pending','queued','searching','planned','downloading','stalled','paused','checking','metadata','waiting','monitoring','error','complete','cancelled','declined'];
+  return '<p class="small">Requests from every user and all recorded download attempts. Status refreshes every 15 seconds while this tab is open.</p><div class="request-history-controls"><label class="request-field"><span>Search history</span><input id="requestHistorySearch" type="search" maxlength="200" placeholder="Title, user, tracker, disk or torrent hash" value="'+esc(requestHistoryQuery)+'" oninput="searchRequestHistory(this.value)"></label><label class="request-field"><span>Status</span><select id="requestHistoryStatus" onchange="filterRequestHistory(this.value)">'+statuses.map(status=>'<option value="'+status+'" '+(requestHistoryStatus===status?'selected':'')+'>'+esc(status==='all'?'All statuses':requestHistoryStatusLabel(status))+'</option>').join('')+'</select></label><button type="button" onclick="loadAdminRequestHistory()">Refresh</button></div><div id="requestHistorySummary" class="small">'+renderRequestHistorySummary()+'</div><div id="requestHistoryMessage" role="status" aria-live="polite">'+esc(requestHistoryError|| (requestHistoryLoading?'Refreshing history…':''))+'</div><div id="requestHistoryResults">'+renderRequestHistoryEntries()+'</div><div id="requestHistoryPager" class="request-history-pager">'+renderRequestHistoryPager()+'</div>';
+}
+function searchRequestHistory(value){requestHistoryQuery=value;requestHistoryPage=1;requestHistoryToken++;requestHistoryController?.abort();clearTimeout(requestHistoryTimer);requestHistoryTimer=setTimeout(()=>{requestHistoryTimer=null;loadAdminRequestHistory()},350)}
+function filterRequestHistory(value){requestHistoryStatus=value;requestHistoryPage=1;loadAdminRequestHistory()}
+function pageRequestHistory(page){requestHistoryPage=page;loadAdminRequestHistory()}
+async function loadAdminRequestHistory(){
+  if(currentAccount?.role!=='admin')return;
+  clearTimeout(requestHistoryTimer);requestHistoryTimer=null;requestHistoryController?.abort();requestHistoryController=new AbortController();
+  const token=++requestHistoryToken,owner=currentAccount.name;requestHistoryLoading=true;requestHistoryError='';paintRequestHistory();
+  try{
+    const data=await api('/api/requests/history?page='+requestHistoryPage+'&status='+encodeURIComponent(requestHistoryStatus)+'&q='+encodeURIComponent(requestHistoryQuery),{signal:requestHistoryController.signal});
+    if(token!==requestHistoryToken||currentAccount?.role!=='admin'||currentAccount.name!==owner)return;
+    requestHistoryData=data;requestHistoryPage=data.page;
+  }catch(e){if(token===requestHistoryToken&&e.name!=='AbortError')requestHistoryError=e.message}
+  finally{if(token===requestHistoryToken){requestHistoryLoading=false;paintRequestHistory()}}
+}
+function paintRequestHistory(){if(requestPanel!=='history'||currentAccount?.role!=='admin')return;$('requestHistorySummary').innerHTML=renderRequestHistorySummary();$('requestHistoryMessage').textContent=requestHistoryError||(requestHistoryLoading?'Refreshing history…':'');$('requestHistoryMessage').className=requestHistoryError?'errbox':'small';$('requestHistoryResults').innerHTML=renderRequestHistoryEntries();$('requestHistoryPager').innerHTML=renderRequestHistoryPager()}
+function renderRequestHistorySummary(){
+  if(!requestHistoryData)return '';
+  const counts=requestHistoryData.counts||{},total=Object.values(counts).reduce((sum,count)=>sum+count,0);
+  return esc(total+' requests · '+(counts.complete||0)+' ready · '+(counts.downloading||0)+' downloading · '+(counts.queued||0)+' queued · '+(counts.stalled||0)+' stalled · '+(counts.waiting||0)+' waiting · '+(counts.error||0)+' need attention')+(requestHistoryData.as_of?' · Updated '+esc(requestHistoryDate(requestHistoryData.as_of)):'');
+}
+function renderRequestHistoryEntries(){
+  if(!requestHistoryData)return '<p class="small">Loading request history…</p>';
+  const entries=requestHistoryData.entries||[];
+  if(!entries.length)return '<p class="small">'+(requestHistoryQuery||requestHistoryStatus!=='all'?'No requests match these filters.':'No requests yet. Requests and their downloads will appear here.')+'</p>';
+  return entries.map(row=>{
+    const job=row.request,status=row.status||job.status,percent=requestHistoryPercent(job.progress),created=requestHistoryDate(job.created_at),next=requestHistoryDate(row.next_search),isTV=job.media.media_type==='tv';
+    const seasons=isTV?(job.seasons||[]).map(number=>'S'+String(number).padStart(2,'0')).join(', '):'';
+    return '<article class="request-history-entry"><div class="copy-toolbar"><div><strong>'+esc(mediaTitle(job.media))+(mediaYear(job.media)?' ('+esc(mediaYear(job.media))+')':'')+'</strong><div class="small">Requested by <b>'+esc(row.owner)+'</b> · '+(isTV?'TV':'Movie')+' · '+esc(row.destination)+(seasons?' · '+esc(seasons):'')+(job.follow_future?' · Following future seasons':'')+'</div></div><span class="badge '+requestHistoryStatusClass(status)+'">'+esc(requestHistoryStatusLabel(status))+'</span></div><div class="request-history-dates small">'+(created?'Requested '+esc(created):'')+(next&&['waiting','queued','monitoring'].includes(job.status)?' · Next check '+esc(next):'')+'</div><p class="small">'+esc(job.message||'')+'</p>'+(['downloading','stalled','paused','checking','metadata'].includes(status)?'<div class="request-history-progress"><progress max="100" value="'+percent+'" aria-label="Request progress"></progress><span>'+percent+'%</span></div>':'')+(row.diagnostic?'<div class="request-diagnostic">'+esc(row.diagnostic)+'</div>':'')+'<div class="request-history-downloads">'+(row.downloads?.length?row.downloads.map(renderRequestHistoryDownload).join(''):'<p class="small">'+(job.status==='complete'?'No download recorded; the title was found in the library.':'No download has started for this title.')+'</p>')+'</div></article>';
+  }).join('');
+}
+function renderRequestHistoryDownload(download){
+  const link=requestHistoryTrackerURL(download.tracker_url),percent=requestHistoryPercent(download.progress),added=requestHistoryDate(download.added_at),completed=requestHistoryDate(download.completed_at),failed=requestHistoryDate(download.failed_at),lastProgress=requestHistoryDate(download.last_progress),observed=requestHistoryDate(download.observed_at);
+  return '<div class="request-history-download"><div class="copy-toolbar"><strong>'+esc(download.title||'Recorded torrent')+'</strong><span class="badge '+requestHistoryStatusClass(download.status)+'">'+esc(requestHistoryStatusLabel(download.status))+'</span></div><div class="small">'+esc(download.tracker||'Tracker not recorded')+(download.drive?' · '+esc(download.drive):'')+(download.quality?' · '+esc(download.quality):'')+(download.size>0?' · '+(download.size/1073741824).toFixed(2)+' GiB':'')+'</div><div class="small">'+(download.requested_by?'Download started for '+esc(download.requested_by):'Download initiator not recorded')+'</div>'+(download.episodes?.length?'<div class="small">Episodes: '+esc(download.episodes.join(', '))+'</div>':'')+(download.status!=='complete'?'<div class="request-history-progress"><progress max="100" value="'+percent+'" aria-label="Torrent progress"></progress><span>'+percent+'%</span></div>':'')+'<div class="small">'+(added?'Added '+esc(added):'')+(completed?' · Completed '+esc(completed):'')+(failed?' · Failed '+esc(failed):'')+'</div>'+(download.status!=='complete'&&lastProgress?'<div class="small">Last progress '+esc(lastProgress)+(observed?' · Checked '+esc(observed):'')+'</div>':'')+(download.torrent_state?'<div class="small">qBittorrent: '+esc(download.torrent_state)+'</div>':'')+(download.error?'<div class="request-diagnostic">'+esc(download.error)+'</div>':'')+(link?'<a class="request-tracker-link" href="'+esc(link)+'" target="_blank" rel="noopener noreferrer">Open torrent on tracker ↗</a>':'<span class="small">Tracker page not recorded for this attempt.</span>')+'</div>';
+}
+function renderRequestHistoryPager(){
+  if(!requestHistoryData)return '';
+  const page=requestHistoryData.page||1,pages=requestHistoryData.total_pages||1;
+  return '<button type="button" '+(page<=1?'disabled':'')+' onclick="pageRequestHistory('+(page-1)+')">Previous</button><span class="small">Page '+page+' of '+pages+' · '+Number(requestHistoryData.total||0)+' matching requests</span><button type="button" '+(page>=pages?'disabled':'')+' onclick="pageRequestHistory('+(page+1)+')">Next</button>';
+}

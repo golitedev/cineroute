@@ -89,7 +89,7 @@ func newWorkflowFixture(t *testing.T, tv bool) *workflowFixture {
 				t.Errorf("search used unselected trackers: %v", ids)
 			}
 			seeders := 10
-			json.NewEncoder(w).Encode([]prowlarr.Release{{Guid: "release-one", IndexerID: 7, Title: f.title, Seeders: &seeders, Size: 512, DownloadURL: indexers.URL + "/download?apikey=private-download-key"}})
+			json.NewEncoder(w).Encode([]prowlarr.Release{{Guid: "release-one", IndexerID: 7, Indexer: "Selected tracker", InfoURL: "https://tracker.example/torrents/42", Title: f.title, Seeders: &seeders, Size: 512, DownloadURL: indexers.URL + "/download?apikey=private-download-key"}})
 		case "/download":
 			w.Write(f.torrent)
 		default:

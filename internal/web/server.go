@@ -229,6 +229,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("POST /api/user/requests", s.createUserRequest)
 	mux.HandleFunc("POST /api/user/requests/{id}/cancel", s.cancelUserRequest)
 	mux.HandleFunc("GET /api/requests/queue", s.requestQueue)
+	mux.HandleFunc("GET /api/requests/history", s.requestHistory)
 	mux.HandleFunc("POST /api/requests/queue/{id}/{action}", s.requestAction)
 	mux.HandleFunc("GET /api/requests/settings", s.requestSettings)
 	mux.HandleFunc("PUT /api/requests/settings", s.saveRequestSettings)

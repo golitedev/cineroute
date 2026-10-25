@@ -127,6 +127,7 @@
     <button type="button" data-panel="trackers" onclick="setRequestPanel('trackers')">Trackers</button>
     <button type="button" data-panel="movie" onclick="setRequestPanel('movie')">Movies</button>
     <button type="button" data-panel="tv" onclick="setRequestPanel('tv')">TV</button>
+    <button type="button" data-panel="history" onclick="setRequestPanel('history')">History</button>
   </div>
   <form id="requestsForm" class="card" onsubmit="saveRequestSettings();return false">
     <h2 id="requestsPanelTitle">Request defaults</h2>
@@ -317,7 +318,7 @@ function showApp(){
   $("statusbar").style.display=admin?"":"none";$("headerTag").textContent=admin?"route torrents into the media library":"movies and shows, requested by you";
 }
 function showLogin(){
-  currentAccount=null;csrf="";resetPortal();requestData=null;requestDraft=null;requestSavedJSON="";requestIndexers=[];requestIndexersLoaded=false;adminQueue=[];$("requestsSettingsContent").innerHTML="";$("userShell").classList.add("hidden");$("accountBar").classList.add("hidden");
+  currentAccount=null;csrf="";resetPortal();resetRequestHistory();requestData=null;requestDraft=null;requestSavedJSON="";requestIndexers=[];requestIndexersLoaded=false;adminQueue=[];$("requestsSettingsContent").innerHTML="";$("userShell").classList.add("hidden");$("accountBar").classList.add("hidden");
   const opening=$("loginCard").classList.contains("hidden");
   $("appShell").classList.add("hidden");
   $("stack").innerHTML="";
@@ -1100,7 +1101,7 @@ async function skipSubtitleItem(id,button){
 }
 loadSession();
 setInterval(loadStatus,30000);
-setInterval(()=>{if(currentAccount&&(portalMode||currentAccount.role!=="admin"))loadMyRequests();if(currentAccount?.role==="admin"&&requestPanel==="queue"&&!$("requestsView").classList.contains("hidden"))loadAdminQueue()},15000);
+setInterval(()=>{if(currentAccount&&(portalMode||currentAccount.role!=="admin"))loadMyRequests();if(currentAccount?.role==="admin"&&!portalMode&&!$("requestsView").classList.contains("hidden")){if(requestPanel==="queue")loadAdminQueue();if(requestPanel==="history"&&!requestHistoryLoading&&!requestHistoryTimer)loadAdminRequestHistory()}},15000);
 </script>
 </body>
 </html>

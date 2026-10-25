@@ -339,6 +339,17 @@ merges seasons into the user's existing request instead of creating extra downlo
   Movie limits apply to a whole release; TV has separate episode and pack caps.
   A maximum size of 0 means unlimited. TV monitoring, specials and season-pack
   preference are separate from movie release availability.
+* **History:** after TV, see requests from every user, their destination, current
+  status, progress, retry time and all recorded download attempts. Search by title,
+  user, tracker, disk or hash, filter by status and page through older requests.
+  Stalled, paused, queued, checking and failed downloads remain visible alongside
+  completed additions. History refreshes every 15 seconds while open, using the
+  worker's stored qBittorrent observations without issuing tracker searches.
+  New downloads retain their requesting user, tracker details-page link and
+  completion time. Downloads shared by several requests show their actual
+  initiator separately. Older records remain visible; missing source details are
+  labeled rather than inferred. Tracker download URLs and credentials are never
+  used as history links. This endpoint and its interface are admin-only.
 * **Keywords:** per-media text or regular-expression rules can prefer a release
   with a positive or negative score, require a match, or reject a match. Every
   required rule must match and any rejection blocks the release. Text matching

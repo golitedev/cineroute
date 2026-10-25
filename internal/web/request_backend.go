@@ -300,6 +300,8 @@ func (b requestBackend) finishLink(ctx context.Context, d requests.Download) (re
 	}
 	d.Progress = 1
 	d.Status = "complete"
+	d.CompletedAt = time.Now().UTC()
+	d.ObservedAt = d.CompletedAt
 	d.TorrentData = nil
 	return d, nil
 }
@@ -350,6 +352,8 @@ func (b requestBackend) Observe(ctx context.Context, d requests.Download) (reque
 		return d, nil
 	}
 	tor := ts[0]
+	d.TorrentState = tor.State
+	d.ObservedAt = time.Now().UTC()
 	d.Paused = tor.Stopped()
 	if d.Status == "planned" {
 		meta, err := torrentmeta.Parse(d.TorrentData)
@@ -399,6 +403,9 @@ func (b requestBackend) Observe(ctx context.Context, d requests.Download) (reque
 			}
 		}
 		d.Status = "complete"
+		if d.CompletedAt.IsZero() {
+			d.CompletedAt = time.Now().UTC()
+		}
 	}
 	return d, nil
 }
