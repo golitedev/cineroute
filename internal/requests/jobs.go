@@ -11,6 +11,7 @@ import (
 	"strings"
 	"time"
 
+	"cineroute/internal/medialanguages"
 	"cineroute/internal/tmdb"
 )
 
@@ -39,38 +40,40 @@ type Job struct {
 }
 
 type Download struct {
-	RequestID    string           `json:"request_id,omitempty"`
-	RequestedBy  string           `json:"requested_by,omitempty"`
-	IndexerID    int              `json:"indexer_id,omitempty"`
-	Indexer      string           `json:"indexer,omitempty"`
-	InfoURL      string           `json:"info_url,omitempty"`
-	TorrentState string           `json:"torrent_state,omitempty"`
-	ObservedAt   time.Time        `json:"observed_at"`
-	CompletedAt  time.Time        `json:"completed_at"`
-	Hash         string           `json:"hash"`
-	MediaType    string           `json:"media_type"`
-	TMDBID       int              `json:"tmdb_id"`
-	Target       string           `json:"target"`
-	DriveID      string           `json:"drive_id"`
-	SavePath     string           `json:"save_path"`
-	ContentPath  string           `json:"content_path"`
-	Files        []string         `json:"files"`
-	FileSizes    map[string]int64 `json:"file_sizes"`
-	SourcePath   string           `json:"source_path,omitempty"`
-	TorrentData  []byte           `json:"torrent_data,omitempty"`
-	ReleaseKey   string           `json:"release_key"`
-	Title        string           `json:"title"`
-	Quality      string           `json:"quality"`
-	Score        int              `json:"score"`
-	Size         int64            `json:"size"`
-	Episodes     []string         `json:"episodes"`
-	Status       string           `json:"status"`
-	Progress     float64          `json:"progress"`
-	Paused       bool             `json:"paused"`
-	AddedAt      time.Time        `json:"added_at"`
-	LastProgress time.Time        `json:"last_progress"`
-	Error        string           `json:"error"`
-	FailedAt     time.Time        `json:"failed_at"`
+	Languages     medialanguages.Metadata `json:"languages"`
+	LanguageScore int                     `json:"language_score"`
+	RequestID     string                  `json:"request_id,omitempty"`
+	RequestedBy   string                  `json:"requested_by,omitempty"`
+	IndexerID     int                     `json:"indexer_id,omitempty"`
+	Indexer       string                  `json:"indexer,omitempty"`
+	InfoURL       string                  `json:"info_url,omitempty"`
+	TorrentState  string                  `json:"torrent_state,omitempty"`
+	ObservedAt    time.Time               `json:"observed_at"`
+	CompletedAt   time.Time               `json:"completed_at"`
+	Hash          string                  `json:"hash"`
+	MediaType     string                  `json:"media_type"`
+	TMDBID        int                     `json:"tmdb_id"`
+	Target        string                  `json:"target"`
+	DriveID       string                  `json:"drive_id"`
+	SavePath      string                  `json:"save_path"`
+	ContentPath   string                  `json:"content_path"`
+	Files         []string                `json:"files"`
+	FileSizes     map[string]int64        `json:"file_sizes"`
+	SourcePath    string                  `json:"source_path,omitempty"`
+	TorrentData   []byte                  `json:"torrent_data,omitempty"`
+	ReleaseKey    string                  `json:"release_key"`
+	Title         string                  `json:"title"`
+	Quality       string                  `json:"quality"`
+	Score         int                     `json:"score"`
+	Size          int64                   `json:"size"`
+	Episodes      []string                `json:"episodes"`
+	Status        string                  `json:"status"`
+	Progress      float64                 `json:"progress"`
+	Paused        bool                    `json:"paused"`
+	AddedAt       time.Time               `json:"added_at"`
+	LastProgress  time.Time               `json:"last_progress"`
+	Error         string                  `json:"error"`
+	FailedAt      time.Time               `json:"failed_at"`
 }
 
 const jobSchema = `

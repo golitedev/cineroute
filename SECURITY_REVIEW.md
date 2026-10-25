@@ -19,6 +19,21 @@ remain registered only on the admin handler. A public user supplies a TMDB ID
 and season selections, not filesystem paths, tracker URLs or routing settings.
 Server-side policy still controls destinations and release selection.
 
+UNIT3D language priorities are admin-only policy. The worker reads saved tracker
+credentials from Prowlarr into a private, five-minute in-memory configuration
+cache; public/admin indexer lists continue to use an explicit credential-free
+resource. Native lookups use a fixed API path on the configured tracker origin,
+matching only numeric same-origin torrent identities. Public tracker keys require
+HTTPS (HTTP is limited to loopback test servers), use a Bearer header and never
+follow redirects, including when retrieving configuration from Prowlarr. No
+search-result URL can select a destination for credentials. Twelve-second request
+timeouts, response/report size limits, bounded parsed-result caches, pacing and
+five-minute failure backoff limit the extra work. Only normalized language codes
+and preference points enter download receipts and admin history. Raw reports,
+tracker keys and credential-bearing download URLs are excluded. Tests cover
+redirects, mismatched origins/identities, disabled trackers, unknown reports,
+independent profiles, and public users attempting policy overrides.
+
 ## Findings and changes
 
 | Finding | Resolution |

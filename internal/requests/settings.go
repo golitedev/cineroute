@@ -8,6 +8,8 @@ import (
 	"regexp"
 	"slices"
 	"strings"
+
+	"cineroute/internal/medialanguages"
 )
 
 type Option struct {
@@ -23,6 +25,8 @@ var QualityOptions = []Option{
 }
 
 var CodecOptions = []Option{{"h264", "H.264 / x264"}, {"hevc", "HEVC / x265"}, {"av1", "AV1"}, {"mpeg2", "MPEG-2"}}
+
+var LanguageOptions = medialanguages.Options
 
 var languageCodePattern = regexp.MustCompile(`^(original|[a-z]{2,3}(-[A-Za-z]{2,4})?)$`)
 
@@ -40,20 +44,22 @@ type Keyword struct {
 }
 
 type Profile struct {
-	Destination          string    `json:"destination"`
-	NewTitleDrive        string    `json:"new_title_drive"` // empty means most free space
-	Qualities            []string  `json:"qualities"`       // most preferred first
-	Codecs               []string  `json:"codecs"`
-	AudioLanguages       []string  `json:"audio_languages"` // empty means any language
-	AllowUnknownLanguage bool      `json:"allow_unknown_language"`
-	MinSizeGiB           float64   `json:"min_size_gib"`
-	MaxSizeGiB           float64   `json:"max_size_gib"` // zero means unlimited
-	MaxPackSizeGiB       float64   `json:"max_pack_size_gib"`
-	UpgradeAllowed       bool      `json:"upgrade_allowed"`
-	UpgradeUntil         string    `json:"upgrade_until"`
-	MinimumScore         int       `json:"minimum_score"`
-	UpgradeUntilScore    int       `json:"upgrade_until_score"`
-	Keywords             []Keyword `json:"keywords"`
+	Destination                string    `json:"destination"`
+	NewTitleDrive              string    `json:"new_title_drive"` // empty means most free space
+	Qualities                  []string  `json:"qualities"`       // most preferred first
+	Codecs                     []string  `json:"codecs"`
+	AudioLanguages             []string  `json:"audio_languages"` // empty means any language
+	PreferredAudioLanguages    []string  `json:"preferred_audio_languages"`
+	PreferredSubtitleLanguages []string  `json:"preferred_subtitle_languages"`
+	AllowUnknownLanguage       bool      `json:"allow_unknown_language"`
+	MinSizeGiB                 float64   `json:"min_size_gib"`
+	MaxSizeGiB                 float64   `json:"max_size_gib"` // zero means unlimited
+	MaxPackSizeGiB             float64   `json:"max_pack_size_gib"`
+	UpgradeAllowed             bool      `json:"upgrade_allowed"`
+	UpgradeUntil               string    `json:"upgrade_until"`
+	MinimumScore               int       `json:"minimum_score"`
+	UpgradeUntilScore          int       `json:"upgrade_until_score"`
+	Keywords                   []Keyword `json:"keywords"`
 }
 
 type Settings struct {
@@ -83,7 +89,7 @@ type Settings struct {
 
 func Defaults() Settings {
 	profile := func(max, pack float64) Profile {
-		return Profile{Destination: "remote", Qualities: []string{"webdl-1080p", "bluray-1080p", "webrip-1080p"}, Codecs: []string{"h264", "hevc"}, AudioLanguages: []string{}, MaxSizeGiB: max, MaxPackSizeGiB: pack, UpgradeUntil: "webdl-1080p", Keywords: []Keyword{}}
+		return Profile{Destination: "remote", Qualities: []string{"webdl-1080p", "bluray-1080p", "webrip-1080p"}, Codecs: []string{"h264", "hevc"}, AudioLanguages: []string{}, PreferredAudioLanguages: []string{}, PreferredSubtitleLanguages: []string{}, MaxSizeGiB: max, MaxPackSizeGiB: pack, UpgradeUntil: "webdl-1080p", Keywords: []Keyword{}}
 	}
 	return Settings{
 		Version: 1, AllowMovies: true, AllowTV: true, AutoApprove: true,
@@ -142,6 +148,18 @@ func (s Settings) Validate() error {
 }
 
 func (p Profile) validate() error {
+	for name, languages := range map[string][]string{"preferred_audio_languages": p.PreferredAudioLanguages, "preferred_subtitle_languages": p.PreferredSubtitleLanguages} {
+		if len(languages) > 30 {
+			return fmt.Errorf("select at most 30 %s", name)
+		}
+		seen := map[string]bool{}
+		for _, code := range languages {
+			if seen[code] || (!medialanguages.Supported(code) && !(name == "preferred_audio_languages" && code == "original")) {
+				return fmt.Errorf("%s must contain unique supported language codes", name)
+			}
+			seen[code] = true
+		}
+	}
 	if p.AudioLanguages == nil || p.Keywords == nil {
 		return fmt.Errorf("audio_languages and keywords must be lists")
 	}

@@ -13,6 +13,7 @@ import (
 
 	"cineroute/internal/copies"
 	"cineroute/internal/library"
+	"cineroute/internal/medialanguages"
 	"cineroute/internal/qbittorrent"
 	"cineroute/internal/requests"
 	"cineroute/internal/tmdb"
@@ -117,9 +118,11 @@ func (b requestBackend) Inventory(ctx context.Context, job requests.Job, downloa
 			continue
 		}
 		evidence := relative
+		var reportedLanguages medialanguages.Metadata
 		for _, d := range downloads {
 			if d.Status == "complete" && scopeDownload(d, job) && slices.Contains(d.Files, path) {
 				evidence = d.Title + " " + relative
+				reportedLanguages = d.Languages
 				break
 			}
 		}
@@ -129,7 +132,7 @@ func (b requestBackend) Inventory(ctx context.Context, job requests.Job, downloa
 				size /= int64(count)
 			}
 		}
-		existing := requests.AssessExisting(evidence, size, job.Media, profile)
+		existing := requests.AssessExisting(evidence, size, job.Media, profile, reportedLanguages)
 		if job.Media.MediaType == "movie" {
 			if out.Movie == nil || (existing.Conforms && !out.Movie.Conforms) || (existing.Conforms == out.Movie.Conforms && requests.Improved(existing.Quality, existing.Score, out.Movie.Quality, out.Movie.Score, profile)) {
 				copy := existing

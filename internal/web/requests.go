@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"cineroute/internal/config"
+	"cineroute/internal/medialanguages"
 	"cineroute/internal/requests"
 )
 
@@ -21,13 +22,14 @@ func (s *Server) requestSettingsResponse(settings requests.Settings) any {
 		drives[i].TVRemoteRoot, _ = s.lib.TVRemotePath(drives[i].ID, "")
 	}
 	return struct {
-		Settings           requests.Settings `json:"settings"`
-		Qualities          []requests.Option `json:"qualities"`
-		Codecs             []requests.Option `json:"codecs"`
-		Drives             []config.Drive    `json:"drives"`
-		ProwlarrConfigured bool              `json:"prowlarr_configured"`
-		EngineAvailable    bool              `json:"engine_available"`
-	}{settings, requests.QualityOptions, requests.CodecOptions, drives, s.prowlarr.Configured(), true}
+		Settings           requests.Settings       `json:"settings"`
+		Qualities          []requests.Option       `json:"qualities"`
+		Codecs             []requests.Option       `json:"codecs"`
+		Languages          []medialanguages.Option `json:"languages"`
+		Drives             []config.Drive          `json:"drives"`
+		ProwlarrConfigured bool                    `json:"prowlarr_configured"`
+		EngineAvailable    bool                    `json:"engine_available"`
+	}{settings, requests.QualityOptions, requests.CodecOptions, requests.LanguageOptions, drives, s.prowlarr.Configured(), true}
 }
 
 func (s *Server) requestSettings(w http.ResponseWriter, r *http.Request) {

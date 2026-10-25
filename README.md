@@ -339,6 +339,29 @@ merges seasons into the user's existing request instead of creating extra downlo
   Movie limits apply to a whole release; TV has separate episode and pack caps.
   A maximum size of 0 means unlimited. TV monitoring, specials and season-pack
   preference are separate from movie release availability.
+* **Language priorities (Movies / TV):** admin-only checkboxes prefer audio and
+  full subtitle languages independently for each profile. Quality order remains
+  first; each distinct preferred audio or full-subtitle match adds one language
+  point, before keyword scores, pack preference, tracker priority and seeders.
+  These points do not bypass filters or the minimum keyword score, and language
+  preferences alone do not replace an already conforming library copy. Blank
+  selections preserve existing behavior and perform no native metadata lookups.
+  Regional variants are grouped (for example all Spanish audio), and original
+  audio is resolved using TMDB's original language without double-counting it.
+  Forced-only, signs/songs-only and commentary tracks do not count as full
+  subtitles; commentary audio does not earn language points.
+  Compatible UNIT3D trackers supply MediaInfo/BDInfo through their native API,
+  authenticated with their individual API keys read from Prowlarr's configuration.
+  CineRoute batches the first 100 native results per tracker/search and matches
+  only the exact same-origin torrent IDs already returned by Prowlarr. Missing,
+  unsupported or unavailable reports earn no points, and remain eligible under
+  the other rules. A TV pack's report can describe a representative episode;
+  reported languages are preferences, not verification of every video stream.
+  Lookups respect the configured search interval, use bounded in-memory caches
+  (six-hour reports, five-minute configuration/failure refresh), and never expose
+  tracker keys to either browser or persist keys in the requests database.
+  Admin History shows the selected release's reported languages and its language
+  points at selection time. Users receive no language controls or overrides.
 * **History:** after TV, see requests from every user, their destination, current
   status, progress, retry time and all recorded download attempts. Search by title,
   user, tracker, disk or hash, filter by status and page through older requests.
@@ -373,11 +396,13 @@ receipts survive restarts in `/data/requests.db`, configurable through
 `/data` volume writable; the read-only YAML configuration is not rewritten.
 
 The worker searches only selected, enabled Prowlarr torrent indexers, ranks
-releases by allowed quality, keyword score, pack preference, tracker priority
+releases by allowed quality, language preference points, keyword score, pack preference, tracker priority
 and seeders, and validates actual torrent files before adding anything. Unknown
 or ambiguous identities, qualities, episode numbering and overlapping packs
-remain waiting with an admin diagnostic. Language and codec rules use release
-and filename evidence; CineRoute does not inspect audio streams at search time.
+remain waiting with an admin diagnostic. Codec rules use release/filename
+evidence. Allowed audio languages use tracker reports when language priorities
+enable native lookups, otherwise falling back to the existing title-based rule;
+CineRoute does not inspect downloaded audio streams at search time.
 TV packs must contain only requested, aired episodes that are missing or eligible
 for upgrade. New episodes and future seasons are polled according to monitoring.
 Quality upgrades retain existing files and seeding torrents, adding a separate

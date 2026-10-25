@@ -11,18 +11,20 @@ import (
 	"strings"
 	"unicode"
 
+	"cineroute/internal/medialanguages"
 	"cineroute/internal/prowlarr"
 	"cineroute/internal/tmdb"
 	"cineroute/internal/torrentmeta"
 )
 
 type Candidate struct {
-	Release  prowlarr.Release
-	Quality  string
-	Rank     int
-	Score    int
-	Priority int
-	Pack     bool
+	Release       prowlarr.Release
+	Quality       string
+	Rank          int
+	Score         int
+	Priority      int
+	Pack          bool
+	LanguageScore int
 }
 
 func ReleaseKey(r prowlarr.Release) string {
@@ -217,7 +219,7 @@ func Evaluate(r prowlarr.Release, media tmdb.Details, p Profile, minSeeders int,
 	if minSeeders > 0 && (r.Seeders == nil || *r.Seeders < minSeeders) {
 		return c, fmt.Errorf("not enough confirmed seeders")
 	}
-	if !languageAllowed(r.Title, media.OriginalLanguage, p) {
+	if !audioPolicyAllowed(r.Title, media.OriginalLanguage, p, r.Languages) {
 		return c, fmt.Errorf("audio language is not confirmed")
 	}
 	score, err := KeywordScore(r.Title, p)
@@ -225,6 +227,7 @@ func Evaluate(r prowlarr.Release, media tmdb.Details, p Profile, minSeeders int,
 		return c, err
 	}
 	c.Score = score
+	c.LanguageScore = r.Languages.PreferenceScore(p.PreferredAudioLanguages, p.PreferredSubtitleLanguages, media.OriginalLanguage)
 	if r.Size > 0 {
 		min, max := p.MinSizeGiB, p.MaxSizeGiB
 		if c.Pack {
@@ -244,10 +247,29 @@ func sizeAllowed(size int64, min, max float64) error {
 	return nil
 }
 
-func AssessExisting(evidence string, size int64, media tmdb.Details, p Profile) Existing {
+func audioPolicyAllowed(title, original string, p Profile, metadata medialanguages.Metadata) bool {
+	if len(p.AudioLanguages) == 0 || len(metadata.Audio) == 0 {
+		return languageAllowed(title, original, p)
+	}
+	for _, wanted := range p.AudioLanguages {
+		if wanted == "original" {
+			wanted = original
+		}
+		if slices.Contains(metadata.Audio, strings.Split(wanted, "-")[0]) {
+			return true
+		}
+	}
+	return false
+}
+
+func AssessExisting(evidence string, size int64, media tmdb.Details, p Profile, reported ...medialanguages.Metadata) Existing {
 	quality := Quality(evidence)
 	score, err := KeywordScore(evidence, p)
-	return Existing{Quality: quality, Score: score, Conforms: err == nil && slices.Contains(p.Qualities, quality) && slices.Contains(p.Codecs, Codec(evidence)) && languageAllowed(evidence, media.OriginalLanguage, p) && sizeAllowed(size, p.MinSizeGiB, p.MaxSizeGiB) == nil}
+	var metadata medialanguages.Metadata
+	if len(reported) > 0 {
+		metadata = reported[0]
+	}
+	return Existing{Quality: quality, Score: score, Conforms: err == nil && slices.Contains(p.Qualities, quality) && slices.Contains(p.Codecs, Codec(evidence)) && audioPolicyAllowed(evidence, media.OriginalLanguage, p, metadata) && sizeAllowed(size, p.MinSizeGiB, p.MaxSizeGiB) == nil}
 }
 
 func ImprovesExisting(quality string, score int, old Existing, p Profile) bool {
@@ -256,6 +278,9 @@ func ImprovesExisting(quality string, score int, old Existing, p Profile) bool {
 func Better(a, b Candidate, preferPacks bool) bool {
 	if a.Rank != b.Rank {
 		return a.Rank < b.Rank
+	}
+	if a.LanguageScore != b.LanguageScore {
+		return a.LanguageScore > b.LanguageScore
 	}
 	if a.Score != b.Score {
 		return a.Score > b.Score

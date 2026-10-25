@@ -8,31 +8,34 @@ import (
 	"strings"
 	"time"
 
+	"cineroute/internal/medialanguages"
 	"cineroute/internal/requests"
 )
 
 // Explicit admin views keep recovery torrent data, download URLs and file lists
 // out of responses. The public listener never registers this endpoint.
 type requestHistoryDownload struct {
-	Hash         string    `json:"hash"`
-	RequestID    string    `json:"request_id,omitempty"`
-	RequestedBy  string    `json:"requested_by,omitempty"`
-	Title        string    `json:"title"`
-	Tracker      string    `json:"tracker"`
-	TrackerURL   string    `json:"tracker_url,omitempty"`
-	Quality      string    `json:"quality"`
-	Drive        string    `json:"drive"`
-	Status       string    `json:"status"`
-	TorrentState string    `json:"torrent_state,omitempty"`
-	Progress     float64   `json:"progress"`
-	Size         int64     `json:"size"`
-	Episodes     []string  `json:"episodes"`
-	AddedAt      time.Time `json:"added_at"`
-	CompletedAt  time.Time `json:"completed_at"`
-	FailedAt     time.Time `json:"failed_at"`
-	LastProgress time.Time `json:"last_progress"`
-	ObservedAt   time.Time `json:"observed_at"`
-	Error        string    `json:"error,omitempty"`
+	Languages     medialanguages.Metadata `json:"languages"`
+	LanguageScore int                     `json:"language_score"`
+	Hash          string                  `json:"hash"`
+	RequestID     string                  `json:"request_id,omitempty"`
+	RequestedBy   string                  `json:"requested_by,omitempty"`
+	Title         string                  `json:"title"`
+	Tracker       string                  `json:"tracker"`
+	TrackerURL    string                  `json:"tracker_url,omitempty"`
+	Quality       string                  `json:"quality"`
+	Drive         string                  `json:"drive"`
+	Status        string                  `json:"status"`
+	TorrentState  string                  `json:"torrent_state,omitempty"`
+	Progress      float64                 `json:"progress"`
+	Size          int64                   `json:"size"`
+	Episodes      []string                `json:"episodes"`
+	AddedAt       time.Time               `json:"added_at"`
+	CompletedAt   time.Time               `json:"completed_at"`
+	FailedAt      time.Time               `json:"failed_at"`
+	LastProgress  time.Time               `json:"last_progress"`
+	ObservedAt    time.Time               `json:"observed_at"`
+	Error         string                  `json:"error,omitempty"`
 }
 type requestHistoryEntry struct {
 	Request     publicJob                `json:"request"`
@@ -160,6 +163,7 @@ func (s *Server) requestHistory(w http.ResponseWriter, r *http.Request) {
 	byTitle := map[scope][]requestHistoryDownload{}
 	for _, d := range downloads {
 		entry := requestHistoryDownload{Hash: d.Hash, RequestID: d.RequestID, RequestedBy: d.RequestedBy, Title: d.Title, Tracker: d.Indexer, TrackerURL: trackerPageURL(d.InfoURL), Quality: d.Quality, Drive: d.DriveID, Status: historyDownloadState(d, settings, now), TorrentState: d.TorrentState, Progress: d.Progress, Size: d.Size, Episodes: d.Episodes, AddedAt: d.AddedAt, CompletedAt: d.CompletedAt, FailedAt: d.FailedAt, LastProgress: d.LastProgress, ObservedAt: d.ObservedAt, Error: d.Error}
+		entry.Languages, entry.LanguageScore = d.Languages, d.LanguageScore
 		key := scope{d.MediaType, d.TMDBID, d.Target}
 		byTitle[key] = append(byTitle[key], entry)
 	}

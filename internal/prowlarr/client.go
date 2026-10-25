@@ -12,6 +12,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"cineroute/internal/medialanguages"
 )
 
 const maxJSONBytes = 4 << 20
@@ -21,6 +23,7 @@ type Client struct {
 	apiKey           string
 	httpc            *http.Client
 	maxDownloadBytes int64
+	languages        *languageCache
 }
 
 // New creates a Prowlarr client. The optional maximum is used for torrent
@@ -36,6 +39,7 @@ func New(baseURL, apiKey string, timeout time.Duration, maxDownloadBytes ...int6
 		apiKey:           apiKey,
 		httpc:            &http.Client{Timeout: timeout},
 		maxDownloadBytes: max,
+		languages:        newLanguageCache(),
 	}
 }
 
@@ -51,19 +55,20 @@ type Indexer struct {
 }
 
 type Release struct {
-	Guid        string    `json:"guid"`
-	Title       string    `json:"title"`
-	Size        int64     `json:"size"`
-	IndexerID   int       `json:"indexerId"`
-	Indexer     string    `json:"indexer"`
-	TmdbID      int       `json:"tmdbId"`
-	ImdbID      int       `json:"imdbId"`
-	AgeHours    float64   `json:"ageHours"`
-	Seeders     *int      `json:"seeders"`
-	Leechers    *int      `json:"leechers"`
-	PublishDate time.Time `json:"publishDate"`
-	InfoURL     string    `json:"infoUrl"`
-	DownloadURL string    `json:"downloadUrl"`
+	Languages   medialanguages.Metadata `json:"-"`
+	Guid        string                  `json:"guid"`
+	Title       string                  `json:"title"`
+	Size        int64                   `json:"size"`
+	IndexerID   int                     `json:"indexerId"`
+	Indexer     string                  `json:"indexer"`
+	TmdbID      int                     `json:"tmdbId"`
+	ImdbID      int                     `json:"imdbId"`
+	AgeHours    float64                 `json:"ageHours"`
+	Seeders     *int                    `json:"seeders"`
+	Leechers    *int                    `json:"leechers"`
+	PublishDate time.Time               `json:"publishDate"`
+	InfoURL     string                  `json:"infoUrl"`
+	DownloadURL string                  `json:"downloadUrl"`
 }
 
 func (c *Client) Indexers(ctx context.Context) ([]Indexer, error) {

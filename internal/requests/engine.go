@@ -449,6 +449,33 @@ func (e *Engine) process(ctx context.Context, job *Job, settings Settings, downl
 		if err != nil {
 			return err
 		}
+		if len(p.PreferredAudioLanguages)+len(p.PreferredSubtitleLanguages) > 0 {
+			// Read native reports only for otherwise eligible, selected releases.
+			// Metadata may also confirm an existing strict audio-language filter.
+			precheck := p
+			precheck.AudioLanguages = nil
+			eligible := []prowlarr.Release{}
+			for _, release := range releases {
+				priority, allowed := priorities[release.IndexerID]
+				key := ReleaseKey(release)
+				if !allowed || seen[key] || failed[key] {
+					continue
+				}
+				if _, err := Evaluate(release, job.Media, precheck, settings.MinSeeders, priority); err != nil {
+					rejected[err.Error()]++
+					continue
+				}
+				eligible = append(eligible, release)
+			}
+			job.Message = "Reading tracker audio and subtitle languages"
+			if err := e.Store.Update(*job); err != nil {
+				return err
+			}
+			releases = e.Prowlarr.EnrichLanguageMetadata(ctx, eligible, query, func() error { return e.pace(ctx, settings.SearchIntervalSeconds) })
+			if ctx.Err() != nil {
+				return ctx.Err()
+			}
+		}
 		for _, release := range releases {
 			priority, allowed := priorities[release.IndexerID]
 			key := ReleaseKey(release)
@@ -511,6 +538,7 @@ func (e *Engine) process(ctx context.Context, job *Job, settings Settings, downl
 		recordSource := func(d Download) Download {
 			d.RequestID, d.RequestedBy = job.ID, job.Owner
 			d.IndexerID, d.Indexer, d.InfoURL = candidate.Release.IndexerID, candidate.Release.Indexer, candidate.Release.InfoURL
+			d.Languages, d.LanguageScore = candidate.Release.Languages, candidate.LanguageScore
 			if d.Indexer == "" {
 				for _, tracker := range settings.Trackers {
 					if tracker.ID == d.IndexerID {
