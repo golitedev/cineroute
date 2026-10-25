@@ -43,7 +43,7 @@ const fetch=async(path,options={})=>{
  if(path==='/api/login'){assert(options.headers['Content-Type']==='application/json','login content type');signedIn=true}
  else if(!signedIn){status=401;body={error:'unauthorized'}}
  else if(path==='/api/session')body={account:{name:'alice',role:'user'},csrf_token:'test-csrf-token'};
- else if(path.startsWith('/api/catalog/search'))body={results:[media],page:1,total_pages:1};
+ else if(path.startsWith('/api/catalog/search'))body={results:[media],page:1,total_pages:1,similar_matches:true};
  else if(path==='/api/catalog/movie/101')body={media,seasons:[],auto_approve:true};
  else if(path==='/api/user/requests'&&options.method==='POST'){
   assert(options.headers['X-CineRoute-CSRF']==='test-csrf-token','request missing CSRF');
@@ -63,6 +63,7 @@ const publicFrontendChecks = `
  assert(currentAccount?.role==='user'&&!$('userShell').classList.contains('hidden'),'user login did not open portal');
  $('catalogQuery').value='Example';await searchCatalog();
  assert($('catalogResults').innerHTML.includes('Example Movie'),'search not rendered');
+ assert($('catalogMessage').textContent.includes('similar titles'),'fallback results are not labelled');
  await openCatalogTitle('movie',101);await submitCatalogRequest();
  assert(created&&$('myRequestList').innerHTML.includes('Example Movie'),'request flow did not finish');
  await signOut();

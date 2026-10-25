@@ -53,10 +53,11 @@ func (r Result) Year() int {
 }
 
 type Client struct {
-	base     string
-	apiKey   string
-	language string
-	httpc    *http.Client
+	base                 string
+	apiKey               string
+	language             string
+	httpc                *http.Client
+	catalogFallbackSlots chan struct{}
 }
 
 func New(apiKey, language string, timeout time.Duration) *Client {
@@ -64,10 +65,11 @@ func New(apiKey, language string, timeout time.Duration) *Client {
 		language = "en-US"
 	}
 	return &Client{
-		base:     "https://api.themoviedb.org/3",
-		apiKey:   apiKey,
-		language: language,
-		httpc:    &http.Client{Timeout: timeout},
+		base:                 "https://api.themoviedb.org/3",
+		apiKey:               apiKey,
+		language:             language,
+		httpc:                &http.Client{Timeout: timeout},
+		catalogFallbackSlots: make(chan struct{}, 3),
 	}
 }
 

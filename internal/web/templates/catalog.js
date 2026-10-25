@@ -19,7 +19,7 @@ async function searchCatalog(more=false){
     const response=await api('/api/catalog/search?q='+encodeURIComponent(query)+'&type='+catalogFilter+'&page='+(more?catalogPage+1:1),{signal:catalogController.signal});
     if(token!==catalogSearchToken||generation!==currentAccount?.name)return;
     catalogItems=more?[...catalogItems,...response.results]:response.results;catalogPage=response.page;catalogPages=response.total_pages;
-    renderCatalog();$('catalogMessage').textContent=catalogItems.length?'':'No matching titles. Try another name or year.';
+    renderCatalog();$('catalogMessage').textContent=catalogItems.length?(response.similar_matches?'Showing similar titles. Select the one you meant.':''):'No matching titles. Try another name or year.';
   }catch(e){if(e.name!=='AbortError'&&token===catalogSearchToken)$('catalogMessage').textContent=e.message}
   finally{if(token===catalogSearchToken)$('catalogSearchButton').disabled=false}
 }

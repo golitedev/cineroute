@@ -11,9 +11,10 @@ import (
 )
 
 type CatalogPage struct {
-	Page       int      `json:"page"`
-	TotalPages int      `json:"total_pages"`
-	Results    []Result `json:"results"`
+	Page           int      `json:"page"`
+	TotalPages     int      `json:"total_pages"`
+	Results        []Result `json:"results"`
+	SimilarMatches bool     `json:"similar_matches,omitempty"`
 }
 type Season struct {
 	Number       int    `json:"season_number"`
@@ -101,7 +102,7 @@ func (c *Client) getCatalogJSON(ctx context.Context, path string, q url.Values, 
 	}
 	return json.Unmarshal(body, out)
 }
-func (c *Client) SearchCatalog(ctx context.Context, query, kind string, page int) (CatalogPage, error) {
+func (c *Client) searchCatalogExact(ctx context.Context, query, kind string, page int) (CatalogPage, error) {
 	path := "search/multi"
 	if kind == "movie" || kind == "tv" {
 		path = "search/" + kind

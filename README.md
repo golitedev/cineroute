@@ -309,6 +309,17 @@ and use SameSite Strict; user sessions last up to 90 days. Separate cookie names
 and signatures isolate the listeners. Keep `session.key` beside the request
 database persistent across restarts. This update requires signing in again.
 
+Catalog discovery uses TMDB's official search API, including its translated
+and alternative-title matching. Successful searches retain TMDB's results and
+pagination. An empty first page can trigger up to eight broader fragment
+searches; suggestions are deduplicated and ranked by title similarity, ignoring
+spacing/punctuation and tolerating letter edits/transpositions. A few alternative
+title lookups help with translated names. These extra lookups share a six-second
+budget and at most three simultaneous connections. Weak matches are discarded.
+The portal labels fallback results as similar titles, and users must select the
+intended title before requesting it. This is best-effort assistance, not a local
+copy of the entire TMDB catalog or TMDB website scraping.
+
 The **Requests** admin tab, immediately after TV, contains the shared policy
 and a **Queue** for approval, decline, cancellation, retry and diagnostic details.
 Requests either enter this approval queue or are approved automatically according
