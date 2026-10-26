@@ -127,6 +127,9 @@ type Manager struct {
 	featureCanon   map[string]string
 	batch          BatchStatus
 	batchCancel    context.CancelFunc
+	autoCancel     context.CancelFunc
+	autoWake       chan struct{}
+	autoWG         sync.WaitGroup
 	quota          QuotaView
 	stateErr       error
 	workDirErr     error
@@ -171,6 +174,7 @@ func newManager(cfg Config, lib *library.Scan, st *store, prober Prober, syncer 
 		candidates:   map[string][]Candidate{},
 		attempts:     map[string][]Attempt{},
 		featureCanon: map[string]string{},
+		autoWake:     make(chan struct{}, 1),
 	}
 	if !cfg.Enabled {
 		slog.Info("subtitles: subsystem disabled")
@@ -704,6 +708,12 @@ func (m *Manager) Scan(ctx context.Context) error {
 		if seen[item.ID] {
 			continue
 		}
+		// Main-library movies enter only through verified request completions;
+		// the manual scan intentionally covers remote roots.
+		if item.LibraryTarget == "main" {
+			updated = append(updated, item)
+			continue
+		}
 		removed = append(removed, item.ID)
 	}
 	// Commit removals and updates together before replacing the live view.
@@ -934,6 +944,17 @@ func (m *Manager) processAndPersist(ctx context.Context, item *Item, opts runOpt
 	working.Step = ""
 	working.StepDetail = ""
 	working.UpdatedAt = time.Now()
+	if working.AutomaticPending {
+		switch {
+		case errors.Is(err, context.Canceled):
+			// Resume an interrupted automatic item after a server restart.
+		case errors.Is(err, errQuotaStop), opensubtitles.IsHardStop(err):
+			working.AutomaticRetryAt = time.Now().Add(time.Hour)
+		default:
+			working.AutomaticPending = false
+			working.AutomaticRetryAt = time.Time{}
+		}
+	}
 
 	attrs := []any{
 		"id", working.ID,
@@ -980,34 +1001,50 @@ func errorText(err error) string {
 
 // Skip marks an item as skipped.
 func (m *Manager) Skip(id string) error {
-	item := m.itemByID(id)
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if m.batch.Running {
+		return errors.New("a subtitle job is running; cancel it before skipping a movie")
+	}
+	item := m.byID[id]
 	if item == nil {
 		return errors.New("subtitle item was not found")
 	}
-	m.setItemStatus(item, StatusSkipped)
-	m.setItemError(item, "")
+	item.Status, item.Error, item.AutomaticPending = StatusSkipped, "", false
+	item.UpdatedAt = time.Now()
 	slog.Info("subtitles: movie skipped", "id", id, "video", item.VideoPath)
 	return m.store.saveItem(item)
 }
 
 // Reset clears an item's workflow state so it can be processed again.
 func (m *Manager) Reset(id string) error {
-	item := m.itemByID(id)
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if m.batch.Running {
+		return errors.New("a subtitle job is running; cancel it before resetting a movie")
+	}
+	item := m.byID[id]
 	if item == nil {
 		return errors.New("subtitle item was not found")
 	}
 	if err := m.store.clearItemWork(id); err != nil {
 		return err
 	}
-	m.mu.Lock()
 	m.attempts[id] = nil
 	m.searches[id] = map[string]searchRecord{}
 	m.candidates[id] = nil
 	m.featureCanon[id] = ""
-	m.mu.Unlock()
-	m.setItemStatus(item, StatusPending)
-	m.setItemError(item, "")
-	m.resetTargetResults(item)
+	item.Status, item.Error = StatusPending, ""
+	item.UpdatedAt = time.Now()
+	for index := range item.Targets {
+		target := &item.Targets[index]
+		*target = TargetState{Language: target.Language, Present: target.Present, Sources: target.Sources}
+		if target.Present {
+			target.Status = TargetPresent
+		} else {
+			target.Status = StatusPending
+		}
+	}
 	slog.Info("subtitles: movie reset", "id", id, "video", item.VideoPath)
 	return m.store.saveItem(item)
 }
@@ -1022,24 +1059,6 @@ func (m *Manager) setItemStatus(item *Item, status string) {
 func (m *Manager) setItemError(item *Item, message string) {
 	m.mu.Lock()
 	item.Error = message
-	m.mu.Unlock()
-}
-
-// resetTargetResults clears the per-language outcomes of a reset item while
-// keeping what the video actually contains.
-func (m *Manager) resetTargetResults(item *Item) {
-	m.mu.Lock()
-	for index := range item.Targets {
-		target := &item.Targets[index]
-		present := target.Present
-		sources := target.Sources
-		*target = TargetState{Language: target.Language, Present: present, Sources: sources}
-		if present {
-			target.Status = TargetPresent
-		} else {
-			target.Status = StatusPending
-		}
-	}
 	m.mu.Unlock()
 }
 
@@ -1233,6 +1252,11 @@ func (m *Manager) UpdateSettings(patch SettingsView) error {
 	if !m.Enabled() {
 		return errors.New("subtitles are disabled")
 	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if m.batch.Running {
+		return errors.New("a subtitle job is running; cancel it before changing subtitle settings")
+	}
 	if patch.RunBatchSize < 1 || patch.RunBatchSize > 1000 {
 		return errors.New("run_batch_size must be between 1 and 1000")
 	}
@@ -1273,9 +1297,7 @@ func (m *Manager) UpdateSettings(patch SettingsView) error {
 			return err
 		}
 	}
-	m.mu.Lock()
 	m.applySettings(values)
-	m.mu.Unlock()
 	slog.Info("subtitles: settings updated",
 		"run_batch_size", patch.RunBatchSize,
 		"max_candidates", patch.MaxCandidates,

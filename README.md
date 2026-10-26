@@ -367,6 +367,19 @@ merges seasons into the user's existing request instead of creating extra downlo
   Movie limits apply to a whole release; TV has separate episode and pack caps.
   A maximum size of 0 means unlimited. TV monitoring, specials and season-pack
   preference are separate from movie release availability.
+* **Subtitles after download (Movies):** **Automatically run the alass subtitle
+  flow** is off by default and applies to new movie downloads started while it
+  is checked. Once the feature video is complete and verified, it enters a
+  durable background queue for its selected Main or Remote library. The flow
+  adds only missing configured languages (normally Swedish, Spanish and English),
+  preserves existing full text subtitles, and requires an existing usable text
+  subtitle as its timing reference. Image-based and forced-only tracks do not
+  satisfy full-language targets. It uses the existing OpenSubtitles, alignment,
+  acceptance and quota settings; outcomes appear in **Subtitles**. It does not
+  scan or run unrelated movies. Queueing or subtitle failures do not fail or
+  redownload the movie. Interrupted work resumes after restart; quota/service
+  hard stops defer automatic work for an hour, while no-match and no-reference
+  outcomes wait for an administrator's retry.
 * **Language priorities (Movies / TV):** admin-only checkboxes prefer audio and
   full subtitle languages independently for each profile. Quality order remains
   first; each distinct preferred audio or full-subtitle match adds one language

@@ -21,3 +21,9 @@ type Backend interface {
 	Observe(context.Context, Download) (Download, error)
 	Pause(context.Context, string) error
 }
+
+// CompletionBackend hands completed movie files to optional background work.
+// An unavailable subtitle service must never fail or redownload a ready movie.
+type CompletionBackend interface {
+	QueueMovieSubtitles(context.Context, Download) error
+}

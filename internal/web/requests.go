@@ -66,6 +66,7 @@ func (s *Server) saveRequestSettings(w http.ResponseWriter, r *http.Request) {
 	}
 	previous, loadErr := s.requests.Load()
 	previous.CatalogAvailability = settings.CatalogAvailability
+	previous.MovieAutoSubtitles = settings.MovieAutoSubtitles
 	searchPolicyChanged := loadErr != nil || !reflect.DeepEqual(previous, *settings)
 	if err := s.requests.Save(*settings); err != nil {
 		slog.Error("save request settings", "err", err)

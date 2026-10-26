@@ -42,6 +42,8 @@ type Job struct {
 }
 
 type Download struct {
+	AutoSubtitles       bool                    `json:"auto_subtitles,omitempty"`
+	SubtitlesQueued     bool                    `json:"subtitles_queued,omitempty"`
 	PreferSpanishAudio  bool                    `json:"prefer_spanish_audio,omitempty"`
 	Languages           medialanguages.Metadata `json:"languages"`
 	LanguageScore       int                     `json:"language_score"`

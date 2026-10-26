@@ -168,6 +168,25 @@ func (e *Engine) Tick(ctx context.Context) error {
 		}
 		downloads[i] = observed
 	}
+	if completion, ok := e.Backend.(CompletionBackend); ok {
+		for i, d := range downloads {
+			if d.MediaType != "movie" || d.Status != "complete" || !d.AutoSubtitles || d.SubtitlesQueued {
+				continue
+			}
+			if err := completion.QueueMovieSubtitles(ctx, d); err != nil {
+				if ctx.Err() != nil {
+					return ctx.Err()
+				}
+				slog.Warn("request subtitles awaiting queue", "request_id", d.RequestID, "err", err)
+				continue
+			}
+			d.SubtitlesQueued = true
+			if err := e.Store.SaveDownload(d); err != nil {
+				return err
+			}
+			downloads[i] = d
+		}
+	}
 	jobs, err = e.Store.Jobs("")
 	if err != nil {
 		return err
@@ -561,6 +580,7 @@ func (e *Engine) process(ctx context.Context, job *Job, settings Settings, downl
 		}
 		planned := false
 		recordSource := func(d Download) Download {
+			d.AutoSubtitles = job.Media.MediaType == "movie" && settings.MovieAutoSubtitles
 			d.RequestID, d.RequestedBy = job.ID, job.Owner
 			d.PreferSpanishAudio = job.PreferSpanishAudio
 			d.IndexerID, d.Indexer, d.InfoURL = candidate.Release.IndexerID, candidate.Release.Indexer, candidate.Release.InfoURL

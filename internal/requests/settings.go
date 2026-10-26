@@ -81,6 +81,7 @@ type Settings struct {
 	ReleaseDelayMinutes    int       `json:"release_delay_minutes"`
 	MinSeeders             int       `json:"min_seeders"`
 	MovieAvailability      string    `json:"movie_availability"`
+	MovieAutoSubtitles     bool      `json:"movie_auto_subtitles"`
 	TVMonitor              string    `json:"tv_monitor"`
 	IncludeSpecials        bool      `json:"include_specials"`
 	PreferSeasonPacks      bool      `json:"prefer_season_packs"`

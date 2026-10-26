@@ -130,16 +130,20 @@ type Reference struct {
 // Item is the durable workflow record for one remote video file. Subtitles are
 // per video file, so a folder with several versions produces several items.
 type Item struct {
-	ID         string `json:"id"`
-	DriveID    string `json:"drive_id"`
-	RemoteRoot string `json:"remote_root"`
-	FolderName string `json:"folder_name"`
-	FolderPath string `json:"folder_path"`
-	VideoPath  string `json:"video_path"`
-	VideoName  string `json:"video_name"`
-	VideoSize  int64  `json:"video_size"`
-	VideoMtime int64  `json:"video_mtime"`
-	DurationMS int64  `json:"duration_ms,omitempty"`
+	LibraryTarget    string    `json:"library_target,omitempty"`
+	Automatic        bool      `json:"automatic,omitempty"`
+	AutomaticPending bool      `json:"automatic_pending,omitempty"`
+	AutomaticRetryAt time.Time `json:"automatic_retry_at,omitempty"`
+	ID               string    `json:"id"`
+	DriveID          string    `json:"drive_id"`
+	RemoteRoot       string    `json:"remote_root"`
+	FolderName       string    `json:"folder_name"`
+	FolderPath       string    `json:"folder_path"`
+	VideoPath        string    `json:"video_path"`
+	VideoName        string    `json:"video_name"`
+	VideoSize        int64     `json:"video_size"`
+	VideoMtime       int64     `json:"video_mtime"`
+	DurationMS       int64     `json:"duration_ms,omitempty"`
 
 	Title  string `json:"title"`
 	Year   int    `json:"year"`

@@ -15,11 +15,15 @@ func (s *Server) Start(ctx context.Context) error {
 	if _, err := s.requests.Load(); err != nil {
 		return fmt.Errorf("load request policy: %w", err)
 	}
+	s.subtitles.StartAutomatic(ctx)
 	s.engine.Start(ctx)
 	return nil
 }
 func (s *Server) Close() {
 	if s.engine != nil {
 		s.engine.Stop()
+	}
+	if s.subtitles != nil {
+		s.subtitles.StopAutomatic()
 	}
 }

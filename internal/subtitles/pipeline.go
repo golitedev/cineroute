@@ -29,6 +29,8 @@ type OSClient interface {
 
 // runOptions configures one pipeline run for an item.
 type runOptions struct {
+	// Automatic requests require an existing text timing reference.
+	requireReference bool
 	// refreshSearch ignores the cached search results.
 	refreshSearch bool
 	// maxCandidates caps how many downloads are attempted for the item.
@@ -95,6 +97,10 @@ func (m *Manager) processItem(ctx context.Context, item *Item, opts runOptions) 
 		return StatusHasTargets, nil
 	}
 	item.Error = ""
+
+	if opts.requireReference && ChooseReference(item, external, m.cfg.ReferenceLanguages) == nil {
+		return StatusNoReference, errors.New("automatic subtitles require an existing text subtitle as a timing reference")
+	}
 
 	workDir := m.itemWorkDir(item.ID)
 	if err := os.MkdirAll(workDir, 0o755); err != nil {
@@ -1062,6 +1068,11 @@ func (m *Manager) runAlass(ctx context.Context, referencePath, rawPath, alignedP
 // without ever overwriting an existing valid file. Each target language has its
 // own `<video>.<language>.srt`, so installing Spanish never touches Swedish.
 func (m *Manager) installSubtitle(item *Item, target *TargetState, text string, metrics *Metrics, candidate Candidate, report AlassReport) error {
+	if item.Automatic {
+		if err := m.validateAutomaticItem(item); err != nil {
+			return err
+		}
+	}
 	finalPath := subtitleOutputPath(item.VideoPath, target.Language)
 	if IsValidSRTFile(finalPath) {
 		return fmt.Errorf("a %s subtitle already exists; refusing to overwrite", target.Language)

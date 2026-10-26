@@ -39,6 +39,7 @@ type externalSubtitle struct {
 	Language string
 	Ext      string
 	Usable   bool
+	Forced   bool
 }
 
 // referenceChoice is the chosen timing reference for one item.
@@ -103,10 +104,20 @@ func discoverExternalSubtitles(dir, videoName string) ([]externalSubtitle, error
 			Language: languageFromSuffixParts(strings.Split(remainder, ".")),
 			Ext:      ext,
 			Usable:   usableReferenceExtensions[ext],
+			Forced:   containsForcedLabel(remainder),
 		})
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].FileName < out[j].FileName })
 	return out, nil
+}
+
+func containsForcedLabel(suffix string) bool {
+	for _, word := range strings.FieldsFunc(strings.ToLower(suffix), func(r rune) bool { return r == '.' || r == '-' || r == '_' || r == ' ' }) {
+		if word == "forced" || word == "signs" {
+			return true
+		}
+	}
+	return false
 }
 
 // languageFromSuffixParts picks the first recognized language token from the
@@ -208,12 +219,12 @@ func targetStates(targets []string, external []externalSubtitle, streams []Embed
 	for _, target := range targets {
 		state := TargetState{Language: target, Status: StatusPending}
 		for _, sub := range external {
-			if usableReferenceExtensions[sub.Ext] && languageMatches(target, sub.Language) {
+			if usableReferenceExtensions[sub.Ext] && !sub.Forced && languageMatches(target, sub.Language) {
 				state.Sources = append(state.Sources, "external "+sub.FileName)
 			}
 		}
 		for _, stream := range streams {
-			if stream.Usable && languageMatches(target, stream.Language) {
+			if stream.Usable && !stream.Forced && languageMatches(target, stream.Language) {
 				state.Sources = append(state.Sources, "embedded stream #"+itoa(stream.Index))
 			}
 		}
@@ -386,6 +397,10 @@ func applyScanResult(existing *Item, driveID, root, folderName, videoPath string
 	// Preserve stable fields and prior work, then reconcile the status with what
 	// is actually on disk now.
 	item.CreatedAt = existing.CreatedAt
+	item.LibraryTarget = existing.LibraryTarget
+	item.Automatic = existing.Automatic
+	item.AutomaticPending = existing.AutomaticPending
+	item.AutomaticRetryAt = existing.AutomaticRetryAt
 	item.Attempts = existing.Attempts
 	item.WorkDir = existing.WorkDir
 	item.ReferenceKind = existing.ReferenceKind

@@ -16,11 +16,33 @@ import (
 	"cineroute/internal/medialanguages"
 	"cineroute/internal/qbittorrent"
 	"cineroute/internal/requests"
+	"cineroute/internal/subtitles"
 	"cineroute/internal/tmdb"
 	"cineroute/internal/torrentmeta"
 )
 
 type requestBackend struct{ s *Server }
+
+func (b requestBackend) QueueMovieSubtitles(ctx context.Context, d requests.Download) error {
+	if d.MediaType != "movie" || d.Status != "complete" {
+		return errors.New("only completed movie requests can enter the automatic subtitle flow")
+	}
+	var path string
+	var size int64
+	for file, bytes := range d.FileSizes {
+		if !requests.IsVideo(file) || requests.IsExtra(file) {
+			continue
+		}
+		if path != "" {
+			return errors.New("automatic movie subtitles require one unambiguous feature video")
+		}
+		path, size = file, bytes
+	}
+	if path == "" || b.s.subtitles == nil {
+		return errors.New("movie subtitle processing is unavailable")
+	}
+	return b.s.subtitles.QueueRequestedMovie(ctx, subtitles.MovieFile{DriveID: d.DriveID, Target: d.Target, Path: path, Size: size})
+}
 
 func (s *Server) requestMatches(media tmdb.Details) *mediaMatch {
 	folder := library.FolderName(s.cfg.Library.FolderFormat, media.DisplayTitle(), media.Year())
