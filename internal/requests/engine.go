@@ -446,6 +446,15 @@ func (e *Engine) process(ctx context.Context, job *Job, settings Settings, downl
 	candidates := []Candidate{}
 	seen := map[string]bool{}
 	rejected := map[string]int{}
+	trackerRejected := map[int]map[string]int{}
+	accepted := map[int]int{}
+	rejectRelease := func(release prowlarr.Release, reason string) {
+		rejected[reason]++
+		if trackerRejected[release.IndexerID] == nil {
+			trackerRejected[release.IndexerID] = map[string]int{}
+		}
+		trackerRejected[release.IndexerID][reason]++
+	}
 	for _, query := range queries {
 		if err = e.pace(ctx, settings.SearchIntervalSeconds); err != nil {
 			return err
@@ -467,7 +476,7 @@ func (e *Engine) process(ctx context.Context, job *Job, settings Settings, downl
 					continue
 				}
 				if _, err := Evaluate(release, job.Media, precheck, settings.MinSeeders, priority); err != nil {
-					rejected[err.Error()]++
+					rejectRelease(release, err.Error())
 					continue
 				}
 				eligible = append(eligible, release)
@@ -490,7 +499,7 @@ func (e *Engine) process(ctx context.Context, job *Job, settings Settings, downl
 			seen[key] = true
 			candidate, err := Evaluate(release, job.Media, p, settings.MinSeeders, priority)
 			if err != nil {
-				rejected[err.Error()]++
+				rejectRelease(release, err.Error())
 				continue
 			}
 			if job.PreferSpanishAudio && slices.Contains(release.Languages.Audio, "es") {
@@ -500,7 +509,12 @@ func (e *Engine) process(ctx context.Context, job *Job, settings Settings, downl
 				continue
 			}
 			candidates = append(candidates, candidate)
+			accepted[release.IndexerID]++
 		}
+	}
+	for _, id := range ids {
+		// Log policy decisions without tracker credentials, proxy URLs or paths.
+		slog.Info("request tracker results", "request_id", job.ID, "indexer_id", id, "priority", priorities[id], "accepted", accepted[id], "rejected", trackerRejected[id])
 	}
 	sort.SliceStable(candidates, func(i, j int) bool { return Better(candidates[i], candidates[j], settings.PreferSeasonPacks) })
 	for i, candidate := range candidates {
@@ -513,11 +527,13 @@ func (e *Engine) process(ctx context.Context, job *Job, settings Settings, downl
 		raw, err := e.Prowlarr.DownloadTorrent(ctx, candidate.Release.DownloadURL)
 		if err != nil {
 			rejected["torrent metadata unavailable"]++
+			slog.Info("request candidate skipped", "request_id", job.ID, "indexer_id", candidate.Release.IndexerID, "reason", "torrent metadata unavailable")
 			continue
 		}
 		meta, err := torrentmeta.Parse(raw)
 		if err != nil {
 			rejected["invalid torrent metadata"]++
+			slog.Info("request candidate skipped", "request_id", job.ID, "indexer_id", candidate.Release.IndexerID, "reason", "invalid torrent metadata")
 			continue
 		}
 		covered := map[string]bool{}
@@ -532,6 +548,7 @@ func (e *Engine) process(ctx context.Context, job *Job, settings Settings, downl
 		keys, err := ValidateTorrent(meta, candidate, *job, p, wanted, covered)
 		if err != nil {
 			rejected[err.Error()]++
+			slog.Info("request candidate skipped", "request_id", job.ID, "indexer_id", candidate.Release.IndexerID, "reason", err.Error())
 			continue
 		}
 		// Recheck lease ownership immediately before a filesystem/download write.
@@ -583,6 +600,7 @@ func (e *Engine) process(ctx context.Context, job *Job, settings Settings, downl
 		if err = e.Store.SaveDownload(download); err != nil {
 			return err
 		}
+		slog.Info("request release selected", "request_id", job.ID, "indexer_id", candidate.Release.IndexerID, "priority", candidate.Priority, "quality", candidate.Quality, "requested_audio_score", candidate.RequestedAudioScore, "language_score", candidate.LanguageScore, "text_subtitle_score", candidate.SubtitleFormatScore, "keyword_score", candidate.Score, "season_pack", candidate.Pack)
 		*downloads = append(*downloads, download)
 		job.Status = "downloading"
 		job.Message = "Download started"

@@ -64,3 +64,28 @@ func TestTorrentContentsEnforceEpisodeCoverageAndActualSize(t *testing.T) {
 		t.Fatal("actual pack size limit ignored")
 	}
 }
+
+func TestTorrentFolderCannotMaskContradictoryVideoQualityOrCodec(t *testing.T) {
+	job := Job{Media: tmdb.Details{Result: tmdb.Result{ID: 202, Name: "Example Show", MediaType: "tv", FirstAirDate: "2024-01-01"}}}
+	c := Candidate{Quality: "webdl-1080p", Pack: true}
+	wanted := map[string]bool{EpisodeKey(1, 1): true}
+	for _, tc := range []struct {
+		name, folder, file string
+		codecs             []string
+	}{
+		{"lower resolution", "Example.Show.S01.1080p.WEB-DL.x264", "Example.Show.S01E01.720p.WEB-DL.x264.mkv", []string{"h264"}},
+		{"resolution without source", "Example.Show.S01.1080p.WEB-DL.x264", "Example.Show.S01E01.720p.x264.mkv", []string{"h264"}},
+		{"different source", "Example.Show.S01.1080p.WEB-DL.x264", "Example.Show.S01E01.1080p.WEBRip.x264.mkv", []string{"h264"}},
+		{"source without resolution", "Example.Show.S01.1080p.WEB-DL.x264", "Example.Show.S01E01.WEBRip.x264.mkv", []string{"h264"}},
+		{"disallowed codec", "Example.Show.S01.1080p.WEB-DL.AV1", "Example.Show.S01E01.1080p.WEB-DL.HEVC.mkv", []string{"av1"}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			p := Defaults().TV
+			p.Codecs = tc.codecs
+			meta := &torrentmeta.MetaInfo{Name: tc.folder, Size: 512, Files: []torrentmeta.File{{FullPath: []string{tc.folder, tc.file}, Length: 512}}}
+			if _, err := ValidateTorrent(meta, c, job, p, wanted, nil); err == nil {
+				t.Fatal("folder metadata concealed a contradictory video filename")
+			}
+		})
+	}
+}

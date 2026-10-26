@@ -42,82 +42,44 @@ func words(s string) []string {
 }
 func tokens(s string) string { return " " + strings.Join(words(s), " ") + " " }
 
-// MatchTitle requires a complete title prefix, not a substring that might be
-// another film or a sequel. Tracker IDs strengthen matching but never excuse
-// a contradictory title or release year.
-func MatchTitle(title string, media tmdb.Details, requireYear bool) bool {
-	raw := words(filepath.Base(title))
-	for _, alias := range media.Aliases() {
-		prefix := words(alias)
-		if len(prefix) == 0 || len(raw) < len(prefix) || !slices.Equal(raw[:len(prefix)], prefix) {
-			continue
-		}
-		rest := raw[len(prefix):]
-		if len(rest) == 0 {
-			return !requireYear || media.MediaType == "tv"
-		}
-		first := rest[0]
-		year, _ := strconv.Atoi(first)
-		marker := year >= 1800 && year <= 2200 || regexp.MustCompile(`^(s[0-9]+(e[0-9]+)?|[0-9]+x[0-9]+|[0-9]{3,4}p|season|complete|series|web|webdl|webrip|bluray|blu|bdrip|brrip|hdtv|remux|dvd|dvdrip|extended|directors|theatrical|unrated|repack|proper|imax|multi|dual|h264|x264|h265|x265|hevc|av1|mkv|mp4)$`).MatchString(first)
-		if !marker {
-			continue
-		}
-		if media.MediaType == "tv" {
-			return true
-		}
-		foundYear := 0
-		for _, word := range rest {
-			if regexp.MustCompile(`^(480p|720p|1080p|2160p|web|webrip|webdl|bluray)$`).MatchString(word) {
-				break
-			}
-			n, _ := strconv.Atoi(word)
-			if n >= 1800 && n <= 2200 {
-				foundYear = n
-				break
-			}
-		}
-		if foundYear > 0 {
-			if media.Year() > 0 && (foundYear == media.Year() || (!requireYear && abs(foundYear-media.Year()) <= 1)) {
-				return true
-			}
-			continue
-		}
-		if !requireYear {
-			return true
+func resolution(title string) string {
+	t := strings.ToLower(title)
+	for _, r := range []string{"2160p", "1080p", "720p"} {
+		if strings.Contains(t, r) {
+			return r
 		}
 	}
-	return false
-}
-func abs(n int) int {
-	if n < 0 {
-		return -n
-	}
-	return n
+	return ""
 }
 
 func Quality(title string) string {
+	source := qualitySource(title)
+	if source == "cam" || source == "telesync" || source == "dvd" {
+		return source
+	}
+	if res := resolution(title); source != "" && res != "" {
+		return source + "-" + res
+	}
+	return ""
+}
+
+func qualitySource(title string) string {
 	t := strings.ToLower(title)
-	res := ""
-	for _, r := range []string{"2160p", "1080p", "720p"} {
-		if strings.Contains(t, r) {
-			res = r
-			break
-		}
+	labels := tokens(title)
+	if strings.Contains(labels, " remux ") {
+		return "remux"
 	}
-	if strings.Contains(t, "remux") && res != "" {
-		return "remux-" + res
+	if strings.Contains(labels, " web dl ") || strings.Contains(labels, " webdl ") {
+		return "webdl"
 	}
-	if (strings.Contains(t, "web-dl") || strings.Contains(t, "web.dl") || strings.Contains(t, "web dl") || strings.Contains(t, "webdl")) && res != "" {
-		return "webdl-" + res
+	if strings.Contains(labels, " webrip ") || strings.Contains(labels, " web rip ") {
+		return "webrip"
 	}
-	if (strings.Contains(t, "webrip") || strings.Contains(t, "web-rip")) && res != "" {
-		return "webrip-" + res
+	if strings.Contains(labels, " bluray ") || strings.Contains(labels, " blu ray ") || strings.Contains(labels, " bdrip ") || strings.Contains(labels, " bd rip ") || strings.Contains(labels, " brrip ") || strings.Contains(labels, " br rip ") {
+		return "bluray"
 	}
-	if (strings.Contains(t, "bluray") || strings.Contains(t, "blu-ray") || strings.Contains(t, "blu.ray") || strings.Contains(t, "bdrip")) && res != "" {
-		return "bluray-" + res
-	}
-	if strings.Contains(t, "hdtv") && res != "" {
-		return "hdtv-" + res
+	if strings.Contains(labels, " hdtv ") {
+		return "hdtv"
 	}
 	for _, word := range words(t) {
 		if word == "cam" || word == "hdcam" {
@@ -402,10 +364,27 @@ func ValidateTorrent(meta *torrentmeta.MetaInfo, c Candidate, job Job, p Profile
 		if MatchTitle(filepath.Base(path), job.Media, false) {
 			identity = true
 		}
-		if actual := Quality(path); actual != "" && actual != c.Quality {
+		// A pack's folder labels must not override contradictory file labels.
+		// Bare episode filenames can still inherit metadata from their folder.
+		filename := filepath.Base(path)
+		if actual := resolution(filename); actual != "" && actual != resolution(c.Quality) {
 			return nil, fmt.Errorf("actual video quality contradicts tracker title")
 		}
-		if codec := Codec(path); codec != "" && !slices.Contains(p.Codecs, codec) {
+		if source := qualitySource(filename); source != "" && source != qualitySource(c.Quality) {
+			return nil, fmt.Errorf("actual video quality contradicts tracker title")
+		}
+		actual := Quality(filename)
+		if actual == "" {
+			actual = Quality(path)
+		}
+		if actual != "" && actual != c.Quality {
+			return nil, fmt.Errorf("actual video quality contradicts tracker title")
+		}
+		codec := Codec(filename)
+		if codec == "" {
+			codec = Codec(path)
+		}
+		if codec != "" && !slices.Contains(p.Codecs, codec) {
 			return nil, fmt.Errorf("actual video codec is not allowed")
 		}
 		if job.Media.MediaType == "tv" {
