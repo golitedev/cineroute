@@ -9,7 +9,7 @@ export default function Home() {
         <StatusBarProvider>
             <div className='flex flex-col min-h-screen'>
                 <UserMenu />
-                <main className='cineroute-main px-6 pb-12 pt-32 md:pt-24 2xl:pt-60 min-h-full flex-1 flex flex-col items-center justify-center gap-2 z-[2] overflow-x-hidden max-w-screen overflow-y-hidden'>
+                <main className='cineroute-main px-6 flex-1 flex flex-col items-center gap-2 z-[2] overflow-x-hidden max-w-screen overflow-y-hidden'>
                     <SearchView />
                 </main>
                 <Toaster />

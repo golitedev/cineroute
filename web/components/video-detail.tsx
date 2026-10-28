@@ -15,6 +15,9 @@ type Detail = {
     auto_approve: boolean;
 };
 
+// The catalog returns null for movies and shows without announced seasons.
+type DetailResponse = Omit<Detail, 'seasons'> & { seasons?: Detail['seasons'] | null };
+
 export default function VideoDetail({ media, onClose }: { media: Media | null; onClose: () => void }) {
     const t = useT();
     const { jobs, refresh } = useStatusBar();
@@ -35,12 +38,13 @@ export default function VideoDetail({ media, onClose }: { media: Media | null; o
         setMessage('');
         setSaving(false);
         if (media)
-            void portalRequest<Detail>(`/api/catalog/${media.media_type}/${media.id}`)
+            void portalRequest<DetailResponse>(`/api/catalog/${media.media_type}/${media.id}`)
                 .then((data) => {
                     if (!active) return;
-                    setDetail(data);
+                    const normalized = { ...data, seasons: data.seasons ?? [] };
+                    setDetail(normalized);
                     setSeasons(
-                        data.seasons
+                        normalized.seasons
                             .filter((s) => s.episode_count > 0 && (!s.air_date || s.air_date <= new Date().toISOString().slice(0, 10)))
                             .map((s) => s.season_number)
                     );

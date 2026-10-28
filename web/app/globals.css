@@ -679,12 +679,14 @@ body:has(.user-menu) .language-menu {
 /* Shared discovery shell. Keep the original monochrome music UI for every medium. */
 .cineroute-main {
     width: 100%;
-    padding-top: clamp(7rem, 18vh, 14rem);
-    padding-bottom: calc(3rem + var(--status-bar-space, 0px));
-    justify-content: flex-start;
+    padding-top: calc(5rem + env(safe-area-inset-top));
+    padding-bottom: calc(5rem + env(safe-area-inset-bottom));
+    justify-content: center;
 }
 .cineroute-main:has([data-results='true']) {
+    justify-content: flex-start;
     padding-top: 6rem;
+    padding-bottom: calc(3rem + var(--status-bar-space, 0px));
 }
 .video-card {
     transition: opacity 150ms ease;
@@ -703,7 +705,7 @@ input[type='checkbox'] {
 }
 @media (max-width: 767px) {
     .cineroute-main {
-        padding-top: calc(8rem + env(safe-area-inset-top));
+        padding-top: calc(5rem + env(safe-area-inset-top));
     }
     .cineroute-main:has([data-results='true']) {
         padding-top: calc(5rem + env(safe-area-inset-top));
