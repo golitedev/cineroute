@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useRef, useState } from 'react';
-import { ArrowRight, Search, LoaderCircle, DiscAlbum, Disc3, Users, Film, Tv } from 'lucide-react';
+import { ArrowRight, Search, LoaderCircle, DiscAlbum, Disc3, Users, Film, Tv, Music2, ChevronDown } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { DropdownMenu, DropdownMenuContent, DropdownMenuRadioGroup, DropdownMenuRadioItem, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
@@ -150,35 +150,10 @@ export default function SearchView() {
                     </Button>
                 </form>
                 <nav className='flex items-center justify-center gap-2 flex-wrap' aria-label={t('search')}>
-                    <DropdownMenu>
-                        <DropdownMenuTrigger asChild>
-                            <Button
-                                variant={kind === 'music' ? 'secondary' : 'outline'}
-                                onClick={() => {
-                                    if (kind !== 'music') changeKind('music');
-                                }}
-                                aria-pressed={kind === 'music'}
-                            >
-                                <MusicIcon className='size-4' />
-                                {t(field)}
-                            </Button>
-                        </DropdownMenuTrigger>
-                        <DropdownMenuContent align='center'>
-                            <DropdownMenuRadioGroup
-                                value={field}
-                                onValueChange={(value) => {
-                                    setField(value as QobuzSearchFilters);
-                                    changeKind('music');
-                                }}
-                            >
-                                {filterData.map((f) => (
-                                    <DropdownMenuRadioItem key={f.value} value={f.value}>
-                                        {t(f.value)}
-                                    </DropdownMenuRadioItem>
-                                ))}
-                            </DropdownMenuRadioGroup>
-                        </DropdownMenuContent>
-                    </DropdownMenu>
+                    <Button variant={kind === 'music' ? 'secondary' : 'outline'} aria-pressed={kind === 'music'} onClick={() => changeKind('music')}>
+                        <Music2 className='size-4' />
+                        {t('music')}
+                    </Button>
                     <Button variant={kind === 'movie' ? 'secondary' : 'outline'} aria-pressed={kind === 'movie'} onClick={() => changeKind('movie')}>
                         <Film className='size-4' />
                         {t('movies')}
@@ -188,6 +163,30 @@ export default function SearchView() {
                         {t('tv')}
                     </Button>
                 </nav>
+                {kind === 'music' && (
+                    <div className='flex justify-center'>
+                        <DropdownMenu>
+                            <DropdownMenuTrigger asChild>
+                                <Button variant='ghost' size='sm' className='text-muted-foreground' aria-label={`${t('music')} · ${t(field)}`}>
+                                    <MusicIcon className='size-4' />
+                                    {t(field)}
+                                    <ChevronDown className='size-3' />
+                                </Button>
+                            </DropdownMenuTrigger>
+                            <DropdownMenuContent align='center'>
+                                <DropdownMenuRadioGroup value={field} onValueChange={(value) => setField(value as QobuzSearchFilters)}>
+                                    {filterData.map((f) => (
+                                        <DropdownMenuRadioItem key={f.value} value={f.value}>
+                                            <f.icon className='size-4 mr-2' />
+                                            {t(f.value)}
+                                        </DropdownMenuRadioItem>
+                                    ))}
+                                </DropdownMenuRadioGroup>
+                            </DropdownMenuContent>
+                        </DropdownMenu>
+                    </div>
+                )}
+
                 <div role='status' aria-live='polite' className='text-sm text-center text-muted-foreground'>
                     {kind === 'music' && enabled === false ? t('musicUnavailable') : ''}
                     {video?.similar_matches ? t('similarTitles') : ''}

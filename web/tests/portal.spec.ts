@@ -276,3 +276,33 @@ test('TV titles without announced seasons can still follow future seasons', asyn
     await expect.poll(() => f.created.length).toBe(1);
     expect(f.created[0]).toMatchObject({ media_type: 'tv', seasons: [], follow_future: true });
 });
+
+test('Music stays a media tab while albums, tracks, and artists use its filter', async ({ page }) => {
+    await fixtures(page);
+    await page.goto('/');
+    const navigation = page.getByRole('navigation');
+    const musicTab = navigation.getByRole('button', { name: 'Music', exact: true });
+    await expect(musicTab).toHaveAttribute('aria-pressed', 'true');
+    await expect(navigation.getByRole('button', { name: 'Albums', exact: true })).toHaveCount(0);
+    await page.getByRole('button', { name: 'Music · Albums', exact: true }).click();
+    await expect(page.getByRole('menuitemradio', { name: 'Albums', exact: true })).toHaveAttribute('aria-checked', 'true');
+    await page.getByRole('menuitemradio', { name: 'Tracks', exact: true }).click();
+    await expect(page.getByRole('button', { name: 'Music · Tracks', exact: true })).toBeVisible();
+    await page.getByRole('button', { name: 'Music · Tracks', exact: true }).click();
+    await page.getByRole('menuitemradio', { name: 'Artists', exact: true }).click();
+    await expect(page.getByRole('button', { name: 'Music · Artists', exact: true })).toBeVisible();
+    await navigation.getByRole('button', { name: 'Movies', exact: true }).click();
+    await expect(page.getByRole('button', { name: 'Music · Artists', exact: true })).toHaveCount(0);
+    await musicTab.click();
+    await expect(page.getByRole('button', { name: 'Music · Artists', exact: true })).toBeVisible();
+    await expect(musicTab).toHaveAttribute('aria-pressed', 'true');
+    await page.getByRole('button', { name: 'Music · Artists', exact: true }).click();
+    await page.getByRole('menuitemradio', { name: 'Albums', exact: true }).click();
+    await page.getByRole('textbox', { name: 'Search', exact: true }).fill('An artist');
+    await page.getByRole('button', { name: 'Search', exact: true }).click();
+    await expect(page.getByText('A good album', { exact: true }).first()).toBeVisible();
+    await page.getByRole('button', { name: 'Music · Albums', exact: true }).click();
+    await page.getByRole('menuitemradio', { name: 'Tracks', exact: true }).click();
+    await expect(page.locator('.release-card')).toHaveCount(0);
+    await expect(page.getByText('No matching titles. Try another name or year.', { exact: true })).toBeVisible();
+});
