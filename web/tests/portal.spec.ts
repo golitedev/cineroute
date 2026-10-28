@@ -318,3 +318,19 @@ test('Music stays a media tab while albums, tracks, and artists use its filter',
     await expect(page.locator('.release-card')).toHaveCount(0);
     await expect(page.getByText('No matching titles. Try another name or year.', { exact: true })).toBeVisible();
 });
+
+test('media buttons keep their size and position when selection changes', async ({ page }) => {
+    await fixtures(page);
+    await page.goto('/');
+    const navigation = page.getByRole('navigation');
+    const names = ['Movies', 'TV', 'Music'];
+    const initial = await Promise.all(names.map((name) => navigation.getByRole('button', { name, exact: true }).boundingBox()));
+    for (const selected of ['TV', 'Music', 'Movies']) {
+        await navigation.getByRole('button', { name: selected, exact: true }).click();
+        await expect(navigation.getByRole('button', { name: selected, exact: true })).toHaveAttribute('aria-pressed', 'true');
+        for (const [index, name] of names.entries()) {
+            const box = await navigation.getByRole('button', { name, exact: true }).boundingBox();
+            for (const dimension of ['x', 'y', 'width', 'height'] as const) expect(Math.abs(box![dimension] - initial[index]![dimension])).toBeLessThan(0.5);
+        }
+    }
+});

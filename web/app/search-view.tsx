@@ -152,7 +152,7 @@ export default function SearchView() {
                 <nav className='flex items-center justify-center gap-1 sm:gap-2 flex-wrap' aria-label={t('search')}>
                     <Button
                         variant={kind === 'movie' ? 'secondary' : 'outline'}
-                        className='px-2 sm:px-4'
+                        className='border px-2 aria-[pressed=true]:border-transparent sm:px-4'
                         aria-pressed={kind === 'movie'}
                         onClick={() => changeKind('movie')}
                     >
@@ -161,17 +161,17 @@ export default function SearchView() {
                     </Button>
                     <Button
                         variant={kind === 'tv' ? 'secondary' : 'outline'}
-                        className='px-2 sm:px-4'
+                        className='border px-2 aria-[pressed=true]:border-transparent sm:px-4'
                         aria-pressed={kind === 'tv'}
                         onClick={() => changeKind('tv')}
                     >
                         <Tv className='hidden size-4 sm:block' />
                         {t('tv')}
                     </Button>
-                    <div className='inline-flex shrink-0 items-center gap-1 sm:gap-2'>
+                    <div className='relative inline-flex shrink-0 items-center'>
                         <Button
                             variant={kind === 'music' ? 'secondary' : 'outline'}
-                            className='px-2 sm:px-4'
+                            className='border px-2 aria-[pressed=true]:border-transparent sm:px-4'
                             aria-pressed={kind === 'music'}
                             onClick={() => changeKind('music')}
                         >
@@ -184,7 +184,7 @@ export default function SearchView() {
                                     <Button
                                         variant='ghost'
                                         size='sm'
-                                        className='gap-1 px-2 text-muted-foreground sm:gap-2 sm:px-3'
+                                        className='absolute left-full top-1/2 ml-1 -translate-y-1/2 gap-1 px-1 text-muted-foreground sm:ml-2 sm:gap-2 sm:px-3'
                                         aria-label={`${t('music')} · ${t(field)}`}
                                     >
                                         <MusicIcon className='hidden size-4 sm:block' />
