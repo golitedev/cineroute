@@ -8,3 +8,11 @@ third_party/alass/target/
 /.tmp-cargo-home/
 /.tmp-alass-target/
 /.tmp-go-cache/
+
+/web/node_modules/
+/web/.next/
+/web/out/
+/web/next-env.d.ts
+/web/tsconfig.tsbuildinfo
+/internal/publicui/dist/*
+!/internal/publicui/dist/placeholder.txt

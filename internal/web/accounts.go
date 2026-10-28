@@ -151,12 +151,13 @@ func publicPath(p string) bool {
 }
 func userPath(r *http.Request) bool {
 	p := r.URL.Path
-	return (r.Method == http.MethodGet && (p == "/api/session" || p == "/api/catalog/search" || strings.HasPrefix(p, "/api/catalog/movie/") || strings.HasPrefix(p, "/api/catalog/tv/") || p == "/api/user/requests")) ||
-		(r.Method == http.MethodPost && (p == "/api/logout" || p == "/api/user/requests" || (strings.HasPrefix(p, "/api/user/requests/") && strings.HasSuffix(p, "/cancel"))))
+	return (r.Method == http.MethodGet && (p == "/api/session" || p == "/api/catalog/search" || strings.HasPrefix(p, "/api/catalog/movie/") || strings.HasPrefix(p, "/api/catalog/tv/") || p == "/api/user/requests" || strings.HasPrefix(p, "/api/music/"))) ||
+		(r.Method == http.MethodDelete && strings.HasPrefix(p, "/api/music/jobs/")) ||
+		(r.Method == http.MethodPost && (p == "/api/music/jobs" || (strings.HasPrefix(p, "/api/music/jobs/") && (strings.HasSuffix(p, "/cancel") || strings.HasSuffix(p, "/retry"))) || p == "/api/logout" || p == "/api/user/requests" || (strings.HasPrefix(p, "/api/user/requests/") && strings.HasSuffix(p, "/cancel"))))
 }
 func (s *Server) auth(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if publicPath(r.URL.Path) {
+		if publicPath(r.URL.Path) || (audience(r) == publicListener && (r.URL.Path == "/login" || r.URL.Path == "/login/" || r.URL.Path == "/manifest.webmanifest" || r.URL.Path == "/icon.svg" || strings.HasPrefix(r.URL.Path, "/_next/static/"))) {
 			next.ServeHTTP(w, r)
 			return
 		}

@@ -184,3 +184,28 @@ drives:
     tv_root: "/disk4/media/tv"
     tv_remote_root: "/disk4/media/tv-remote"
     anime_root: "/disk4/media/anime"
+
+# Optional integrated music engine. Runs inside this CineRoute container.
+# Requires a paid Qobuz account and existing writable library/staging mounts.
+# Music is independent of the movie/TV request policy and queues immediately.
+music:
+  enabled: false
+  qobuz:
+    user_id: "" # or CINEROUTE_QOBUZ_USER_ID
+    token: ""   # or CINEROUTE_QOBUZ_TOKEN
+    quality: 3 # 1 MP3, 2 CD, 3 up to 24/96, 4 up to 24/192
+  paths:
+    library: "/music"
+    staging: "/staging" # separate from the library; same filesystem is faster
+    data: "/data/music"
+  naming:
+    folder: "{albumartist}/{title} ({year})"
+    track: "{tracknumber:02}. {title}"
+    if_exists: "skip"
+  download:
+    attempts: 2
+    verify_flac: true
+    fix_md5: true
+  metadata:
+    translate_genres: true
+    clean_descriptions: true

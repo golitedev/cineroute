@@ -11,6 +11,8 @@ import (
 	"net/url"
 	"strings"
 	"time"
+
+	"cineroute/internal/publicui"
 )
 
 type listenerKind string
@@ -129,7 +131,7 @@ func (s *Server) listenerBoundary(kind listenerKind, next http.Handler) http.Han
 		w.Header().Set("Referrer-Policy", "no-referrer")
 		w.Header().Set("Cross-Origin-Resource-Policy", "same-origin")
 		w.Header().Set("Cache-Control", "no-store")
-		w.Header().Set("Content-Security-Policy", "default-src 'none'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' https://image.tmdb.org; connect-src 'self'; base-uri 'none'; frame-ancestors 'none'; form-action 'self'; object-src 'none'")
+		w.Header().Set("Content-Security-Policy", "default-src 'none'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' https://image.tmdb.org https://static.qobuz.com https://*.qobuz.com; font-src 'self'; manifest-src 'self'; worker-src 'self' blob:; connect-src 'self'; base-uri 'none'; frame-ancestors 'none'; form-action 'self'; object-src 'none'")
 		if kind == adminListener && !s.adminNetworkAllowed(r) {
 			writeErr(w, 403, "administration is available only through direct LAN access")
 			return
@@ -162,15 +164,16 @@ func validCSRF(r *http.Request) bool {
 // to Handler, regardless of credentials, Host, proxy headers, or URL encoding.
 func (s *Server) PublicHandler() http.Handler {
 	mux := http.NewServeMux()
-	mux.HandleFunc("GET /{$}", func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Content-Type", "text/html; charset=utf-8")
-		if err := s.page.ExecuteTemplate(w, "public.html", nil); err != nil {
-			return
-		}
-	})
-	for path, asset := range map[string]string{"/favicon.png": "logo/favicon.png", "/favicon.svg": "logo/favicon.svg", "/logo.svg": "logo/logo.svg", "/app.css": "templates/app.css", "/catalog.js": "templates/catalog.js", "/viewport.js": "templates/viewport.js", "/portal.js": "templates/portal.js"} {
+	mux.Handle("GET /", publicui.Handler())
+	for path, asset := range map[string]string{"/favicon.png": "logo/favicon.png", "/favicon.svg": "logo/favicon.svg", "/logo.svg": "logo/logo.svg"} {
 		mux.HandleFunc("GET "+path, s.serveAsset(asset))
 	}
+	mux.HandleFunc("GET /api/music/info", s.musicInfo)
+	mux.HandleFunc("GET /api/music/jobs", s.musicJobs)
+	mux.HandleFunc("POST /api/music/jobs", s.musicAdd)
+	mux.HandleFunc("POST /api/music/jobs/{id}/{action}", s.musicAction)
+	mux.HandleFunc("DELETE /api/music/jobs/{id}", s.musicRemove)
+	mux.HandleFunc("GET /api/music/{action}", s.musicCatalog)
 	mux.HandleFunc("GET /health", s.health)
 	mux.HandleFunc("POST /api/login", s.login)
 	mux.HandleFunc("POST /api/logout", s.logout)

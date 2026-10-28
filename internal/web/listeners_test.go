@@ -98,7 +98,7 @@ func TestPublicListenerNeverExposesAdministrativeRoutes(t *testing.T) {
 		}
 	}
 	// Public assets do not contain the administration interface or its scripts.
-	for _, path := range []string{"/", "/catalog.js", "/portal.js"} {
+	for _, path := range []string{"/", "/login", "/logo.svg"} {
 		out := securityCall(s.PublicHandler(), securityRequest("GET", path))
 		if out.Code != 200 {
 			t.Fatalf("public asset %s: %d", path, out.Code)

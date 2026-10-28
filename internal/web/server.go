@@ -23,6 +23,7 @@ import (
 	"cineroute/internal/config"
 	"cineroute/internal/copies"
 	"cineroute/internal/library"
+	"cineroute/internal/music"
 	"cineroute/internal/prowlarr"
 	"cineroute/internal/qbittorrent"
 	"cineroute/internal/requests"
@@ -125,6 +126,7 @@ type SubmitResult struct {
 }
 
 type Server struct {
+	music     *music.Service
 	accounts  *accounts
 	cfg       *config.Config
 	prowlarr  *prowlarr.Client
@@ -179,7 +181,7 @@ func New(cfg *config.Config, qb *qbittorrent.Client, tmdbClient *tmdb.Client, pr
 		intakes:   map[string]*Intake{},
 	}
 	s.engine = requests.NewEngine(s.requests, tmdbClient, prowlarrClient, requestBackend{s})
-	s.page = template.Must(template.New("index.html").ParseFS(assetsFS, "templates/index.html", "templates/public.html"))
+	s.page = template.Must(template.New("index.html").ParseFS(assetsFS, "templates/index.html"))
 	go s.cleanupLoop()
 	return s
 }

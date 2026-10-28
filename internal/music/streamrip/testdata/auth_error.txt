@@ -1,0 +1,36 @@
+[08:37:44] INFO     App id/secrets not found, fetching                                                                                                                                                                                                                                                                                                                                                                                                                                                  qobuz.py:173
+╭─────────────────────────────── Traceback (most recent call last) ────────────────────────────────╮
+│ /tmp/cineroute-sr-venv/bin/rip:10 in <module>                                                       │
+│                                                                                                  │
+│    7 │   │   sys.argv[0] = sys.argv[0][:-11]                                                     │
+│    8 │   elif sys.argv[0].endswith(".exe"):                                                      │
+│    9 │   │   sys.argv[0] = sys.argv[0][:-4]                                                      │
+│ ❱ 10 │   sys.exit(rip())                                                                         │
+│   11                                                                                             │
+│                                                                                                  │
+│ /tmp/cineroute-sr-venv/lib/python3.12/site-packages/click/core.py:1631 in __call__                  │
+│                                                                                                  │
+│                                     ... 11 frames hidden ...                                     │
+│                                                                                                  │
+│ /tmp/cineroute-sr-venv/lib/python3.12/site-packages/streamrip/rip/main.py:150 in                    │
+│ get_logged_in_client                                                                             │
+│                                                                                                  │
+│   147 │   │   │   else:                                                                          │
+│   148 │   │   │   │   with console.status(f"[cyan]Logging into {source}", spinner="dots"):       │
+│   149 │   │   │   │   │   # Log into client using credentials from config                        │
+│ ❱ 150 │   │   │   │   │   await client.login()                                                   │
+│   151 │   │                                                                                      │
+│   152 │   │   assert client.logged_in                                                            │
+│   153 │   │   return client                                                                      │
+│                                                                                                  │
+│ /tmp/cineroute-sr-venv/lib/python3.12/site-packages/streamrip/client/qobuz.py:201 in login          │
+│                                                                                                  │
+│   198 │   │   logger.debug("Login resp: %s", resp)                                               │
+│   199 │   │                                                                                      │
+│   200 │   │   if status == 401:                                                                  │
+│ ❱ 201 │   │   │   raise AuthenticationError(f"Invalid credentials from params {params}")         │
+│   202 │   │   elif status == 400:                                                                │
+│   203 │   │   │   raise InvalidAppIdError(f"Invalid app id from params {params}")                │
+│   204                                                                                            │
+╰──────────────────────────────────────────────────────────────────────────────────────────────────╯
+AuthenticationError: Invalid credentials from params {'user_id': '123456', 'user_auth_token': 'SECRETTOKEN123', 'app_id': '798273057'}

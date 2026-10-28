@@ -1,0 +1,1 @@
+Generated public assets are copied here by make web or the Docker build.

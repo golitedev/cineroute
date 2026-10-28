@@ -6,10 +6,17 @@ import (
 	"os"
 	"strings"
 
+	musicconfig "cineroute/internal/music/config"
 	"gopkg.in/yaml.v3"
 )
 
+type Music struct {
+	Enabled            bool `yaml:"enabled"`
+	musicconfig.Config `yaml:",inline"`
+}
+
 type Config struct {
+	Music          Music       `yaml:"music"`
 	Listen         string      `yaml:"listen"`
 	PublicListen   string      `yaml:"public_listen"`
 	Admin          Admin       `yaml:"admin"`
@@ -46,7 +53,7 @@ type Requests struct {
 	StatePath string `yaml:"state_path"`
 }
 
-// User follows Romero's config-based accounts, with explicit CineRoute roles.
+// User configures an account with an explicit CineRoute role.
 type User struct {
 	Name         string `yaml:"name"`
 	Role         string `yaml:"role"`
@@ -132,6 +139,7 @@ type Drive struct {
 func Default() *Config {
 	return &Config{
 		Listen:         "127.0.0.1:8787",
+		Music:          Music{Config: musicconfig.Default()},
 		Admin:          Admin{AllowedNetworks: []string{"127.0.0.0/8", "::1/128", "10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16", "fc00::/7"}},
 		AuthUsername:   "cineroute",
 		MaxUploadBytes: 64 << 20,
@@ -213,6 +221,16 @@ func Load(path string) (*Config, error) {
 }
 
 func applyEnv(cfg *Config) {
+	if v := os.Getenv("CINEROUTE_MUSIC_ENABLED"); v != "" {
+		cfg.Music.Enabled = v == "true" || v == "1"
+	}
+	if v := os.Getenv("CINEROUTE_QOBUZ_USER_ID"); v != "" {
+		cfg.Music.Qobuz.UserID = v
+	}
+	if v := os.Getenv("CINEROUTE_QOBUZ_TOKEN"); v != "" {
+		cfg.Music.Qobuz.Token = v
+	}
+
 	if v, ok := os.LookupEnv("CINEROUTE_PUBLIC_LISTEN"); ok {
 		cfg.PublicListen = v
 	}
@@ -261,6 +279,14 @@ func applyEnv(cfg *Config) {
 }
 
 func (c *Config) validate() error {
+	if c.Music.Enabled {
+		if err := c.Music.Validate(); err != nil {
+			return fmt.Errorf("music: %w", err)
+		}
+		if !c.Music.QobuzConfigured() {
+			return errors.New("music requires qobuz.user_id and qobuz.token")
+		}
+	}
 	if err := c.validateListeners(); err != nil {
 		return err
 	}

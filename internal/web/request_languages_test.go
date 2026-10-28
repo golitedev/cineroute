@@ -156,7 +156,7 @@ func TestLanguagePreferencesAreOnlyAdminPolicy(t *testing.T) {
 	if err := json.Unmarshal(response.Body.Bytes(), &data); err != nil || !slices.ContainsFunc(data.Languages, func(o requests.Option) bool { return o.ID == "sv" }) {
 		t.Fatal("admin language choices missing")
 	}
-	for _, asset := range []string{"/", "/catalog.js", "/portal.js"} {
+	for _, asset := range []string{"/", "/login", "/logo.svg"} {
 		out := httptest.NewRecorder()
 		f.s.PublicHandler().ServeHTTP(out, httptest.NewRequest("GET", asset, nil))
 		for _, text := range []string{"Language priorities", "preferred_audio_languages", "preferred_subtitle_languages", "toggleRequestLanguagePreference"} {

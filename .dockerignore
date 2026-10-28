@@ -8,3 +8,9 @@ config.example.yaml
 .tmp-alass-target
 .tmp-go-cache
 third_party/alass/target
+
+web/node_modules
+web/.next
+web/out
+web/tsconfig.tsbuildinfo
+internal/publicui/dist

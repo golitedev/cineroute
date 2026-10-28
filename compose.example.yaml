@@ -25,6 +25,9 @@ services:
       CINEROUTE_OS_API_KEY: ${CINEROUTE_OS_API_KEY:-}
       CINEROUTE_OS_USERNAME: ${CINEROUTE_OS_USERNAME:-}
       CINEROUTE_OS_PASSWORD: ${CINEROUTE_OS_PASSWORD:-}
+      # Optional integrated music account (enable music in config.yaml):
+      CINEROUTE_QOBUZ_USER_ID: ${CINEROUTE_QOBUZ_USER_ID:-}
+      CINEROUTE_QOBUZ_TOKEN: ${CINEROUTE_QOBUZ_TOKEN:-}
       CINEROUTE_AUTH_PASSWORD: ${CINEROUTE_AUTH_PASSWORD:-}
     volumes:
       # Configuration on the NAS:
@@ -34,6 +37,10 @@ services:
       # Subtitle work files (reference, downloaded, aligned). Disposable; keep
       # it on a fast path so /tmp does not fill the container's writable layer.
       - /srv/docker/cineroute/tmp:/tmp
+      # Optional music library and staging. Uncomment and set your NAS paths
+      # before enabling music. Both must be writable by the container user.
+      # - /mnt/music/library:/music
+      # - /mnt/music/staging:/staging
       # Mount each disk once; qBittorrent must use the same /diskN paths.
       - /mnt/disk1/data:/disk1
       - /mnt/disk2/data:/disk2

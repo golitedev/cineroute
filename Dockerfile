@@ -1,5 +1,13 @@
 # syntax=docker/dockerfile:1
 
+# Export the public interface as static assets; Node is build-only.
+FROM --platform=$BUILDPLATFORM node:24-alpine AS web
+WORKDIR /web
+COPY web/package.json web/package-lock.json ./
+RUN --mount=type=cache,target=/root/.npm npm ci --no-audit --no-fund
+COPY web/ ./
+RUN npm run build
+
 # Build natively on the runner and cross-compile the target binary. This keeps
 # the ARM64 build out of QEMU emulation while still producing both images.
 FROM --platform=$BUILDPLATFORM golang:1.26.10-alpine AS build
@@ -11,6 +19,7 @@ RUN --mount=type=cache,target=/go/pkg/mod \
     --mount=type=cache,target=/root/.cache/go-build \
     go mod download
 COPY . .
+COPY --from=web /web/out/ internal/publicui/dist/
 RUN --mount=type=cache,target=/go/pkg/mod \
     --mount=type=cache,target=/root/.cache/go-build \
     CGO_ENABLED=0 GOOS=$TARGETOS GOARCH=$TARGETARCH \
@@ -38,12 +47,22 @@ RUN --mount=type=cache,target=/alass/target \
     cargo build --release --locked --bin alass-cli && \
     cp /alass/target/release/alass-cli /usr/local/bin/alass
 
-# Runtime stage. ffmpeg provides ffprobe for probing and for subtitle extraction;
-# alass performs the synchronization. Both are needed for the Subtitles page.
+# The music downloader is an in-process worker calling this bundled CLI.
+# Pin the same tested streamrip revision used by the original music engine.
+FROM --platform=$TARGETPLATFORM alpine:3.22 AS streamrip
+ARG STREAMRIP_REF=e3291615ba6be34aa76df19da8aeb6f41673c6a0
+RUN apk add --no-cache python3 py3-pip git build-base python3-dev libffi-dev openssl-dev
+RUN python3 -m venv /opt/streamrip && /opt/streamrip/bin/pip install --no-cache-dir \
+    "streamrip @ git+https://github.com/nathom/streamrip.git@${STREAMRIP_REF}"
+
+# One runtime container includes the movie/TV and music workers and their tools.
 FROM alpine:3.22
-RUN apk add --no-cache ffmpeg tzdata ca-certificates
+RUN apk add --no-cache ffmpeg tzdata ca-certificates python3 flac tini
+COPY --from=streamrip /opt/streamrip /opt/streamrip
+RUN ln -s /opt/streamrip/bin/rip /usr/local/bin/rip
 COPY --from=build /cineroute /cineroute
 COPY --from=alass /usr/local/bin/alass /usr/local/bin/alass
+ENV HOME=/tmp PYTHONDONTWRITEBYTECODE=1
 USER 1000:1000
 EXPOSE 8787 8788
-ENTRYPOINT ["/cineroute"]
+ENTRYPOINT ["/sbin/tini", "--", "/cineroute"]

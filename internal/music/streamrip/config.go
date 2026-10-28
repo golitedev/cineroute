@@ -1,0 +1,268 @@
+// Package streamrip writes streamrip's config from config.yaml and runs
+// `rip` for one album at a time.
+package streamrip
+
+import (
+	"bytes"
+	"context"
+	"fmt"
+	"os"
+	"os/exec"
+	"path/filepath"
+	"strings"
+	"time"
+
+	"github.com/pelletier/go-toml/v2"
+
+	"cineroute/internal/music/config"
+)
+
+// Files are the streamrip paths inside CineRoute's data folder.
+type Files struct {
+	Dir     string // <data>/streamrip
+	Config  string // the generated config.toml
+	Default string // streamrip's own default config for the installed version
+}
+
+func FilesIn(dataDir string) Files {
+	dir := filepath.Join(dataDir, "streamrip")
+	return Files{
+		Dir:     dir,
+		Config:  filepath.Join(dir, "config.toml"),
+		Default: filepath.Join(dir, "default.toml"),
+	}
+}
+
+// protected lists streamrip settings CineRoute always sets itself. They cannot
+// be changed through [streamrip] in config.yaml.
+var protected = map[string]bool{
+	"downloads.folder":                  true,
+	"downloads.source_subdirectories":   true,
+	"qobuz.quality":                     true,
+	"qobuz.use_auth_token":              true,
+	"qobuz.email_or_userid":             true,
+	"qobuz.password_or_token":           true,
+	"database.downloads_enabled":        true,
+	"database.downloads_path":           true,
+	"database.failed_downloads_enabled": true,
+	"database.failed_downloads_path":    true,
+	"filepaths.folder_format":           true,
+	"cli.progress_bars":                 true,
+	"cli.text_output":                   true,
+	"misc.version":                      true,
+	"misc.check_for_updates":            true,
+}
+
+// WriteConfig creates streamrip's config.toml from cfg. It asks the installed
+// streamrip for its default config first, so the file always matches the
+// installed version, and keeps the app id and secrets streamrip cached in an
+// earlier config.
+func WriteConfig(ctx context.Context, cfg *config.Config, files Files) (ignored []string, err error) {
+	if err := os.MkdirAll(files.Dir, 0o700); err != nil {
+		return nil, err
+	}
+	defaults, err := streamripDefaults(ctx, cfg.Download.RipCommand, files.Default)
+	if err != nil {
+		return nil, err
+	}
+
+	var cachedAppID string
+	var cachedSecrets any
+	if old, err := readTOML(files.Config); err == nil {
+		if q, ok := old["qobuz"].(map[string]any); ok {
+			cachedAppID, _ = q["app_id"].(string)
+			cachedSecrets = q["secrets"]
+		}
+	}
+
+	doc := defaults
+	// User passthrough first, so CineRoute's own settings below win.
+	ignored = merge(doc, cfg.Streamrip, "")
+
+	set := func(path string, v any) { setPath(doc, path, v) }
+	set("downloads.folder", cfg.Paths.Staging)
+	set("downloads.source_subdirectories", false)
+	set("downloads.disc_subdirectories", cfg.Naming.DiscSubfolders)
+	set("downloads.concurrency", true)
+	set("downloads.max_connections", int64(cfg.Download.MaxConnections))
+	set("downloads.requests_per_minute", int64(cfg.Download.RequestsPerMinute))
+
+	set("qobuz.quality", int64(cfg.Qobuz.Quality))
+	set("qobuz.download_booklets", cfg.Download.Booklets)
+	set("qobuz.use_auth_token", true)
+	set("qobuz.email_or_userid", cfg.Qobuz.UserID)
+	set("qobuz.password_or_token", cfg.Qobuz.Token)
+	switch {
+	case cfg.Qobuz.AppID != "":
+		// An app id from config.yaml needs streamrip to find matching
+		// secrets again, unless they were cached for this same id.
+		set("qobuz.app_id", cfg.Qobuz.AppID)
+		if cachedAppID != cfg.Qobuz.AppID || cachedSecrets == nil {
+			set("qobuz.secrets", []any{})
+		} else {
+			set("qobuz.secrets", cachedSecrets)
+		}
+	case cachedAppID != "" && cachedSecrets != nil:
+		set("qobuz.app_id", cachedAppID)
+		set("qobuz.secrets", cachedSecrets)
+	}
+
+	// CineRoute checks the library itself; streamrip's database would silently
+	// skip tracks it has seen before and leave albums incomplete.
+	set("database.downloads_enabled", false)
+	set("database.downloads_path", filepath.Join(files.Dir, "downloads.db"))
+	set("database.failed_downloads_enabled", false)
+	set("database.failed_downloads_path", filepath.Join(files.Dir, "failed_downloads.db"))
+
+	set("artwork.embed", cfg.Artwork.Embed)
+	set("artwork.embed_size", cfg.Artwork.EmbedSize)
+	set("artwork.embed_max_width", int64(cfg.Artwork.EmbedMaxWidth))
+	set("artwork.save_artwork", cfg.Artwork.SaveCover)
+	set("artwork.saved_max_width", int64(cfg.Artwork.SavedMaxWidth))
+
+	exclude := make([]any, 0, len(cfg.Metadata.Exclude))
+	for _, e := range cfg.Metadata.Exclude {
+		exclude = append(exclude, e)
+	}
+	set("metadata.exclude", exclude)
+
+	// CineRoute names the album folder itself after verification; inside the
+	// staging folder streamrip just uses the album id.
+	set("filepaths.folder_format", "{id}")
+	set("filepaths.track_format", cfg.Naming.Track)
+	set("filepaths.restrict_characters", cfg.Naming.RestrictCharacters)
+
+	set("cli.text_output", true)
+	set("cli.progress_bars", false)
+	set("misc.check_for_updates", false)
+
+	out, err := toml.Marshal(doc)
+	if err != nil {
+		return ignored, err
+	}
+	header := "# Generated by CineRoute from config.yaml. Changes here are overwritten.\n\n"
+	tmp := files.Config + ".tmp"
+	if err := os.WriteFile(tmp, append([]byte(header), out...), 0o600); err != nil {
+		return ignored, err
+	}
+	return ignored, os.Rename(tmp, files.Config)
+}
+
+// streamripDefaults asks rip to write its default config for the installed
+// version. rip creates a missing config file before running any command.
+func streamripDefaults(ctx context.Context, ripCommand, path string) (map[string]any, error) {
+	os.Remove(path)
+	ctx, cancel := context.WithTimeout(ctx, 2*time.Minute)
+	defer cancel()
+	cmd := exec.CommandContext(ctx, ripCommand, "--config-path", path, "config", "path")
+	cmd.Env = childEnv()
+	var out bytes.Buffer
+	cmd.Stdout, cmd.Stderr = &out, &out
+	if err := cmd.Run(); err != nil {
+		return nil, fmt.Errorf("running %q to create streamrip's default config: %v: %s", ripCommand, err, strings.TrimSpace(out.String()))
+	}
+	doc, err := readTOML(path)
+	if err != nil {
+		return nil, fmt.Errorf("reading streamrip's default config: %w", err)
+	}
+	return doc, nil
+}
+
+// CachedAppID returns the Qobuz app id streamrip stored in its config.
+func CachedAppID(files Files) string {
+	doc, err := readTOML(files.Config)
+	if err != nil {
+		return ""
+	}
+	q, _ := doc["qobuz"].(map[string]any)
+	id, _ := q["app_id"].(string)
+	return id
+}
+
+// ForgetAppID clears the cached app id and secrets so streamrip fetches
+// fresh ones on the next run.
+func ForgetAppID(files Files) error {
+	doc, err := readTOML(files.Config)
+	if err != nil {
+		return err
+	}
+	q, ok := doc["qobuz"].(map[string]any)
+	if !ok {
+		return nil
+	}
+	q["app_id"] = ""
+	q["secrets"] = []any{}
+	out, err := toml.Marshal(doc)
+	if err != nil {
+		return err
+	}
+	return os.WriteFile(files.Config, out, 0o600)
+}
+
+func readTOML(path string) (map[string]any, error) {
+	b, err := os.ReadFile(path)
+	if err != nil {
+		return nil, err
+	}
+	doc := map[string]any{}
+	if err := toml.Unmarshal(b, &doc); err != nil {
+		return nil, err
+	}
+	return doc, nil
+}
+
+// merge copies src into dst recursively and returns the protected keys it
+// skipped.
+func merge(dst, src map[string]any, prefix string) (ignored []string) {
+	for k, v := range src {
+		key := k
+		if prefix != "" {
+			key = prefix + "." + k
+		}
+		if protected[key] {
+			ignored = append(ignored, key)
+			continue
+		}
+		if sub, ok := v.(map[string]any); ok {
+			d, ok := dst[k].(map[string]any)
+			if !ok {
+				d = map[string]any{}
+				dst[k] = d
+			}
+			ignored = append(ignored, merge(d, sub, key)...)
+			continue
+		}
+		dst[k] = v
+	}
+	return ignored
+}
+
+func setPath(doc map[string]any, path string, v any) {
+	parts := strings.Split(path, ".")
+	m := doc
+	for _, p := range parts[:len(parts)-1] {
+		next, ok := m[p].(map[string]any)
+		if !ok {
+			next = map[string]any{}
+			m[p] = next
+		}
+		m = next
+	}
+	m[parts[len(parts)-1]] = v
+}
+
+// childEnv is the environment for rip: no colours, wide lines so log
+// messages are not wrapped, and a writable home for Python's caches.
+func childEnv() []string {
+	env := os.Environ()
+	add := func(k, v string) { env = append(env, k+"="+v) }
+	add("NO_COLOR", "1")
+	add("TERM", "dumb")
+	add("COLUMNS", "500")
+	add("PYTHONUNBUFFERED", "1")
+	add("PYTHONIOENCODING", "utf-8")
+	if h, err := os.UserHomeDir(); err != nil || h == "" || h == "/" {
+		add("HOME", os.TempDir())
+	}
+	return env
+}

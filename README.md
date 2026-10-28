@@ -50,7 +50,7 @@ Done
 
 ## Requirements
 
-* **Go 1.26.10+** to build, or use the Docker image.
+* **Go 1.26.10+ and Node.js 24** to build, or use the Docker image.
 * **qBittorrent 5.x** (Web API 2.11+) with the WebUI enabled.
 * Four HDDs with movie/TV roots (see config below). CineRoute and
 qBittorrent must see the **same** paths.
@@ -110,7 +110,7 @@ drives:
 Run:
 
 ```sh
-go build -o cineroute ./cmd/cineroute
+make build
 ./cineroute -config config.yaml
 ```
 
@@ -664,3 +664,49 @@ including generated `*.sv.srt` files. Run **remote → main** first if you want 
 subtitle linked into the main copy as well; the Hardlinks toggle picks the
 direction. alass is vendored under `third_party/alass` (GPL-3.0) and is always
 executed as a separate process.
+
+### Unified public portal and music
+
+The public listener serves a static React interface embedded in CineRoute's Go
+binary. Albums, Movies and TV share the centered search controls. The existing
+bottom queue button opens **My requests**, with active work and recent history
+across all three media types; history stays out of the search page. Movie and
+TV details include season selection, future-season monitoring and the Spanish
+audio preference. Downloading and release searches appear in the same bottom
+status bar as music downloads. Administration remains on the LAN listener.
+
+Music runs in the CineRoute process, without another service or container.
+Enable `music.enabled` in `config.yaml`, set `music.qobuz.user_id` and
+`music.qobuz.token` (or `CINEROUTE_QOBUZ_USER_ID` and `CINEROUTE_QOBUZ_TOKEN`),
+and mount existing writable library and staging directories at the configured
+`music.paths.library` and `music.paths.staging`. Persistent music state lives in
+`/data/music` by default. The Compose example includes optional mounts. Keep
+staging outside the library so media servers never discover partial albums.
+
+The bundled streamrip CLI downloads complete Qobuz releases. Choosing a track
+requests its containing album, EP or single. CineRoute verifies completeness,
+FLAC decoding and MD5, cleans metadata, and imports only complete releases.
+Already imported albums are skipped. Music requests queue immediately and do
+not use the movie/TV approval or quota policy; each user can have up to 50
+outstanding music requests. The public API shows only the signed-in user's jobs
+and only lets that user cancel, retry or dismiss their own music requests.
+Qobuz account credentials, downloader settings and raw logs stay on the server.
+An optional `music.navidrome` section accepts `url`, `username` and `password`
+to trigger a scan after importing.
+
+Docker builds the frontend and bundles Python/streamrip, FLAC, FFmpeg and alass
+in the same runtime image. No Node.js server runs in production. For a native
+build, install Node.js 24 and run `make build`; this exports the frontend before
+compiling Go. Running `go build` alone without first running `make web` produces
+a build-instructions page on the public listener. Native music additionally
+requires Python/streamrip, `flac` and `metaflac` on PATH. The Dockerfile pins the
+tested streamrip revision.
+
+Frontend checks: `cd web && npm ci && npm run lint && npm run build && npm test`.
+The browser tests use fixture catalog responses and never start real downloads.
+The music engine includes unit tests for download verification, metadata cleanup,
+queue recovery and naming; `go test ./...` runs them with CineRoute's API tests.
+
+The public interface incorporates the MIT-licensed [Qobuz-DL frontend](https://github.com/QobuzDL/Qobuz-DL).
+Its copyright and license are preserved in `web/LICENSE`. Streamrip is GPL-3.0
+and runs as a separate executable; its pinned source is linked in the Dockerfile.
