@@ -149,44 +149,63 @@ export default function SearchView() {
                         {loading ? <LoaderCircle className='animate-spin' /> : <ArrowRight />}
                     </Button>
                 </form>
-                <nav className='flex items-center justify-center gap-2 flex-wrap' aria-label={t('search')}>
-                    <Button variant={kind === 'movie' ? 'secondary' : 'outline'} aria-pressed={kind === 'movie'} onClick={() => changeKind('movie')}>
-                        <Film className='size-4' />
+                <nav className='flex items-center justify-center gap-1 sm:gap-2 flex-wrap' aria-label={t('search')}>
+                    <Button
+                        variant={kind === 'movie' ? 'secondary' : 'outline'}
+                        className='px-2 sm:px-4'
+                        aria-pressed={kind === 'movie'}
+                        onClick={() => changeKind('movie')}
+                    >
+                        <Film className='hidden size-4 sm:block' />
                         {t('movies')}
                     </Button>
-                    <Button variant={kind === 'tv' ? 'secondary' : 'outline'} aria-pressed={kind === 'tv'} onClick={() => changeKind('tv')}>
-                        <Tv className='size-4' />
+                    <Button
+                        variant={kind === 'tv' ? 'secondary' : 'outline'}
+                        className='px-2 sm:px-4'
+                        aria-pressed={kind === 'tv'}
+                        onClick={() => changeKind('tv')}
+                    >
+                        <Tv className='hidden size-4 sm:block' />
                         {t('tv')}
                     </Button>
-                    <Button variant={kind === 'music' ? 'secondary' : 'outline'} aria-pressed={kind === 'music'} onClick={() => changeKind('music')}>
-                        <Music2 className='size-4' />
-                        {t('music')}
-                    </Button>
-                </nav>
-                {kind === 'music' && (
-                    <div className='flex justify-center'>
-                        <DropdownMenu>
-                            <DropdownMenuTrigger asChild>
-                                <Button variant='ghost' size='sm' className='text-muted-foreground' aria-label={`${t('music')} · ${t(field)}`}>
-                                    <MusicIcon className='size-4' />
-                                    {t(field)}
-                                    <ChevronDown className='size-3' />
-                                </Button>
-                            </DropdownMenuTrigger>
-                            <DropdownMenuContent align='center'>
-                                <DropdownMenuRadioGroup value={field} onValueChange={(value) => setField(value as QobuzSearchFilters)}>
-                                    {filterData.map((f) => (
-                                        <DropdownMenuRadioItem key={f.value} value={f.value}>
-                                            <f.icon className='size-4 mr-2' />
-                                            {t(f.value)}
-                                        </DropdownMenuRadioItem>
-                                    ))}
-                                </DropdownMenuRadioGroup>
-                            </DropdownMenuContent>
-                        </DropdownMenu>
+                    <div className='inline-flex shrink-0 items-center gap-1 sm:gap-2'>
+                        <Button
+                            variant={kind === 'music' ? 'secondary' : 'outline'}
+                            className='px-2 sm:px-4'
+                            aria-pressed={kind === 'music'}
+                            onClick={() => changeKind('music')}
+                        >
+                            <Music2 className='hidden size-4 sm:block' />
+                            {t('music')}
+                        </Button>
+                        {kind === 'music' && (
+                            <DropdownMenu>
+                                <DropdownMenuTrigger asChild>
+                                    <Button
+                                        variant='ghost'
+                                        size='sm'
+                                        className='gap-1 px-2 text-muted-foreground sm:gap-2 sm:px-3'
+                                        aria-label={`${t('music')} · ${t(field)}`}
+                                    >
+                                        <MusicIcon className='hidden size-4 sm:block' />
+                                        {t(field)}
+                                        <ChevronDown className='size-3' />
+                                    </Button>
+                                </DropdownMenuTrigger>
+                                <DropdownMenuContent align='end'>
+                                    <DropdownMenuRadioGroup value={field} onValueChange={(value) => setField(value as QobuzSearchFilters)}>
+                                        {filterData.map((f) => (
+                                            <DropdownMenuRadioItem key={f.value} value={f.value}>
+                                                <f.icon className='size-4 mr-2' />
+                                                {t(f.value)}
+                                            </DropdownMenuRadioItem>
+                                        ))}
+                                    </DropdownMenuRadioGroup>
+                                </DropdownMenuContent>
+                            </DropdownMenu>
+                        )}
                     </div>
-                )}
-
+                </nav>
                 <div role='status' aria-live='polite' className='text-sm text-center text-muted-foreground'>
                     {kind === 'music' && enabled === false ? t('musicUnavailable') : ''}
                     {video?.similar_matches ? t('similarTitles') : ''}

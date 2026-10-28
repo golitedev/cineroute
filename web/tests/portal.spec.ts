@@ -290,6 +290,11 @@ test('Music stays a media tab while albums, tracks, and artists use its filter',
     await expect(musicTab).toHaveAttribute('aria-pressed', 'false');
     await musicTab.click();
     await expect(musicTab).toHaveAttribute('aria-pressed', 'true');
+    const musicBox = await musicTab.boundingBox();
+    const filterBox = await page.getByRole('button', { name: 'Music · Albums', exact: true }).boundingBox();
+    expect(filterBox!.x).toBeGreaterThanOrEqual(musicBox!.x + musicBox!.width);
+    expect(Math.abs(filterBox!.y + filterBox!.height / 2 - musicBox!.y - musicBox!.height / 2)).toBeLessThan(2);
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBeTruthy();
     await expect(navigation.getByRole('button', { name: 'Albums', exact: true })).toHaveCount(0);
     await page.getByRole('button', { name: 'Music · Albums', exact: true }).click();
     await expect(page.getByRole('menuitemradio', { name: 'Albums', exact: true })).toHaveAttribute('aria-checked', 'true');
