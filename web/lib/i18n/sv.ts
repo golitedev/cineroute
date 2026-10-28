@@ -2,10 +2,8 @@ import type { Dictionary } from './en';
 
 export const sv: Dictionary = {
     availabilityNotice: 'Tillgänglighet',
-    movieAvailabilityWarning:
-        'TMDB har inte bekräftat någon digital utgivning. Titeln kanske bara visas på bio eller ännu inte har släppts, så en nedladdning kanske inte finns tillgänglig. Du kan ändå önska den.',
-    tvAvailabilityWarning:
-        'TMDB har inte bekräftat att serien har sänts. Nedladdningar kanske inte finns tillgängliga förrän avsnitten har släppts. Du kan ändå önska den.',
+    movieAvailabilityWarning: 'Titeln kanske inte har släppts digitalt ännu och kanske inte finns att ladda ned. Du kan ändå önska den.',
+    tvAvailabilityWarning: 'Serien kanske inte har sänts ännu, så avsnitten kanske inte finns att ladda ned. Du kan ändå önska den.',
     episodes: 'avsnitt',
     all: 'Alla',
     'status.declined': 'Nekad',

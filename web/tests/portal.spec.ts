@@ -358,7 +358,7 @@ for (const kind of ['movie', 'tv'] as const) {
         const warning = page.getByRole('note', { name: 'Release availability' });
         await expect(warning).toBeVisible();
         await expect(warning).toContainText('You can still request it.');
-        await expect(warning).toContainText(kind === 'movie' ? 'may only be in theaters' : 'series has aired');
+        await expect(warning).toContainText(kind === 'movie' ? 'may not have a digital release yet' : 'may not have aired yet');
         const request = page.getByRole('button', { name: 'Add to library', exact: true });
         await expect(request).toBeEnabled();
         await request.click();

@@ -3,9 +3,9 @@ import type { Dictionary } from './en';
 export const es: Dictionary = {
     availabilityNotice: 'Disponibilidad del estreno',
     movieAvailabilityWarning:
-        'TMDB no ha confirmado un estreno digital. Este título podría estar solo en cines o no haberse estrenado aún, por lo que podría no haber una descarga disponible. Puedes solicitarlo de todos modos.',
+        'Este título podría no haberse estrenado en formato digital todavía y podría no estar disponible para descargar. Puedes solicitarlo de todos modos.',
     tvAvailabilityWarning:
-        'TMDB no ha confirmado que esta serie se haya emitido. Es posible que no haya descargas disponibles hasta que se estrenen los episodios. Puedes solicitarla de todos modos.',
+        'Esta serie podría no haberse emitido todavía, por lo que sus episodios podrían no estar disponibles para descargar. Puedes solicitarla de todos modos.',
     episodes: 'episodios',
     all: 'Todo',
     'status.declined': 'Rechazada',

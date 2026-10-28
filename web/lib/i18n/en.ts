@@ -1,9 +1,7 @@
 export const en = {
     availabilityNotice: 'Release availability',
-    movieAvailabilityWarning:
-        'TMDB has not confirmed a digital release. This title may only be in theaters or may not be released yet, so a download might not be available. You can still request it.',
-    tvAvailabilityWarning:
-        'TMDB has not confirmed that this series has aired. Downloads may not be available until episodes are released. You can still request it.',
+    movieAvailabilityWarning: 'This title may not have a digital release yet and might not be available to download. You can still request it.',
+    tvAvailabilityWarning: 'This series may not have aired yet, so its episodes might not be available to download. You can still request it.',
     episodes: 'episodes',
     all: 'All',
     'status.declined': 'Declined',
