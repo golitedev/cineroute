@@ -304,8 +304,8 @@ portrait posters, title details, TV season selection and their own request
 history with progress and cancellation. They cannot read administration APIs,
 other users' requests, filesystem paths, tracker URLs or credentials. TMDB API
 access stays on the server. Password, role, disable or removal changes invalidate
-the account's existing sessions after restart. Admin sessions last up to 12 hours
-and use SameSite Strict; user sessions last up to 90 days. Separate cookie names
+the account's existing sessions after restart. Admin and user sessions last up to
+90 days; admin sessions use SameSite Strict. Separate cookie names
 and signatures isolate the listeners. Keep `session.key` beside the request
 database persistent across restarts. This update requires signing in again.
 

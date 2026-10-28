@@ -546,18 +546,18 @@ func TestUnauthenticated401NoBasicChallenge(t *testing.T) {
 	}
 }
 
-// The login cookie must be a persistent 12-hour admin session cookie usable over
+// The login cookie must be a persistent 90-day admin session cookie usable over
 // plain HTTP on the LAN.
 func TestLoginSetsPersistentSessionCookie(t *testing.T) {
 	httpSrv := newAuthServer(t, "alice", "secret")
 	sess := loginCookie(t, httpSrv, "alice", "secret")
 
-	wantMaxAge := int(sessionTTL / time.Second)
+	wantMaxAge := int((90 * 24 * time.Hour) / time.Second)
 	if sess.MaxAge != wantMaxAge {
 		t.Fatalf("session MaxAge: got %d, want %d", sess.MaxAge, wantMaxAge)
 	}
-	if sess.Expires.Before(time.Now().Add(11 * time.Hour)) {
-		t.Fatalf("session expiry is too soon: %v", sess.Expires)
+	if sess.Expires.Before(time.Now().Add(90*24*time.Hour-time.Minute)) || sess.Expires.After(time.Now().Add(90*24*time.Hour+time.Minute)) {
+		t.Fatalf("session expiry must be 90 days from login: %v", sess.Expires)
 	}
 	if !sess.HttpOnly {
 		t.Fatal("session cookie must be HttpOnly")

@@ -39,7 +39,7 @@ const intakeTTL = 2 * time.Hour
 
 const sessionCookie = "cineroute_admin_session"
 const publicSessionCookie = "cineroute_user_session"
-const sessionTTL = 12 * time.Hour
+const sessionTTL = 90 * 24 * time.Hour
 const publicSessionTTL = 90 * 24 * time.Hour
 
 // sessionToken signs a legacy expiry with a derived server secret. The caller

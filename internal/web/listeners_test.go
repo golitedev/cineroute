@@ -163,7 +163,7 @@ func TestPublicListenerRejectsAdminLoginAndCrossListenerSessions(t *testing.T) {
 			t.Fatalf("wrong-role session accepted on %s: %d", kind, out.Code)
 		}
 	}
-	if userCookie.Name == adminCookie.Name || adminCookie.SameSite != http.SameSiteStrictMode || adminCookie.MaxAge != int((12*time.Hour).Seconds()) || userCookie.MaxAge != int((90*24*time.Hour).Seconds()) {
+	if userCookie.Name == adminCookie.Name || adminCookie.SameSite != http.SameSiteStrictMode || adminCookie.MaxAge != int((90*24*time.Hour).Seconds()) || userCookie.MaxAge != int((90*24*time.Hour).Seconds()) {
 		t.Fatal("session isolation or lifetimes incorrect")
 	}
 }
