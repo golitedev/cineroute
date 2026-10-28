@@ -14,7 +14,8 @@ export const viewport: Viewport = {
 
 export const metadata: Metadata = {
     title: 'CineRoute',
-    description: 'Movies, TV and Music. All in one place.'
+    description: 'Movies, TV and Music. All in one place.',
+    icons: { icon: [{ url: '/favicon.png', type: 'image/png', sizes: '64x64' }] }
 };
 
 export default function RootLayout({ children }: Readonly<{ children: React.ReactNode }>) {
