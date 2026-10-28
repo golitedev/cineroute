@@ -117,7 +117,8 @@ async function fixtures(page: Page, authenticated = true) {
                       ]
                     : null,
                 monitor: 'all',
-                auto_approve: true
+                auto_approve: true,
+                digitally_available: true
             });
         if (url.pathname === '/api/user/requests' && req.method() === 'POST') {
             const body = req.postDataJSON();
@@ -190,6 +191,7 @@ test('movie requests preserve Spanish preference and appear in shared status bar
     expect(poster!.height / poster!.width).toBeCloseTo(1.5, 1);
     await card.click();
     await expect(page.getByRole('dialog').getByRole('alert')).toHaveCount(0);
+    await expect(page.getByRole('note', { name: 'Release availability' })).toHaveCount(0);
     await page.getByRole('checkbox', { name: 'Prefer Spanish audio' }).check();
     await page.getByRole('button', { name: 'Add to library', exact: true }).click();
     await expect.poll(() => f.created.length).toBe(1);
@@ -333,4 +335,47 @@ test('media buttons keep their size and position when selection changes', async 
             for (const dimension of ['x', 'y', 'width', 'height'] as const) expect(Math.abs(box![dimension] - initial[index]![dimension])).toBeLessThan(0.5);
         }
     }
+});
+
+for (const kind of ['movie', 'tv'] as const) {
+    test(`${kind} requests show an advisory warning without blocking submission`, async ({ page }) => {
+        const f = await fixtures(page);
+        const media = kind === 'movie' ? movie : tv;
+        await page.route(`**/api/catalog/${kind}/${media.id}`, (route) =>
+            route.fulfill({
+                contentType: 'application/json',
+                body: JSON.stringify({ media, seasons: null, monitor: 'all', auto_approve: true, digitally_available: false })
+            })
+        );
+        await page.goto('/');
+        await page
+            .getByRole('navigation')
+            .getByRole('button', { name: kind === 'movie' ? 'Movies' : 'TV', exact: true })
+            .click();
+        await page.getByRole('textbox', { name: 'Search', exact: true }).fill('A good');
+        await page.getByRole('button', { name: 'Search', exact: true }).click();
+        await page.locator('.video-card').first().click();
+        const warning = page.getByRole('note', { name: 'Release availability' });
+        await expect(warning).toBeVisible();
+        await expect(warning).toContainText('You can still request it.');
+        await expect(warning).toContainText(kind === 'movie' ? 'may only be in theaters' : 'series has aired');
+        const request = page.getByRole('button', { name: 'Add to library', exact: true });
+        await expect(request).toBeEnabled();
+        await request.click();
+        await expect.poll(() => f.created.length).toBe(1);
+        expect(f.created[0].media_type).toBe(kind);
+    });
+}
+
+test('an empty final search page does not claim more released titles can be loaded', async ({ page }) => {
+    await fixtures(page);
+    await page.route('**/api/catalog/search?**', (route) =>
+        route.fulfill({ contentType: 'application/json', body: JSON.stringify({ results: [], page: 1, total_pages: 1 }) })
+    );
+    await page.goto('/');
+    await page.getByRole('textbox', { name: 'Search', exact: true }).fill('No matching movie');
+    await page.getByRole('button', { name: 'Search', exact: true }).click();
+    await expect(page.getByText('No matching titles. Try another name or year.', { exact: true })).toBeVisible();
+    await expect(page.getByRole('button', { name: 'Load more', exact: true })).toHaveCount(0);
+    await expect(page.getByText(/Load more to continue/)).toHaveCount(0);
 });

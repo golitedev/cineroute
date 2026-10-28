@@ -19,7 +19,7 @@ export const filterData: (Omit<FilterDataType[number], 'value'> & { value: Qobuz
     { label: 'Artists', value: 'artists', icon: Users }
 ];
 type Kind = 'music' | 'movie' | 'tv';
-type VideoResults = { results: Media[]; page: number; total_pages: number; similar_matches?: boolean; availability_filtered?: boolean };
+type VideoResults = { results: Media[]; page: number; total_pages: number; similar_matches?: boolean };
 
 export default function SearchView() {
     const t = useT();
@@ -209,7 +209,7 @@ export default function SearchView() {
                 <div role='status' aria-live='polite' className='text-sm text-center text-muted-foreground'>
                     {kind === 'music' && enabled === false ? t('musicUnavailable') : ''}
                     {video?.similar_matches ? t('similarTitles') : ''}
-                    {video && !video.results.length ? (video.availability_filtered ? t('releasedOnly') : t('noTitles')) : ''}
+                    {video && !video.results.length ? t('noTitles') : ''}
                     {music && !items.length ? t('noTitles') : ''}
                 </div>
                 {error && (

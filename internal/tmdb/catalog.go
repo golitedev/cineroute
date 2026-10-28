@@ -11,11 +11,10 @@ import (
 )
 
 type CatalogPage struct {
-	Page                 int      `json:"page"`
-	TotalPages           int      `json:"total_pages"`
-	Results              []Result `json:"results"`
-	SimilarMatches       bool     `json:"similar_matches,omitempty"`
-	AvailabilityFiltered bool     `json:"availability_filtered,omitempty"`
+	Page           int      `json:"page"`
+	TotalPages     int      `json:"total_pages"`
+	Results        []Result `json:"results"`
+	SimilarMatches bool     `json:"similar_matches,omitempty"`
 }
 type Season struct {
 	Number       int    `json:"season_number"`

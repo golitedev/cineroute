@@ -1,6 +1,11 @@
 import type { Dictionary } from './en';
 
 export const sv: Dictionary = {
+    availabilityNotice: 'Tillgänglighet',
+    movieAvailabilityWarning:
+        'TMDB har inte bekräftat någon digital utgivning. Titeln kanske bara visas på bio eller ännu inte har släppts, så en nedladdning kanske inte finns tillgänglig. Du kan ändå önska den.',
+    tvAvailabilityWarning:
+        'TMDB har inte bekräftat att serien har sänts. Nedladdningar kanske inte finns tillgängliga förrän avsnitten har släppts. Du kan ändå önska den.',
     episodes: 'avsnitt',
     all: 'Alla',
     'status.declined': 'Nekad',
@@ -26,7 +31,6 @@ export const sv: Dictionary = {
     spanishAudio: 'Föredra spanskt ljud',
     followFuture: 'Följ framtida säsonger',
     seasons: 'Välj säsonger',
-    releasedOnly: 'Inga släppta titlar på denna sida. Visa fler för att fortsätta.',
     noTitles: 'Inga träffar. Prova en annan titel eller ett annat år.',
     similarTitles: 'Visar liknande titlar. Välj den du menade.',
     loadMore: 'Visa fler',

@@ -320,19 +320,15 @@ The portal labels fallback results as similar titles, and users must select the
 intended title before requesting it. This is best-effort assistance, not a local
 copy of the entire TMDB catalog or TMDB website scraping.
 
-In **Requests → General → Catalog visibility**, the administrator can choose
-all titles (including upcoming releases), or **Digitally released movies / aired
-TV shows only**. The latter requires a reached TMDB digital release date (type 4)
-in any country for movies; theatrical, physical-only and unknown dates do not
-qualify. TV uses a reached first-air or regular-episode air date because TMDB
-does not provide the equivalent movie release-type dates for TV series. The
-filter covers search, title details and new requests, so a direct TMDB ID cannot
-bypass it. Native TMDB ordering/page numbers are preserved; Load more stays
-available if an earlier page contains only hidden titles. Release checks have
-a 15-minute cache, at most four concurrent requests and a ten-second page budget.
-Existing requests remain visible and are not requeued by a visibility-only
-policy change. **Movie availability** separately controls when the worker starts
-searching trackers for a requested movie.
+All TMDB titles, including upcoming releases, are available in search and can
+be requested. The request dialog shows an advisory warning when TMDB has no
+reached digital release date (type 4) for a movie, or no reached first-air or
+regular-episode air date for a TV series. Missing release metadata may also
+produce the warning; it does not prove that a download is unavailable. The
+warning never blocks a request. Existing installations that stored the removed
+`catalog_availability` setting automatically ignore it, without changing other
+request policy or existing jobs. **Movie availability** separately controls
+when the worker starts searching trackers for a requested movie.
 
 Movie and TV request details include **Prefer Spanish audio**. It is a soft,
 per-user request preference, not a language requirement or an admin-policy edit.

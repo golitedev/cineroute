@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { LoaderCircle } from 'lucide-react';
+import { LoaderCircle, TriangleAlert } from 'lucide-react';
 import { Dialog, DialogContent, DialogDescription, DialogTitle } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
 import { useT } from '@/lib/i18n';
@@ -13,6 +13,7 @@ type Detail = {
     seasons: { season_number: number; name: string; episode_count: number; air_date: string }[];
     monitor: string;
     auto_approve: boolean;
+    digitally_available: boolean;
 };
 
 // The catalog returns null for movies and shows without announced seasons.
@@ -103,6 +104,16 @@ export default function VideoDetail({ media, onClose }: { media: Media | null; o
                             )}
                             <p className='text-sm leading-relaxed text-muted-foreground'>{detail.media.overview || t('noDescription')}</p>
                         </div>
+                        {detail.digitally_available === false && (
+                            <div
+                                role='note'
+                                aria-label={t('availabilityNotice')}
+                                className='flex items-start gap-3 rounded-md border border-amber-500/30 bg-amber-500/5 p-3 text-sm leading-relaxed text-amber-200'
+                            >
+                                <TriangleAlert className='mt-0.5 size-4 shrink-0' aria-hidden='true' />
+                                <p>{t(media?.media_type === 'tv' ? 'tvAvailabilityWarning' : 'movieAvailabilityWarning')}</p>
+                            </div>
+                        )}
                         {media?.media_type === 'tv' && (
                             <fieldset disabled={saving} className='space-y-3'>
                                 <legend className='font-semibold mb-3'>{t('seasons')}</legend>

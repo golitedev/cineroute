@@ -1,4 +1,9 @@
 export const en = {
+    availabilityNotice: 'Release availability',
+    movieAvailabilityWarning:
+        'TMDB has not confirmed a digital release. This title may only be in theaters or may not be released yet, so a download might not be available. You can still request it.',
+    tvAvailabilityWarning:
+        'TMDB has not confirmed that this series has aired. Downloads may not be available until episodes are released. You can still request it.',
     episodes: 'episodes',
     all: 'All',
     'status.declined': 'Declined',
@@ -24,7 +29,6 @@ export const en = {
     spanishAudio: 'Prefer Spanish audio',
     followFuture: 'Follow future seasons',
     seasons: 'Choose seasons',
-    releasedOnly: 'No released titles on this page. Load more to continue.',
     noTitles: 'No matching titles. Try another name or year.',
     similarTitles: 'Showing similar titles. Select the one you meant.',
     loadMore: 'Load more',

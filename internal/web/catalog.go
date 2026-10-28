@@ -46,13 +46,6 @@ func (s *Server) catalogSearch(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	result.Results = filtered
-	if settings.CatalogAvailability == "digital" {
-		result, err = s.tmdb.FilterReleasedCatalog(r.Context(), result)
-		if err != nil {
-			writeErr(w, 502, "Release availability could not be checked. Try again shortly.")
-			return
-		}
-	}
 	writeJSON(w, 200, result)
 }
 func (s *Server) catalogDetails(w http.ResponseWriter, r *http.Request) {
@@ -81,10 +74,6 @@ func (s *Server) catalogDetails(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, 403, "Requests for this media type are disabled.")
 		return
 	}
-	if settings.CatalogAvailability == "digital" && !tmdb.DigitallyAvailable(details, time.Now()) {
-		writeErr(w, 404, "This title has no confirmed digital release or TV airing yet.")
-		return
-	}
 	seasons := details.Seasons[:0]
 	for _, season := range details.Seasons {
 		if season.Number != 0 || settings.IncludeSpecials {
@@ -92,7 +81,7 @@ func (s *Server) catalogDetails(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	details.Seasons = seasons
-	writeJSON(w, 200, map[string]any{"media": details.Result, "original_language": details.OriginalLanguage, "seasons": details.Seasons, "monitor": settings.TVMonitor, "auto_approve": settings.AutoApprove || a.Role == "admin"})
+	writeJSON(w, 200, map[string]any{"media": details.Result, "original_language": details.OriginalLanguage, "seasons": details.Seasons, "monitor": settings.TVMonitor, "auto_approve": settings.AutoApprove || a.Role == "admin", "digitally_available": tmdb.DigitallyAvailable(details, time.Now())})
 }
 
 type publicJob struct {
@@ -153,10 +142,6 @@ func (s *Server) createUserRequest(w http.ResponseWriter, r *http.Request) {
 	media, err := s.tmdb.Details(r.Context(), body.MediaType, body.TMDBID)
 	if err != nil || media.ID != body.TMDBID || media.Adult || media.DisplayTitle() == "" {
 		writeErr(w, 502, "This title could not be verified.")
-		return
-	}
-	if settings.CatalogAvailability == "digital" && !tmdb.DigitallyAvailable(media, time.Now()) {
-		writeErr(w, 400, "This title has no confirmed digital release or TV airing yet.")
 		return
 	}
 	profile := profileFor(settings, body.MediaType)

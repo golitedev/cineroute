@@ -9,7 +9,6 @@ import (
 	"net/url"
 	"strconv"
 	"strings"
-	"sync"
 	"time"
 )
 
@@ -59,9 +58,6 @@ type Client struct {
 	language             string
 	httpc                *http.Client
 	catalogFallbackSlots chan struct{}
-	catalogReleaseSlots  chan struct{}
-	catalogReleaseMu     sync.Mutex
-	catalogReleases      map[catalogReleaseKey]catalogReleaseEntry
 }
 
 func New(apiKey, language string, timeout time.Duration) *Client {
@@ -74,8 +70,6 @@ func New(apiKey, language string, timeout time.Duration) *Client {
 		language:             language,
 		httpc:                &http.Client{Timeout: timeout},
 		catalogFallbackSlots: make(chan struct{}, 3),
-		catalogReleaseSlots:  make(chan struct{}, 4),
-		catalogReleases:      map[catalogReleaseKey]catalogReleaseEntry{},
 	}
 }
 

@@ -1,6 +1,11 @@
 import type { Dictionary } from './en';
 
 export const es: Dictionary = {
+    availabilityNotice: 'Disponibilidad del estreno',
+    movieAvailabilityWarning:
+        'TMDB no ha confirmado un estreno digital. Este título podría estar solo en cines o no haberse estrenado aún, por lo que podría no haber una descarga disponible. Puedes solicitarlo de todos modos.',
+    tvAvailabilityWarning:
+        'TMDB no ha confirmado que esta serie se haya emitido. Es posible que no haya descargas disponibles hasta que se estrenen los episodios. Puedes solicitarla de todos modos.',
     episodes: 'episodios',
     all: 'Todo',
     'status.declined': 'Rechazada',
@@ -26,7 +31,6 @@ export const es: Dictionary = {
     spanishAudio: 'Preferir audio en español',
     followFuture: 'Seguir futuras temporadas',
     seasons: 'Elige temporadas',
-    releasedOnly: 'No hay títulos estrenados en esta página. Carga más para continuar.',
     noTitles: 'No hay resultados. Prueba otro título o año.',
     similarTitles: 'Mostrando títulos similares. Selecciona el que buscabas.',
     loadMore: 'Cargar más',
