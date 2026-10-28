@@ -37,7 +37,7 @@ export const es: Dictionary = {
     openQueue: 'Abrir mis solicitudes',
     queueDescription: 'Tus descargas, solicitudes y resultados recientes',
     queue: 'Mis solicitudes',
-    tagline: 'Películas, series y música. Todo en un lugar.',
+    tagline: 'Películas, Series y Música. Todo en un lugar.',
     downloadProgress: 'Progreso de descarga',
     samplingRate: '{khz} kHz',
     quickSearch: 'Búsqueda rápida',

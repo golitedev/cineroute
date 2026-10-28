@@ -37,7 +37,7 @@ export const sv: Dictionary = {
     openQueue: 'Öppna mina önskemål',
     queueDescription: 'Dina nedladdningar, önskemål och senaste resultat',
     queue: 'Mina önskemål',
-    tagline: 'Film, serier och musik. Allt på ett ställe.',
+    tagline: 'Film, Serier och Musik. Allt på ett ställe.',
     downloadProgress: 'Nedladdningsförlopp',
     samplingRate: '{khz} kHz',
     quickSearch: 'Snabbsökning',
