@@ -24,7 +24,7 @@ type VideoResults = { results: Media[]; page: number; total_pages: number; simil
 export default function SearchView() {
     const t = useT();
     const { jobs } = useStatusBar();
-    const [kind, setKind] = useState<Kind>('music');
+    const [kind, setKind] = useState<Kind>('movie');
     const [field, setField] = useState<QobuzSearchFilters>('albums');
     const [query, setQuery] = useState('');
     const [searched, setSearched] = useState('');
@@ -150,10 +150,6 @@ export default function SearchView() {
                     </Button>
                 </form>
                 <nav className='flex items-center justify-center gap-2 flex-wrap' aria-label={t('search')}>
-                    <Button variant={kind === 'music' ? 'secondary' : 'outline'} aria-pressed={kind === 'music'} onClick={() => changeKind('music')}>
-                        <Music2 className='size-4' />
-                        {t('music')}
-                    </Button>
                     <Button variant={kind === 'movie' ? 'secondary' : 'outline'} aria-pressed={kind === 'movie'} onClick={() => changeKind('movie')}>
                         <Film className='size-4' />
                         {t('movies')}
@@ -161,6 +157,10 @@ export default function SearchView() {
                     <Button variant={kind === 'tv' ? 'secondary' : 'outline'} aria-pressed={kind === 'tv'} onClick={() => changeKind('tv')}>
                         <Tv className='size-4' />
                         {t('tv')}
+                    </Button>
+                    <Button variant={kind === 'music' ? 'secondary' : 'outline'} aria-pressed={kind === 'music'} onClick={() => changeKind('music')}>
+                        <Music2 className='size-4' />
+                        {t('music')}
                     </Button>
                 </nav>
                 {kind === 'music' && (

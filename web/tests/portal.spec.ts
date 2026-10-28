@@ -158,6 +158,9 @@ test('clean home with centered media controls and one shared history popup', asy
     await expect(page.getByRole('img', { name: 'CineRoute', exact: true })).toBeVisible();
     await expect(page.getByRole('heading', { name: 'My requests', exact: true })).toHaveCount(0);
     const nav = page.getByRole('navigation');
+    await expect(nav.getByRole('button')).toHaveText(['Movies', 'TV', 'Music']);
+    await expect(nav.getByRole('button', { name: 'Movies', exact: true })).toHaveAttribute('aria-pressed', 'true');
+    await expect(nav.getByRole('button', { name: 'Music', exact: true })).toHaveAttribute('aria-pressed', 'false');
     const box = await nav.boundingBox();
     const search = await page.getByRole('search').boundingBox();
     const viewportHeight = await page.evaluate(() => window.innerHeight);
@@ -227,6 +230,7 @@ test('TV details send selected seasons and future monitoring', async ({ page }) 
 test('music keeps square artwork and movie selection does not query Qobuz', async ({ page }) => {
     await fixtures(page);
     await page.goto('/');
+    await page.getByRole('navigation').getByRole('button', { name: 'Music', exact: true }).click();
     await page.getByRole('textbox', { name: 'Search', exact: true }).fill('An artist');
     await page.getByRole('button', { name: 'Search', exact: true }).click();
     await expect(page.getByText('A good album', { exact: true }).first()).toBeVisible();
@@ -249,6 +253,7 @@ test('login uses CineRoute user session and returns to search', async ({ page })
 test('album requests use the same login, CSRF token, and progress bar', async ({ page }) => {
     const f = await fixtures(page);
     await page.goto('/');
+    await page.getByRole('navigation').getByRole('button', { name: 'Music', exact: true }).click();
     await page.getByRole('textbox', { name: 'Search', exact: true }).fill('An artist');
     await page.getByRole('button', { name: 'Search', exact: true }).click();
     const card = page.locator('.release-card').first();
@@ -282,6 +287,8 @@ test('Music stays a media tab while albums, tracks, and artists use its filter',
     await page.goto('/');
     const navigation = page.getByRole('navigation');
     const musicTab = navigation.getByRole('button', { name: 'Music', exact: true });
+    await expect(musicTab).toHaveAttribute('aria-pressed', 'false');
+    await musicTab.click();
     await expect(musicTab).toHaveAttribute('aria-pressed', 'true');
     await expect(navigation.getByRole('button', { name: 'Albums', exact: true })).toHaveCount(0);
     await page.getByRole('button', { name: 'Music · Albums', exact: true }).click();
