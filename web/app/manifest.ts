@@ -6,7 +6,7 @@ export default function manifest(): MetadataRoute.Manifest {
     return {
         name: 'CineRoute',
         short_name: 'CineRoute',
-        description: 'Movies, TV and music. All in one place.',
+        description: 'Movies, TV and Music. All in one place.',
         start_url: '/',
         scope: '/',
         display: 'standalone',

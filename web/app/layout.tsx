@@ -14,7 +14,7 @@ export const viewport: Viewport = {
 
 export const metadata: Metadata = {
     title: 'CineRoute',
-    description: 'Movies, TV and music. All in one place.'
+    description: 'Movies, TV and Music. All in one place.'
 };
 
 export default function RootLayout({ children }: Readonly<{ children: React.ReactNode }>) {

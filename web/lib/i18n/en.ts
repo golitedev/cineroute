@@ -35,7 +35,7 @@ export const en = {
     openQueue: 'Open my requests',
     queueDescription: 'Your downloads, requests and recent results',
     queue: 'My requests',
-    tagline: 'Movies, TV and music. All in one place.',
+    tagline: 'Movies, TV and Music. All in one place.',
     downloadProgress: 'Download progress',
     samplingRate: '{khz} kHz',
     quickSearch: 'Quick search',
