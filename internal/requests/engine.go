@@ -215,6 +215,29 @@ func scope(d Download, j Job) bool {
 	return d.MediaType == j.Media.MediaType && d.TMDBID == j.Media.ID && d.Target == j.Target
 }
 func active(d Download) bool { return d.Status == "planned" || d.Status == "downloading" }
+
+// DownloadFileIndex reports which files belong only to unfinished attempts and
+// the sizes expected from completed ones. A completed attempt wins for the same
+// path, so a retry through another tracker cannot hide a finished file from the
+// library inventory behind the failed attempt it replaced.
+func DownloadFileIndex(downloads []Download) (excluded map[string]bool, sizes map[string]int64) {
+	excluded = map[string]bool{}
+	sizes = map[string]int64{}
+	for _, d := range downloads {
+		for path, size := range d.FileSizes {
+			if d.Status != "complete" {
+				excluded[path] = true
+				continue
+			}
+			sizes[path] = size
+		}
+	}
+	for path := range sizes {
+		delete(excluded, path)
+	}
+	return excluded, sizes
+}
+
 func (e *Engine) process(ctx context.Context, job *Job, settings Settings, downloads *[]Download) error {
 	p := settings.Movie
 	if job.Media.MediaType == "tv" {

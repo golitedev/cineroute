@@ -96,17 +96,7 @@ func (b requestBackend) Inventory(ctx context.Context, job requests.Job, downloa
 	if len(files) == 0 {
 		return out, nil
 	}
-	excluded := map[string]bool{}
-	sizes := map[string]int64{}
-	for _, d := range downloads {
-		for path, size := range d.FileSizes {
-			if d.Status != "complete" {
-				excluded[path] = true
-			} else {
-				sizes[path] = size
-			}
-		}
-	}
+	excluded, sizes := requests.DownloadFileIndex(downloads)
 	// Unfinished manually routed torrents are not already-available library copies.
 	active := []qbittorrent.Torrent{}
 	if b.s.qb != nil {

@@ -75,3 +75,27 @@ func TestWorkerLeaseAndPlacementPersistAcrossStores(t *testing.T) {
 		t.Fatalf("takeover %v %v", ok, err)
 	}
 }
+
+func TestDownloadFileIndexLetsACompletedRetryWin(t *testing.T) {
+	path := "/movies/Example (2024)/Example.1080p.mkv"
+	other := "/movies/Example (2024)/Example.720p.mkv"
+	failed := Download{Status: "failed", FileSizes: map[string]int64{path: 100}}
+	complete := Download{Status: "complete", FileSizes: map[string]int64{path: 100}}
+	unfinished := Download{Status: "downloading", FileSizes: map[string]int64{other: 50}}
+
+	for _, downloads := range [][]Download{
+		{failed, complete, unfinished},
+		{complete, failed, unfinished},
+	} {
+		excluded, sizes := DownloadFileIndex(downloads)
+		if excluded[path] {
+			t.Fatal("completed file hidden by an earlier failed attempt")
+		}
+		if sizes[path] != 100 {
+			t.Fatalf("expected completed size 100, got %d", sizes[path])
+		}
+		if !excluded[other] || sizes[other] != 0 {
+			t.Fatalf("unfinished file must stay excluded: excluded=%v sizes=%v", excluded, sizes)
+		}
+	}
+}
