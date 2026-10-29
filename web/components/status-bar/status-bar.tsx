@@ -77,13 +77,15 @@ const StatusBar = () => {
                             </CardHeader>
                             <CardContent className='status-content flex items-center justify-center gap-2'>
                                 <Progress aria-label={t('downloadProgress')} value={statusBar.progress} />
-                                <span className='text-xs tabular-nums text-muted-foreground shrink-0' aria-hidden='true'>
+                                <span className='ml-1 text-xs tabular-nums text-muted-foreground shrink-0' aria-hidden='true'>
                                     {Math.round(statusBar.progress)}%
                                 </span>
                                 <Button
                                     variant='ghost'
                                     size='icon'
-                                    className='size-6 pointer-events-auto'
+                                    // Touch targets are 40px wide on mobile, so pull the button's empty
+                                    // padding back to keep equal visual gaps on both sides of the percentage.
+                                    className='size-6 pointer-events-auto -ml-2 md:ml-0'
                                     disabled={!statusBar.processing}
                                     aria-label={t('cancelDownload')}
                                     onClick={statusBar.onCancel}
