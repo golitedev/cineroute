@@ -16,7 +16,7 @@ func TestDurableBatchedDeliveryAndRetry(t *testing.T) {
 	fail := true
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		calls++
-		if r.URL.Path != "/jellyfin/Library/Media/Updated" || r.Method != "POST" || r.Header.Get("X-Emby-Token") != "secret" {
+		if r.URL.Path != "/jellyfin/Library/Media/Updated" || r.Method != "POST" || r.Header.Get("Authorization") != `MediaBrowser Token="secret"` {
 			t.Errorf("unexpected request: %s %s", r.Method, r.URL.Path)
 		}
 		var payload struct{ Updates []update }

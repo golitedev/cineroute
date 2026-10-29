@@ -198,7 +198,7 @@ func (n *Notifier) Flush(ctx context.Context) error {
 		return fmt.Errorf("construct Jellyfin notification")
 	}
 	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("X-Emby-Token", n.cfg.APIKey)
+	req.Header.Set("Authorization", fmt.Sprintf("MediaBrowser Token=%q", n.cfg.APIKey))
 	resp, sendErr := n.client.Do(req)
 	if sendErr != nil {
 		err = fmt.Errorf("Jellyfin request failed (connection, timeout or cancellation)")
