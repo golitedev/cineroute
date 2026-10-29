@@ -761,7 +761,7 @@ executed as a separate process.
 ### Unified public portal and music
 
 Artwork's **In library** badges use a shared in-memory index, warmed at startup
-and refreshed every five minutes. Request-download state changes and music
+and refreshed every 24 hours. Request-download state changes and music
 imports trigger an earlier background refresh. Searches and pagination reuse
 that snapshot; files added or removed outside CineRoute appear after the next
 refresh. Movie/TV badges exclude known unfinished downloads, and music badges

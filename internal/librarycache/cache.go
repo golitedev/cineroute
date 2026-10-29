@@ -8,7 +8,7 @@ import (
 	"time"
 )
 
-const RefreshInterval = 5 * time.Minute
+const RefreshInterval = 24 * time.Hour
 
 // Cache publishes complete snapshots. Refreshing never locks out warm readers.
 // The first read loads synchronously, including when used without Start in tests.
