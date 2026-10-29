@@ -51,7 +51,7 @@ export const sv: Dictionary = {
     tracks: 'Spår',
     artists: 'Artister',
     search: 'Sök',
-    searchPlaceholder: 'Sök efter musik...',
+    searchPlaceholder: 'Sök efter vad som helst...',
     queueSearch: 'Sök...',
     'noMore.albums': 'Inga fler album att visa.',
     'noMore.tracks': 'Inga fler spår att visa.',

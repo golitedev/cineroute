@@ -53,7 +53,7 @@ export const es: Dictionary = {
     tracks: 'Pistas',
     artists: 'Artistas',
     search: 'Buscar',
-    searchPlaceholder: 'Busca música...',
+    searchPlaceholder: 'Busca cualquier cosa...',
     queueSearch: 'Buscar...',
     'noMore.albums': 'No hay más álbumes para mostrar.',
     'noMore.tracks': 'No hay más pistas para mostrar.',
