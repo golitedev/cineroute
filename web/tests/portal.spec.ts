@@ -196,7 +196,7 @@ test('movie requests default to normal audio routing and appear in shared status
     await card.click();
     await expect(page.getByRole('dialog').getByRole('alert')).toHaveCount(0);
     await expect(page.getByRole('note', { name: 'Release availability' })).toHaveCount(0);
-    await expect(page.getByRole('checkbox', { name: /^Spanish audio only/ })).not.toBeChecked();
+    await expect(page.getByRole('checkbox', { name: /^Spanish audio/ })).not.toBeChecked();
     await page.getByRole('button', { name: 'Add to library', exact: true }).click();
     await expect.poll(() => f.created.length).toBe(1);
     expect(f.created[0]).toEqual({ media_type: 'movie', tmdb_id: 101, spanish_audio: false });
@@ -226,7 +226,7 @@ test('TV details send only explicitly selected seasons', async ({ page }) => {
     await expect(page.getByRole('checkbox', { name: /Season 2/ })).not.toBeChecked();
     await expect(page.getByRole('checkbox', { name: 'Follow future seasons', exact: true })).toHaveCount(0);
     await page.getByRole('checkbox', { name: /Season 2/ }).check();
-    await page.getByRole('checkbox', { name: /^Spanish audio only/ }).check();
+    await page.getByRole('checkbox', { name: /^Spanish audio/ }).check();
     await page.getByRole('button', { name: 'Add to library', exact: true }).click();
     await expect.poll(() => f.created.length).toBe(1);
     expect(f.created[0]).toEqual({ media_type: 'tv', tmdb_id: 202, seasons: [1, 2], spanish_audio: true });
@@ -465,8 +465,8 @@ test('waiting Spanish request shows its warning and can return to normal routing
     await page.locator('.video-card').first().click();
     const dialog = page.getByRole('dialog');
     await expect(dialog.getByText(/No Spanish audio release found/)).toBeVisible();
-    await expect(dialog.getByRole('checkbox', { name: /^Spanish audio only/ })).toBeChecked();
-    await dialog.getByRole('checkbox', { name: /^Spanish audio only/ }).uncheck();
+    await expect(dialog.getByRole('checkbox', { name: /^Spanish audio/ })).toBeChecked();
+    await dialog.getByRole('checkbox', { name: /^Spanish audio/ }).uncheck();
     await dialog.getByRole('button', { name: 'Update request', exact: true }).click();
     await expect.poll(() => f.created.length).toBe(1);
     expect(f.created[0]).toEqual({ media_type: 'movie', tmdb_id: 101, spanish_audio: false });
