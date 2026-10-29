@@ -214,6 +214,9 @@ func sizeAllowed(size int64, min, max float64) error {
 }
 
 func audioPolicyAllowed(title, original string, p Profile, metadata medialanguages.Metadata) bool {
+	if p.RequireSpanishAudio {
+		return slices.Contains(metadata.Audio, "es")
+	}
 	if len(p.AudioLanguages) == 0 || len(metadata.Audio) == 0 {
 		return languageAllowed(title, original, p)
 	}

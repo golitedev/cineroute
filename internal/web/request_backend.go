@@ -103,7 +103,7 @@ func (b requestBackend) Inventory(ctx context.Context, job requests.Job, downloa
 	if err != nil {
 		return out, err
 	}
-	profile := profileFor(settings, job.Media.MediaType)
+	profile := requests.ProfileForJob(settings, job)
 	for _, relative := range files {
 		path := filepath.Join(folder.Path, relative)
 		if requests.IsExtra(relative) || excluded[path] {
@@ -158,7 +158,7 @@ func (b requestBackend) Submit(ctx context.Context, job requests.Job, candidate 
 	if err != nil {
 		return d, err
 	}
-	if current.Status == "cancelled" || current.Status == "declined" {
+	if current.SpanishAudio != job.SpanishAudio || current.Status == "cancelled" || current.Status == "declined" {
 		return d, errors.New("request was withdrawn")
 	}
 	pin, err := s.requests.Placement(job.Media.MediaType, job.Media.ID)

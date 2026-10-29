@@ -85,17 +85,18 @@ func (s *Server) catalogDetails(w http.ResponseWriter, r *http.Request) {
 }
 
 type publicJob struct {
-	ID        string    `json:"id"`
-	Media     any       `json:"media"`
-	Status    string    `json:"status"`
-	Message   string    `json:"message"`
-	Progress  float64   `json:"progress"`
-	Seasons   []int     `json:"seasons"`
-	CreatedAt time.Time `json:"created_at"`
+	SpanishAudio bool      `json:"spanish_audio"`
+	ID           string    `json:"id"`
+	Media        any       `json:"media"`
+	Status       string    `json:"status"`
+	Message      string    `json:"message"`
+	Progress     float64   `json:"progress"`
+	Seasons      []int     `json:"seasons"`
+	CreatedAt    time.Time `json:"created_at"`
 }
 
 func jobView(job requests.Job) publicJob {
-	return publicJob{ID: job.ID, Media: job.Media.Result, Status: job.Status, Message: job.Message, Progress: job.Progress, Seasons: job.Seasons, CreatedAt: job.CreatedAt}
+	return publicJob{SpanishAudio: job.SpanishAudio, ID: job.ID, Media: job.Media.Result, Status: job.Status, Message: job.Message, Progress: job.Progress, Seasons: job.Seasons, CreatedAt: job.CreatedAt}
 }
 func (s *Server) userRequests(w http.ResponseWriter, r *http.Request) {
 	jobs, err := s.requests.Jobs(actor(r).Name)
@@ -115,9 +116,10 @@ func (s *Server) createUserRequest(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var body struct {
-		MediaType string `json:"media_type"`
-		TMDBID    int    `json:"tmdb_id"`
-		Seasons   []int  `json:"seasons"`
+		SpanishAudio bool   `json:"spanish_audio"`
+		MediaType    string `json:"media_type"`
+		TMDBID       int    `json:"tmdb_id"`
+		Seasons      []int  `json:"seasons"`
 	}
 	r.Body = http.MaxBytesReader(w, r.Body, 16<<10)
 	decoder := json.NewDecoder(r.Body)
@@ -143,7 +145,7 @@ func (s *Server) createUserRequest(w http.ResponseWriter, r *http.Request) {
 	profile := profileFor(settings, body.MediaType)
 	a := actor(r)
 	now := time.Now().UTC()
-	job := requests.Job{Owner: a.Name, Media: media, Target: profile.Destination, PreferredDrive: profile.NewTitleDrive, Seasons: []int{}, Episodes: []string{}, Status: "pending", Message: "Waiting for administrator approval"}
+	job := requests.Job{SpanishAudio: body.SpanishAudio, Owner: a.Name, Media: media, Target: profile.Destination, PreferredDrive: profile.NewTitleDrive, Seasons: []int{}, Episodes: []string{}, Status: "pending", Message: "Waiting for administrator approval"}
 	if body.MediaType == "tv" {
 		for _, number := range body.Seasons {
 			found := false

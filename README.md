@@ -279,6 +279,23 @@ image-based subtitles (PGS/DVD) and audio/voice-activity reference mode.
 
 ## Accounts and user requests
 
+The movie and TV request dialog includes **Spanish audio only**. In the admin
+panel, **Requests → General → Spanish trackers** selects enabled torrent
+trackers from Prowlarr. For Spanish-only requests these trackers join the normal
+tracker selection and their eligible releases rank first. Unticked requests use
+the normal selection and ranking.
+
+Spanish-only requests require tracker-reported Spanish audio (Spain or Latin
+America), using the existing MediaInfo/BDInfo integration for compatible UNIT3D
+trackers. A Spanish tracker name, Spanish subtitles, release-title language tags,
+or missing metadata do not satisfy this requirement. This relies on the tracker
+report; CineRoute does not inspect the actual audio before downloading. If no
+eligible release reports Spanish audio, the request waits with a warning. Open
+the title, untick **Spanish audio only**, and choose **Update request** to retry
+with normal library settings. Audio requirements cannot change while a request
+is searching, downloading, or complete.
+
+
 Create accounts in the YAML `users` list, using `name`, `role` (`admin` or
 `user`), and either `password` or bcrypt `password_hash`. Roles default to
 `user`; at least one enabled administrator is required. Names are unique

@@ -53,6 +53,7 @@ export type Job = {
     media?: Media;
     progress?: number;
     seasons?: number[];
+    spanish_audio?: boolean;
     id: string;
     album_id: string;
     title: string;
@@ -114,6 +115,7 @@ export type Media = {
     overview?: string;
 };
 export type VideoJob = {
+    spanish_audio?: boolean;
     id: string;
     media: Media;
     status: string;

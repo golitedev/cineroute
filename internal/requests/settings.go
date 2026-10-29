@@ -75,6 +75,7 @@ type Keyword struct {
 }
 
 type Profile struct {
+	RequireSpanishAudio        bool      `json:"-"`
 	Destination                string    `json:"destination"`
 	NewTitleDrive              string    `json:"new_title_drive"` // empty means most free space
 	Qualities                  []string  `json:"qualities"`       // most preferred first
@@ -115,6 +116,7 @@ type Settings struct {
 	IncludeSpecials        bool      `json:"include_specials"`
 	PreferSeasonPacks      bool      `json:"prefer_season_packs"`
 	SelectionOrder         []string  `json:"selection_order"`
+	SpanishTrackers        []Tracker `json:"spanish_trackers"`
 	Trackers               []Tracker `json:"trackers"`
 	Movie                  Profile   `json:"movie"`
 	TV                     Profile   `json:"tv"`
@@ -182,6 +184,16 @@ func (s Settings) Validate() error {
 			return fmt.Errorf("trackers require unique positive IDs and priorities between 1 and 100")
 		}
 		seen[tracker.ID] = true
+	}
+	if len(s.SpanishTrackers) > 100 {
+		return fmt.Errorf("select at most 100 Spanish trackers")
+	}
+	spanishSeen := map[int]bool{}
+	for _, tracker := range s.SpanishTrackers {
+		if tracker.ID <= 0 || spanishSeen[tracker.ID] || len(tracker.Name) > 200 {
+			return fmt.Errorf("Spanish trackers require unique positive IDs")
+		}
+		spanishSeen[tracker.ID] = true
 	}
 	if err := s.Movie.validate(); err != nil {
 		return fmt.Errorf("movie: %w", err)
@@ -279,4 +291,44 @@ func (p Profile) validate() error {
 		}
 	}
 	return nil
+}
+
+// ProfileForJob applies per-request requirements without changing library defaults.
+func ProfileForJob(s Settings, job Job) Profile {
+	p := s.Movie
+	if job.Media.MediaType == "tv" {
+		p = s.TV
+	}
+	if job.SpanishAudio {
+		p.RequireSpanishAudio = true
+		p.AudioLanguages = []string{"es"}
+		p.AllowUnknownLanguage = false
+	}
+	return p
+}
+
+func (s Settings) TrackersForJob(job Job) []Tracker {
+	trackers := append([]Tracker{}, s.Trackers...)
+	if job.SpanishAudio {
+		for _, tracker := range s.SpanishTrackers {
+			if !slices.ContainsFunc(trackers, func(t Tracker) bool { return t.ID == tracker.ID }) {
+				tracker.Priority = 1
+				trackers = append(trackers, tracker)
+			}
+		}
+		slices.SortStableFunc(trackers, func(a, b Tracker) int {
+			if s.IsSpanishTracker(a.ID) == s.IsSpanishTracker(b.ID) {
+				return 0
+			}
+			if s.IsSpanishTracker(a.ID) {
+				return -1
+			}
+			return 1
+		})
+	}
+	return trackers
+}
+
+func (s Settings) IsSpanishTracker(id int) bool {
+	return slices.ContainsFunc(s.SpanishTrackers, func(t Tracker) bool { return t.ID == id })
 }

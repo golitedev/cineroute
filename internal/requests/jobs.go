@@ -19,6 +19,7 @@ var ErrQuota = errors.New("request limit reached for this period")
 var ErrNotFound = errors.New("request not found")
 
 type Job struct {
+	SpanishAudio   bool         `json:"spanish_audio"`
 	ID             string       `json:"id"`
 	Owner          string       `json:"owner"`
 	Media          tmdb.Details `json:"media"`
@@ -119,6 +120,17 @@ func (s *Store) Create(job Job, settings Settings, admin bool) (Job, error) {
 		}
 		if !terminal(old.Status) {
 			changed := false
+			if old.SpanishAudio != job.SpanishAudio {
+				if old.Status == "downloading" || old.Status == "complete" || old.Status == "searching" {
+					return Job{}, fmt.Errorf("audio requirement cannot change while searching, downloading or complete")
+				}
+				old.SpanishAudio = job.SpanishAudio
+				if old.Status != "pending" {
+					old.Message = "Queued for a suitable release"
+				}
+				old.AdminError = ""
+				changed = true
+			}
 			for _, season := range job.Seasons {
 				if !slices.Contains(old.Seasons, season) {
 					old.Seasons = append(old.Seasons, season)
@@ -248,6 +260,9 @@ func (s *Store) Update(job Job) error {
 	var current Job
 	if err = json.Unmarshal([]byte(data), &current); err != nil {
 		return err
+	}
+	if current.SpanishAudio != job.SpanishAudio {
+		return nil // A newer user audio choice must survive a stale worker update.
 	}
 	if terminal(current.Status) && !terminal(job.Status) {
 		return nil

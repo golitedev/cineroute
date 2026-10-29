@@ -212,7 +212,7 @@ func (e *Engine) Tick(ctx context.Context) error {
 }
 
 func scope(d Download, j Job) bool {
-	return d.MediaType == j.Media.MediaType && d.TMDBID == j.Media.ID && d.Target == j.Target
+	return (!j.SpanishAudio || slices.Contains(d.Languages.Audio, "es")) && d.MediaType == j.Media.MediaType && d.TMDBID == j.Media.ID && d.Target == j.Target
 }
 func active(d Download) bool { return d.Status == "planned" || d.Status == "downloading" }
 
@@ -239,10 +239,8 @@ func DownloadFileIndex(downloads []Download) (excluded map[string]bool, sizes ma
 }
 
 func (e *Engine) process(ctx context.Context, job *Job, settings Settings, downloads *[]Download) error {
-	p := settings.Movie
-	if job.Media.MediaType == "tv" {
-		p = settings.TV
-	}
+	p := ProfileForJob(settings, *job)
+	trackers := settings.TrackersForJob(*job)
 	if job.Media.MediaType == "tv" && len(job.Seasons) == 0 {
 		job.Status = "waiting"
 		job.Message = "Select a season to continue this request"
@@ -305,7 +303,7 @@ func (e *Engine) process(ctx context.Context, job *Job, settings Settings, downl
 			}
 		}
 	}
-	if job.Media.MediaType == "movie" && inventory.Movie != nil && (!p.UpgradeAllowed || atCutoff(*inventory.Movie, p)) {
+	if job.Media.MediaType == "movie" && inventory.Movie != nil && (!job.SpanishAudio || inventory.Movie.Conforms) && (!p.UpgradeAllowed || atCutoff(*inventory.Movie, p)) {
 		job.Status = "complete"
 		job.Message = "Ready in the library"
 		job.Progress = 1
@@ -349,7 +347,7 @@ func (e *Engine) process(ctx context.Context, job *Job, settings Settings, downl
 	missing := map[string]bool{}
 	available := 0
 	for key := range wanted {
-		if _, ok := inventory.Episodes[key]; ok {
+		if old, ok := inventory.Episodes[key]; ok && (!job.SpanishAudio || old.Conforms) {
 			available++
 		} else if !inProgress[key] {
 			missing[key] = true
@@ -449,7 +447,7 @@ func (e *Engine) process(ctx context.Context, job *Job, settings Settings, downl
 		job.NextSearch = time.Now().Add(30 * time.Second)
 		return nil
 	}
-	if !e.Prowlarr.Configured() || len(settings.Trackers) == 0 {
+	if !e.Prowlarr.Configured() || len(trackers) == 0 {
 		job.Status = "waiting"
 		job.Message = "Waiting for configured trackers"
 		return nil
@@ -460,7 +458,7 @@ func (e *Engine) process(ctx context.Context, job *Job, settings Settings, downl
 	}
 	ids := []int{}
 	priorities := map[int]int{}
-	for _, tracker := range settings.Trackers {
+	for _, tracker := range trackers {
 		for _, indexer := range indexers {
 			if indexer.ID == tracker.ID && indexer.Enable && indexer.Protocol == "torrent" {
 				ids = append(ids, indexer.ID)
@@ -518,11 +516,12 @@ func (e *Engine) process(ctx context.Context, job *Job, settings Settings, downl
 		if err != nil {
 			return err
 		}
-		if len(p.PreferredAudioLanguages)+len(p.PreferredSubtitleLanguages) > 0 || p.PreferTextSubtitles {
+		if job.SpanishAudio || len(p.PreferredAudioLanguages)+len(p.PreferredSubtitleLanguages) > 0 || p.PreferTextSubtitles {
 			// Read native reports only for otherwise eligible, selected releases.
 			// Metadata may also confirm an existing strict audio-language filter.
 			precheck := p
 			precheck.AudioLanguages = nil
+			precheck.RequireSpanishAudio = false
 			eligible := []prowlarr.Release{}
 			for _, release := range releases {
 				priority, allowed := priorities[release.IndexerID]
@@ -569,6 +568,9 @@ func (e *Engine) process(ctx context.Context, job *Job, settings Settings, downl
 		slog.Info("request tracker results", "request_id", job.ID, "indexer_id", id, "priority", priorities[id], "accepted", accepted[id], "rejected", trackerRejected[id])
 	}
 	sort.SliceStable(candidates, func(i, j int) bool {
+		if job.SpanishAudio && settings.IsSpanishTracker(candidates[i].Release.IndexerID) != settings.IsSpanishTracker(candidates[j].Release.IndexerID) {
+			return settings.IsSpanishTracker(candidates[i].Release.IndexerID)
+		}
 		return Better(candidates[i], candidates[j], settings.SelectionOrder, settings.PreferSeasonPacks)
 	})
 	for i, candidate := range candidates {
@@ -595,7 +597,7 @@ func (e *Engine) process(ctx context.Context, job *Job, settings Settings, downl
 			covered[key] = true
 		}
 		for key, old := range inventory.Episodes {
-			if !p.UpgradeAllowed || !ImprovesExisting(candidate.Quality, candidate.Score, old, p) {
+			if (!job.SpanishAudio || old.Conforms) && (!p.UpgradeAllowed || !ImprovesExisting(candidate.Quality, candidate.Score, old, p)) {
 				covered[key] = true
 			}
 		}
@@ -621,7 +623,7 @@ func (e *Engine) process(ctx context.Context, job *Job, settings Settings, downl
 			d.Languages, d.LanguageScore = candidate.Release.Languages, candidate.LanguageScore
 			d.SubtitleFormatScore = candidate.SubtitleFormatScore
 			if d.Indexer == "" {
-				for _, tracker := range settings.Trackers {
+				for _, tracker := range trackers {
 					if tracker.ID == d.IndexerID {
 						d.Indexer = tracker.Name
 						break
@@ -666,6 +668,9 @@ func (e *Engine) process(ctx context.Context, job *Job, settings Settings, downl
 	if inventory.Movie != nil || available > 0 {
 		job.Status = "monitoring"
 		job.Message = "Available copies are ready; monitoring the remaining preferences"
+	}
+	if job.SpanishAudio {
+		job.Message = "No release with confirmed Spanish audio was found for the requested movie or episodes. Untick Spanish audio and submit again to use normal library settings."
 	}
 	reasons := []string{}
 	for reason, count := range rejected {

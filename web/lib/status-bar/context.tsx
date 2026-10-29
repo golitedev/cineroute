@@ -36,6 +36,8 @@ export const StatusBarProvider = ({ children }: { children: ReactNode }) => {
         for (const job of jobs) {
             const before = previous.current?.get(job.id);
             if (!before || before === job.status) continue;
+            if (job.spanish_audio && ['waiting', 'monitoring'].includes(job.status) && job.message.startsWith('No release with confirmed Spanish audio'))
+                toast({ localized: (t) => ({ title: t('spanishAudio'), description: job.message }) });
             if (job.status === 'failed')
                 toast({
                     variant: 'destructive',

@@ -23,6 +23,7 @@ export default function VideoDetail({ media, onClose }: { media: Media | null; o
     const { jobs, refresh } = useStatusBar();
     const [detail, setDetail] = useState<Detail | null>(null);
     const [seasons, setSeasons] = useState<number[]>([]);
+    const [spanishAudio, setSpanishAudio] = useState(false);
     const [saving, setSaving] = useState(false);
     const [error, setError] = useState('');
     const [message, setMessage] = useState('');
@@ -35,6 +36,7 @@ export default function VideoDetail({ media, onClose }: { media: Media | null; o
         setError('');
         setMessage('');
         setSaving(false);
+        setSpanishAudio(!!existing?.spanish_audio);
         if (media)
             void portalRequest<DetailResponse>(`/api/catalog/${media.media_type}/${media.id}`)
                 .then((data) => {
@@ -67,6 +69,7 @@ export default function VideoDetail({ media, onClose }: { media: Media | null; o
             const result = await portalRequest<{ request: VideoJob }>('/api/user/requests', 'POST', {
                 media_type: media.media_type,
                 tmdb_id: media.id,
+                spanish_audio: spanishAudio,
                 ...(media.media_type === 'tv' ? { seasons } : {})
             });
             setMessage(result.request.message);
@@ -81,7 +84,9 @@ export default function VideoDetail({ media, onClose }: { media: Media | null; o
             setSaving(false);
         }
     }
-    const disabled = saving || !detail || (media?.media_type === 'movie' && !!existing) || (media?.media_type === 'tv' && !seasons.length);
+    const canChangeAudio = !!existing && ['waiting', 'queued', 'pending', 'monitoring', 'failed'].includes(existing.status);
+    const audioChanged = canChangeAudio && spanishAudio !== !!existing?.spanish_audio;
+    const disabled = saving || !detail || (media?.media_type === 'movie' && !!existing && !audioChanged) || (media?.media_type === 'tv' && !seasons.length);
     return (
         <Dialog
             open={!!media}
@@ -145,16 +150,35 @@ export default function VideoDetail({ media, onClose }: { media: Media | null; o
                                 {!detail.seasons.length && <p className='text-sm text-muted-foreground'>{t('noSeasons')}</p>}
                             </fieldset>
                         )}
+                        <label className='flex items-start gap-3 text-sm'>
+                            <input
+                                type='checkbox'
+                                checked={spanishAudio}
+                                disabled={saving || (!!existing && !canChangeAudio)}
+                                onChange={(e) => setSpanishAudio(e.target.checked)}
+                            />
+                            <span>
+                                {t('spanishAudio')}
+                                <small className='block text-muted-foreground'>{t('spanishAudioHint')}</small>
+                            </span>
+                        </label>
+                        {existing?.message && (
+                            <p role='status' className='text-sm text-amber-200'>
+                                {existing.message}
+                            </p>
+                        )}
                         <div className='flex flex-col sm:flex-row gap-3 sm:items-center'>
                             <Button disabled={disabled} onClick={() => void submit()}>
                                 {saving && <LoaderCircle className='size-4 animate-spin' />}
-                                {existing
-                                    ? media?.media_type === 'tv'
-                                        ? t('addSeasons')
-                                        : t(`status.${existing.status}`)
-                                    : detail.auto_approve
-                                      ? t('addLibrary')
-                                      : t('requestApproval')}
+                                {audioChanged
+                                    ? t('updateRequest')
+                                    : existing
+                                      ? media?.media_type === 'tv'
+                                          ? t('addSeasons')
+                                          : t(`status.${existing.status}`)
+                                      : detail.auto_approve
+                                        ? t('addLibrary')
+                                        : t('requestApproval')}
                             </Button>
                             <p className='text-xs text-muted-foreground'>{detail.auto_approve ? t('autoHint') : t('approvalHint')}</p>
                         </div>

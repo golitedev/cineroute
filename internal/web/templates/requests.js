@@ -28,6 +28,7 @@ async function loadRequests(force=false){
     if(currentAccount?.role!=="admin"||currentAccount.name!==owner)return;
     requestData=data;requestDraft=requestClone(data.settings);
     if(!Array.isArray(requestDraft.selection_order)||!requestDraft.selection_order.length)requestDraft.selection_order=(data.selection_criteria||[]).map(c=>c.id);
+    if(!Array.isArray(requestDraft.spanish_trackers))requestDraft.spanish_trackers=[];
     requestSavedJSON=JSON.stringify(requestDraft);
     renderRequests();requestMessage('');
     if(requestPanel==='history')loadAdminRequestHistory();
@@ -70,7 +71,7 @@ function renderRequests(){
 }
 function renderRequestGeneral(){
   return '<div class="request-section"><h3>Permissions and approval</h3><p class="small">Defaults for user requests. A limit of 0 means unlimited; a TV limit counts series.</p><div class="request-grid">'+requestCheck('allow_movies','Allow movie requests')+requestCheck('allow_tv','Allow TV requests')+requestCheck('auto_approve','Automatically approve requests')+requestCheck('search_on_approval','Search when a request is approved')+requestNumber('movie_limit','Movie limit per user',0,10000)+requestNumber('tv_limit','Series limit per user',0,10000)+requestNumber('limit_days','Limit window (days)',1,365)+'</div></div>'+
-    '<div class="request-section"><h3>Search and download policy</h3><div class="request-grid">'+requestNumber('search_interval_seconds','Delay between tracker searches (seconds)',1,3600)+requestNumber('retry_interval_hours','Retry missing releases after (hours)',1,720)+requestNumber('release_delay_minutes','Wait for a preferred release (minutes)',0,10080,1,'0 means no delay after approval.')+requestNumber('min_seeders','Minimum seeders',0,100000)+requestNumber('max_concurrent_downloads','Maximum simultaneous request downloads',1,100)+requestNumber('stalled_minutes','Consider stalled after (minutes)',0,10080,1,'0 disables automatic stalled-download recovery.')+requestCheck('retry_failed_downloads','Try another release after a failed download')+'</div></div>'+renderRequestRanking();
+    '<div class="request-section"><h3>Search and download policy</h3><div class="request-grid">'+requestNumber('search_interval_seconds','Delay between tracker searches (seconds)',1,3600)+requestNumber('retry_interval_hours','Retry missing releases after (hours)',1,720)+requestNumber('release_delay_minutes','Wait for a preferred release (minutes)',0,10080,1,'0 means no delay after approval.')+requestNumber('min_seeders','Minimum seeders',0,100000)+requestNumber('max_concurrent_downloads','Maximum simultaneous request downloads',1,100)+requestNumber('stalled_minutes','Consider stalled after (minutes)',0,10080,1,'0 disables automatic stalled-download recovery.')+requestCheck('retry_failed_downloads','Try another release after a failed download')+'</div></div>'+renderSpanishTrackers()+renderRequestRanking();
 }
 function requestSelectionOrder(){
   const order=requestDraft.selection_order;
@@ -165,7 +166,7 @@ async function loadRequestIndexers(){
   $('requestsTrackerRefresh')?.setAttribute('disabled','disabled');
   try{const response=await api('/api/requests/indexers');if(currentAccount?.role!=="admin"||currentAccount.name!==owner)return;requestIndexers=response.indexers||[];requestIndexersLoaded=true;requestIndexerError=''}
   catch(e){requestIndexerError=e.message}
-  if(requestPanel==='trackers')renderRequests();
+  if(requestPanel==='trackers'||requestPanel==='general')renderRequests();
 }
 function renderRequestTrackers(){
   const rows=new Map(requestIndexers.map(indexer=>[indexer.id,indexer]));
@@ -261,4 +262,18 @@ function renderRequestHistoryPager(){
   if(!requestHistoryData)return '';
   const page=requestHistoryData.page||1,pages=requestHistoryData.total_pages||1;
   return '<button type="button" '+(page<=1?'disabled':'')+' onclick="pageRequestHistory('+(page-1)+')">Previous</button><span class="small">Page '+page+' of '+pages+' · '+Number(requestHistoryData.total||0)+' matching requests</span><button type="button" '+(page>=pages?'disabled':'')+' onclick="pageRequestHistory('+(page+1)+')">Next</button>';
+}
+
+function renderSpanishTrackers(){
+  const rows=new Map(requestIndexers.map(indexer=>[indexer.id,indexer]));
+  (requestDraft.spanish_trackers||[]).forEach(tracker=>{if(!rows.has(tracker.id))rows.set(tracker.id,{id:tracker.id,name:tracker.name||'Tracker #'+tracker.id})});
+  return '<div class="request-section"><h3>Spanish trackers</h3><p class="small">Choose Prowlarr trackers to prioritize when Spanish audio is required. These are added to the normal trackers for that request and ranked first. Tracker selection does not prove Spanish audio: releases must report Spanish audio metadata. Other library filters still apply.</p><button type="button" '+(!requestData.prowlarr_configured?'disabled':'')+' onclick="loadRequestIndexers()">Refresh trackers</button>'+(requestIndexerError?'<p class="errbox">'+esc(requestIndexerError)+'</p>':'')+'<div class="request-trackers">'+[...rows.values()].map(indexer=>{
+    const selected=(requestDraft.spanish_trackers||[]).some(t=>t.id===indexer.id),eligible=indexer.enable&&indexer.protocol==='torrent';
+    return '<label class="request-check"><input type="checkbox" '+(selected?'checked':'')+' '+(!selected&&!eligible?'disabled':'')+' onchange="toggleSpanishTracker('+indexer.id+',this.checked)"><span>'+esc(indexer.name)+(!eligible?' (unavailable or disabled)':'')+'</span></label>';
+  }).join('')+(!rows.size?'<p class="small">Refresh to load trackers from Prowlarr.</p>':'')+'</div></div>';
+}
+function toggleSpanishTracker(id,checked){
+  if(checked){const indexer=requestIndexers.find(i=>i.id===id);if(!indexer||!indexer.enable||indexer.protocol!=='torrent')return;requestDraft.spanish_trackers.push({id,name:indexer.name,priority:1})}
+  else requestDraft.spanish_trackers=requestDraft.spanish_trackers.filter(t=>t.id!==id);
+  renderRequests();
 }

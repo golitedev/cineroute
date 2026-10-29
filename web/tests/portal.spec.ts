@@ -129,6 +129,7 @@ async function fixtures(page: Page, authenticated = true) {
                 message: 'Downloading your request',
                 progress: 0.42,
                 seasons: body.seasons || [],
+                spanish_audio: body.spanish_audio || false,
                 created_at: '2024-01-03T00:00:00Z'
             };
             const existingIndex = jobs.findIndex((item) => item.id === job.id);
@@ -147,7 +148,7 @@ async function fixtures(page: Page, authenticated = true) {
         }
         throw new Error(`Unexpected API ${req.method()} ${url.pathname}`);
     });
-    return { created, cancelled, queuedAlbums };
+    return { created, cancelled, queuedAlbums, jobs };
 }
 
 test('clean home with centered media controls and one shared history popup', async ({ page }) => {
@@ -182,7 +183,7 @@ test('clean home with centered media controls and one shared history popup', asy
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBeTruthy();
 });
 
-test('movie requests use only title identity and appear in shared status bar', async ({ page }) => {
+test('movie requests default to normal audio routing and appear in shared status bar', async ({ page }) => {
     const f = await fixtures(page);
     await page.goto('/');
     await page.getByRole('button', { name: 'Movies', exact: true }).click();
@@ -195,10 +196,10 @@ test('movie requests use only title identity and appear in shared status bar', a
     await card.click();
     await expect(page.getByRole('dialog').getByRole('alert')).toHaveCount(0);
     await expect(page.getByRole('note', { name: 'Release availability' })).toHaveCount(0);
-    await expect(page.getByRole('checkbox', { name: 'Prefer Spanish audio' })).toHaveCount(0);
+    await expect(page.getByRole('checkbox', { name: /^Spanish audio only/ })).not.toBeChecked();
     await page.getByRole('button', { name: 'Add to library', exact: true }).click();
     await expect.poll(() => f.created.length).toBe(1);
-    expect(f.created[0]).toEqual({ media_type: 'movie', tmdb_id: 101 });
+    expect(f.created[0]).toEqual({ media_type: 'movie', tmdb_id: 101, spanish_audio: false });
     await expect(page.getByRole('dialog')).toHaveCount(0);
     await expect(page.getByText('Downloading your request', { exact: true })).toBeVisible();
     await expect(page.getByRole('progressbar', { name: 'Download progress' })).toHaveAttribute('aria-valuenow', '42');
@@ -225,9 +226,10 @@ test('TV details send only explicitly selected seasons', async ({ page }) => {
     await expect(page.getByRole('checkbox', { name: /Season 2/ })).not.toBeChecked();
     await expect(page.getByRole('checkbox', { name: 'Follow future seasons', exact: true })).toHaveCount(0);
     await page.getByRole('checkbox', { name: /Season 2/ }).check();
+    await page.getByRole('checkbox', { name: /^Spanish audio only/ }).check();
     await page.getByRole('button', { name: 'Add to library', exact: true }).click();
     await expect.poll(() => f.created.length).toBe(1);
-    expect(f.created[0]).toEqual({ media_type: 'tv', tmdb_id: 202, seasons: [1, 2] });
+    expect(f.created[0]).toEqual({ media_type: 'tv', tmdb_id: 202, seasons: [1, 2], spanish_audio: true });
 });
 
 test('music keeps square artwork and movie selection does not query Qobuz', async ({ page }) => {
@@ -450,4 +452,23 @@ test('mobile media tabs stay centered with icons and the music filter sits cente
     for (const [index, box] of tabBoxes.entries()) {
         for (const dimension of ['x', 'y', 'width', 'height'] as const) expect(Math.abs(box![dimension] - initial[index]![dimension])).toBeLessThan(0.5);
     }
+});
+
+
+test('waiting Spanish request shows its warning and can return to normal routing', async ({ page }) => {
+    const f = await fixtures(page);
+    f.jobs.push({ id: 'new-request', media: movie, status: 'waiting', message: 'No Spanish audio release found. Untick Spanish audio and submit again.', spanish_audio: true, seasons: [], progress: 0, created_at: '2024-01-03T00:00:00Z' });
+    await page.goto('/');
+    await page.getByRole('button', { name: 'Movies', exact: true }).click();
+    await page.getByRole('textbox', { name: 'Search', exact: true }).fill('A good');
+    await page.getByRole('button', { name: 'Search', exact: true }).click();
+    await page.locator('.video-card').first().click();
+    const dialog = page.getByRole('dialog');
+    await expect(dialog.getByText(/No Spanish audio release found/)).toBeVisible();
+    await expect(dialog.getByRole('checkbox', { name: /^Spanish audio only/ })).toBeChecked();
+    await dialog.getByRole('checkbox', { name: /^Spanish audio only/ }).uncheck();
+    await dialog.getByRole('button', { name: 'Update request', exact: true }).click();
+    await expect.poll(() => f.created.length).toBe(1);
+    expect(f.created[0]).toEqual({ media_type: 'movie', tmdb_id: 101, spanish_audio: false });
+    await expect(page.getByRole('dialog')).toHaveCount(0);
 });
