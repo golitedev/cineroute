@@ -199,8 +199,7 @@ test('movie requests use only title identity and appear in shared status bar', a
     await page.getByRole('button', { name: 'Add to library', exact: true }).click();
     await expect.poll(() => f.created.length).toBe(1);
     expect(f.created[0]).toEqual({ media_type: 'movie', tmdb_id: 101 });
-    await expect(page.getByRole('status')).toContainText(['Downloading your request']);
-    await page.getByRole('button', { name: 'Close', exact: true }).click();
+    await expect(page.getByRole('dialog')).toHaveCount(0);
     await expect(page.getByText('Downloading your request', { exact: true })).toBeVisible();
     await expect(page.getByRole('progressbar', { name: 'Download progress' })).toHaveAttribute('aria-valuenow', '42');
     await expect(page.locator('.status-bar-container').getByText('42%', { exact: true })).toBeVisible();

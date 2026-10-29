@@ -70,7 +70,11 @@ export default function VideoDetail({ media, onClose }: { media: Media | null; o
                 ...(media.media_type === 'tv' ? { seasons } : {})
             });
             setMessage(result.request.message);
-            await refresh();
+            // The request is accepted; dismiss the dialog so the shared status
+            // bar takes over. Refreshing in the background must not reopen it
+            // or replace a successful request with a status-bar error.
+            onClose();
+            void refresh().catch(() => {});
         } catch (e) {
             setError(e instanceof Error ? e.message : t('requestFailed'));
         } finally {
