@@ -43,7 +43,7 @@ export default function SearchView() {
         return () => controller.current?.abort();
     }, []);
     const hasResults = !!music || !!video;
-    async function search(value = query, more = false, nextKind = kind) {
+    async function search(value = query, more = false) {
         const trimmed = value.trim();
         if (trimmed.length < 2) return;
         const current = ++token.current;
@@ -58,7 +58,7 @@ export default function SearchView() {
         }
         setSearched(trimmed);
         try {
-            if (nextKind === 'music') {
+            if (kind === 'music') {
                 const offset = more ? music?.[field]?.items.length || 0 : 0;
                 const response = await catalog.get(`/api/music/get-music`, { params: { q: trimmed, offset }, signal: abort.signal });
                 if (current !== token.current) return;
@@ -76,7 +76,7 @@ export default function SearchView() {
                 );
             } else {
                 const page = more ? (video?.page || 1) + 1 : 1;
-                const response = await portalRequest<VideoResults>(`/api/catalog/search?q=${encodeURIComponent(trimmed)}&type=${nextKind}&page=${page}`);
+                const response = await portalRequest<VideoResults>(`/api/catalog/search?q=${encodeURIComponent(trimmed)}&type=${kind}&page=${page}`);
                 if (current !== token.current) return;
                 setVideo((previous) => (more && previous ? { ...response, results: [...previous.results, ...response.results] } : response));
             }
@@ -91,12 +91,13 @@ export default function SearchView() {
         token.current++;
         controller.current?.abort();
         setKind(next);
+        setQuery('');
+        setSearched('');
         setMusic(null);
         setVideo(null);
         setError('');
         setSelected(null);
         setLoading(false);
-        if (query.trim().length >= 2) void search(query, false, next);
     }
     const MusicIcon = filterData.find((f) => f.value === field)?.icon || DiscAlbum;
     const items = music ? filterExplicit(music)[field].items : [];
@@ -149,14 +150,14 @@ export default function SearchView() {
                         {loading ? <LoaderCircle className='animate-spin' /> : <ArrowRight />}
                     </Button>
                 </form>
-                <nav className='flex items-center justify-center gap-1 sm:gap-2 flex-wrap' aria-label={t('search')}>
+                <nav className='flex items-center justify-start gap-1 sm:justify-center sm:gap-2 flex-wrap' aria-label={t('search')}>
                     <Button
                         variant={kind === 'movie' ? 'secondary' : 'outline'}
                         className='border px-2 aria-[pressed=true]:border-transparent sm:px-4'
                         aria-pressed={kind === 'movie'}
                         onClick={() => changeKind('movie')}
                     >
-                        <Film className='hidden size-4 sm:block' />
+                        <Film className='size-4' />
                         {t('movies')}
                     </Button>
                     <Button
@@ -165,17 +166,17 @@ export default function SearchView() {
                         aria-pressed={kind === 'tv'}
                         onClick={() => changeKind('tv')}
                     >
-                        <Tv className='hidden size-4 sm:block' />
+                        <Tv className='size-4' />
                         {t('tv')}
                     </Button>
-                    <div className='relative inline-flex shrink-0 items-center'>
+                    <div className='contents sm:relative sm:inline-flex sm:shrink-0 sm:items-center'>
                         <Button
                             variant={kind === 'music' ? 'secondary' : 'outline'}
                             className='border px-2 aria-[pressed=true]:border-transparent sm:px-4'
                             aria-pressed={kind === 'music'}
                             onClick={() => changeKind('music')}
                         >
-                            <Music2 className='hidden size-4 sm:block' />
+                            <Music2 className='size-4' />
                             {t('music')}
                         </Button>
                         {kind === 'music' && (
@@ -184,7 +185,7 @@ export default function SearchView() {
                                     <Button
                                         variant='ghost'
                                         size='sm'
-                                        className='absolute left-full top-1/2 ml-1 -translate-y-1/2 gap-1 px-1 text-muted-foreground sm:ml-2 sm:gap-2 sm:px-3'
+                                        className='gap-1 px-1 text-muted-foreground sm:absolute sm:left-full sm:top-1/2 sm:ml-2 sm:-translate-y-1/2 sm:gap-2 sm:px-3'
                                         aria-label={`${t('music')} · ${t(field)}`}
                                     >
                                         <MusicIcon className='hidden size-4 sm:block' />

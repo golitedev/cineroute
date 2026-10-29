@@ -233,7 +233,9 @@ test('music keeps square artwork and movie selection does not query Qobuz', asyn
     const cover = await page.locator('.release-card .aspect-square').first().boundingBox();
     expect(cover!.height / cover!.width).toBeCloseTo(1, 1);
     await page.getByRole('button', { name: 'Movies', exact: true }).click();
-    await expect(page.getByRole('button', { name: 'A good movie 2024', exact: true })).toBeVisible();
+    await expect(page.getByRole('textbox', { name: 'Search', exact: true })).toHaveValue('');
+    await expect(page.locator('.release-card, .video-card')).toHaveCount(0);
+    await expect(page.getByRole('button', { name: 'Search', exact: true })).toBeDisabled();
 });
 
 test('login uses CineRoute user session and returns to search', async ({ page }) => {
@@ -377,4 +379,55 @@ test('an empty final search page does not claim more released titles can be load
     await expect(page.getByText('No matching titles. Try another name or year.', { exact: true })).toBeVisible();
     await expect(page.getByRole('button', { name: 'Load more', exact: true })).toHaveCount(0);
     await expect(page.getByText(/Load more to continue/)).toHaveCount(0);
+});
+
+test('switching media starts clean without sending the old search to another catalog', async ({ page }) => {
+    await fixtures(page);
+    const searches: string[] = [];
+    page.on('request', (request) => {
+        const url = new URL(request.url());
+        if (['/api/catalog/search', '/api/music/get-music'].includes(url.pathname)) searches.push(request.url());
+    });
+    await page.goto('/');
+    const navigation = page.getByRole('navigation');
+    const input = page.getByRole('textbox', { name: 'Search', exact: true });
+    const search = page.getByRole('button', { name: 'Search', exact: true });
+    const transitions = [
+        ['Movies', 'TV'],
+        ['Movies', 'Music'],
+        ['TV', 'Movies'],
+        ['TV', 'Music'],
+        ['Music', 'Movies'],
+        ['Music', 'TV']
+    ];
+    for (const [index, [from, to]] of transitions.entries()) {
+        await navigation.getByRole('button', { name: from, exact: true }).click();
+        await input.fill(`Search ${from} ${index}`);
+        await search.click();
+        await expect(page.locator(from === 'Music' ? '.release-card' : '.video-card')).toHaveCount(1);
+        await navigation.getByRole('button', { name: to, exact: true }).click();
+        await expect(input).toHaveValue('');
+        await expect(page.locator('.release-card, .video-card')).toHaveCount(0);
+        await expect(page.locator('.search-heading')).toHaveAttribute('data-results', 'false');
+        await expect(search).toBeDisabled();
+        expect(searches).toHaveLength(index + 1);
+    }
+});
+
+test('mobile media tabs align left with icons and the music filter drops below when space is tight', async ({ page }) => {
+    await fixtures(page);
+    await page.setViewportSize({ width: 320, height: 800 });
+    await page.goto('/');
+    const navigation = page.getByRole('navigation');
+    const names = ['Movies', 'TV', 'Music'];
+    const navBox = (await navigation.boundingBox())!;
+    for (const name of names) await expect(navigation.getByRole('button', { name, exact: true }).locator('svg')).toBeVisible();
+    const moviesBox = (await navigation.getByRole('button', { name: 'Movies', exact: true }).boundingBox())!;
+    expect(moviesBox.x - navBox.x).toBeLessThan(2);
+    await navigation.getByRole('button', { name: 'Music', exact: true }).click();
+    const filterBox = (await navigation.getByRole('button', { name: 'Music · Albums', exact: true }).boundingBox())!;
+    const tabBoxes = await Promise.all(names.map((name) => navigation.getByRole('button', { name, exact: true }).boundingBox()));
+    expect(filterBox.y).toBeGreaterThan(Math.max(...tabBoxes.map((box) => box!.y + box!.height)));
+    expect(filterBox.x).toBeGreaterThanOrEqual(navBox.x - 0.5);
+    expect(filterBox.x + filterBox.width).toBeLessThanOrEqual(navBox.x + navBox.width + 0.5);
 });
