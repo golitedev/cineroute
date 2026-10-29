@@ -27,10 +27,11 @@ func (s *Server) requestSettingsResponse(settings requests.Settings) any {
 		Qualities          []requests.Option       `json:"qualities"`
 		Codecs             []requests.Option       `json:"codecs"`
 		Languages          []medialanguages.Option `json:"languages"`
+		SelectionCriteria  []requests.Option       `json:"selection_criteria"`
 		Drives             []config.Drive          `json:"drives"`
 		ProwlarrConfigured bool                    `json:"prowlarr_configured"`
 		EngineAvailable    bool                    `json:"engine_available"`
-	}{settings, requests.QualityOptions, requests.CodecOptions, requests.LanguageOptions, drives, s.prowlarr.Configured(), true}
+	}{settings, requests.QualityOptions, requests.CodecOptions, requests.LanguageOptions, requests.SelectionOptions, drives, s.prowlarr.Configured(), true}
 }
 
 func (s *Server) requestSettings(w http.ResponseWriter, r *http.Request) {
@@ -56,6 +57,9 @@ func (s *Server) saveRequestSettings(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusBadRequest, "Submit exactly one settings object.")
 		return
 	}
+	if len(settings.SelectionOrder) == 0 {
+		settings.SelectionOrder = requests.DefaultSelectionOrder()
+	}
 	if err := settings.Validate(); err != nil {
 		writeErr(w, http.StatusBadRequest, err.Error())
 		return
@@ -74,7 +78,7 @@ func (s *Server) saveRequestSettings(w http.ResponseWriter, r *http.Request) {
 	}
 	if jobs, err := s.requests.Jobs(""); searchPolicyChanged && err == nil {
 		for _, job := range jobs {
-			if job.Status != "pending" && job.Status != "cancelled" && job.Status != "declined" && job.Status != "error" {
+			if job.Status != "pending" && job.Status != "cancelled" && job.Status != "declined" && job.Status != "error" && job.Status != "complete" {
 				job.NextSearch = time.Now().UTC()
 				job.Status = "queued"
 				_ = s.requests.Update(job)

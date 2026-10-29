@@ -83,3 +83,37 @@ func TestCorruptStoredSettingsAreReported(t *testing.T) {
 		t.Fatal("corrupt settings were silently replaced with defaults")
 	}
 }
+
+func TestSelectionOrderValidationAndLegacyDefault(t *testing.T) {
+	settings := Defaults()
+	settings.SelectionOrder = []string{"language", "quality", "text_subtitles", "keywords", "pack", "priority", "seeders"}
+	if err := settings.Validate(); err != nil {
+		t.Fatalf("valid order rejected: %v", err)
+	}
+	store := NewStore(filepath.Join(t.TempDir(), "requests.db"))
+	if err := store.Save(settings); err != nil {
+		t.Fatal(err)
+	}
+	loaded, err := store.Load()
+	if err != nil || !reflect.DeepEqual(loaded.SelectionOrder, settings.SelectionOrder) {
+		t.Fatalf("selection order did not persist: %v %v", loaded.SelectionOrder, err)
+	}
+	for name, order := range map[string][]string{
+		"duplicate": {"language", "language", "text_subtitles", "keywords", "pack", "priority", "seeders"},
+		"unknown":   {"language", "quality", "text_subtitles", "keywords", "pack", "priority", "bogus"},
+		"missing":   {"language", "quality"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			bad := Defaults()
+			bad.SelectionOrder = order
+			if bad.Validate() == nil {
+				t.Fatalf("invalid selection order accepted: %v", order)
+			}
+		})
+	}
+	legacy := Defaults()
+	legacy.SelectionOrder = nil
+	if err := legacy.Validate(); err != nil {
+		t.Fatalf("legacy settings without a selection order rejected: %v", err)
+	}
+}

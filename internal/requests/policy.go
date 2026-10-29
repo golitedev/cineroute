@@ -241,36 +241,54 @@ func AssessExisting(evidence string, size int64, media tmdb.Details, p Profile, 
 func ImprovesExisting(quality string, score int, old Existing, p Profile) bool {
 	return !old.Conforms || Improved(quality, score, old.Quality, old.Score, p)
 }
-func Better(a, b Candidate, preferPacks bool) bool {
-	if a.Rank != b.Rank {
-		return a.Rank < b.Rank
+
+// Better reports whether a should be selected before b under the configured
+// release-ranking order. Criteria whose values tie are decided by the next
+// criterion; the final tie-breaker is the smaller torrent size.
+func Better(a, b Candidate, order []string, preferPacks bool) bool {
+	if len(order) == 0 {
+		order = DefaultSelectionOrder()
 	}
-	if a.LanguageScore != b.LanguageScore {
-		return a.LanguageScore > b.LanguageScore
-	}
-	if a.SubtitleFormatScore != b.SubtitleFormatScore {
-		return a.SubtitleFormatScore > b.SubtitleFormatScore
-	}
-	if a.Score != b.Score {
-		return a.Score > b.Score
-	}
-	if a.Pack != b.Pack {
-		return a.Pack == preferPacks
-	}
-	if a.Priority != b.Priority {
-		return a.Priority < b.Priority
-	}
-	as, bs := 0, 0
-	if a.Release.Seeders != nil {
-		as = *a.Release.Seeders
-	}
-	if b.Release.Seeders != nil {
-		bs = *b.Release.Seeders
-	}
-	if as != bs {
-		return as > bs
+	for _, criterion := range order {
+		switch criterion {
+		case "quality":
+			if a.Rank != b.Rank {
+				return a.Rank < b.Rank
+			}
+		case "language":
+			if a.LanguageScore != b.LanguageScore {
+				return a.LanguageScore > b.LanguageScore
+			}
+		case "text_subtitles":
+			if a.SubtitleFormatScore != b.SubtitleFormatScore {
+				return a.SubtitleFormatScore > b.SubtitleFormatScore
+			}
+		case "keywords":
+			if a.Score != b.Score {
+				return a.Score > b.Score
+			}
+		case "pack":
+			if a.Pack != b.Pack {
+				return a.Pack == preferPacks
+			}
+		case "priority":
+			if a.Priority != b.Priority {
+				return a.Priority < b.Priority
+			}
+		case "seeders":
+			if as, bs := candidateSeeders(a), candidateSeeders(b); as != bs {
+				return as > bs
+			}
+		}
 	}
 	return a.Release.Size < b.Release.Size
+}
+
+func candidateSeeders(c Candidate) int {
+	if c.Release.Seeders == nil {
+		return 0
+	}
+	return *c.Release.Seeders
 }
 func Improved(quality string, score int, oldQuality string, oldScore int, p Profile) bool {
 	oldRank, newRank := slices.Index(p.Qualities, oldQuality), slices.Index(p.Qualities, quality)

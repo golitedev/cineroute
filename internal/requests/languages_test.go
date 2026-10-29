@@ -48,11 +48,11 @@ func TestLanguageRankRespectsQualityFiltersAndKeywordMinimum(t *testing.T) {
 	preferred := base
 	preferred.LanguageScore = 2
 	preferred.Score = 0
-	if !Better(preferred, base, true) {
+	if !Better(preferred, base, DefaultSelectionOrder(), true) {
 		t.Fatal("language preference lost to keyword score")
 	}
 	preferred.Rank = 1
-	if Better(preferred, base, true) {
+	if Better(preferred, base, DefaultSelectionOrder(), true) {
 		t.Fatal("language preference overrode quality order")
 	}
 	media := tmdb.Details{Result: tmdb.Result{ID: 1, Title: "Example", MediaType: "movie", ReleaseDate: "2024-01-01"}, OriginalLanguage: "en"}
@@ -88,21 +88,36 @@ func TestTextSubtitlePreferenceRespectsLanguageAndQuality(t *testing.T) {
 	image, _ := Evaluate(release, media, p, 0, 1)
 	release.Languages = medialanguages.Parse("Text\nFormat : UTF-8\nLanguage : English", "")
 	wrongLanguage, _ := Evaluate(release, media, p, 0, 1)
-	if Better(wrongLanguage, image, true) {
+	if Better(wrongLanguage, image, DefaultSelectionOrder(), true) {
 		t.Fatal("English text subtitles beat preferred Swedish image subtitles")
 	}
 	release.Languages = medialanguages.Parse("Text\nFormat : ASS\nLanguage : Swedish", "")
 	text, _ := Evaluate(release, media, p, 0, 1)
-	if !Better(text, image, true) || text.SubtitleFormatScore != 1 {
+	if !Better(text, image, DefaultSelectionOrder(), true) || text.SubtitleFormatScore != 1 {
 		t.Fatal("text subtitles did not beat equivalent image subtitles")
 	}
 	text.Rank = 1
-	if Better(text, image, true) {
+	if Better(text, image, DefaultSelectionOrder(), true) {
 		t.Fatal("text format overrode preferred quality")
 	}
 	p.PreferTextSubtitles = false
 	unchecked, _ := Evaluate(release, media, p, 0, 1)
 	if unchecked.SubtitleFormatScore != 0 {
 		t.Fatal("unchecked format preference affected ranking")
+	}
+}
+
+func TestConfiguredSelectionOrderRanksLanguageBeforeQuality(t *testing.T) {
+	base := Candidate{Rank: 0, LanguageScore: 1}
+	rich := Candidate{Rank: 1, LanguageScore: 3}
+	if !Better(base, rich, DefaultSelectionOrder(), false) {
+		t.Fatal("default order must keep quality ahead of language")
+	}
+	languageFirst := []string{"language", "quality", "text_subtitles", "keywords", "pack", "priority", "seeders"}
+	if Better(base, rich, languageFirst, false) {
+		t.Fatal("configured language-first order was ignored")
+	}
+	if !Better(rich, base, languageFirst, false) {
+		t.Fatal("language-first release did not win")
 	}
 }

@@ -23,7 +23,7 @@ func TestFinalProjectAitherReleaseWinsByTrackerPriority(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !Better(aither, latTeam, true) || Better(latTeam, aither, true) {
+	if !Better(aither, latTeam, DefaultSelectionOrder(), true) || Better(latTeam, aither, DefaultSelectionOrder(), true) {
 		t.Fatal("tracker priority lost to seed count or size for equivalent releases")
 	}
 }

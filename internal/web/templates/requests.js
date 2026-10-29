@@ -26,7 +26,9 @@ async function loadRequests(force=false){
   try{
     const data=await api('/api/requests/settings');
     if(currentAccount?.role!=="admin"||currentAccount.name!==owner)return;
-    requestData=data;requestDraft=requestClone(data.settings);requestSavedJSON=JSON.stringify(requestDraft);
+    requestData=data;requestDraft=requestClone(data.settings);
+    if(!Array.isArray(requestDraft.selection_order)||!requestDraft.selection_order.length)requestDraft.selection_order=(data.selection_criteria||[]).map(c=>c.id);
+    requestSavedJSON=JSON.stringify(requestDraft);
     renderRequests();requestMessage('');
     if(requestPanel==='history')loadAdminRequestHistory();
     if(data.prowlarr_configured&&!requestIndexersLoaded)loadRequestIndexers();
@@ -68,7 +70,29 @@ function renderRequests(){
 }
 function renderRequestGeneral(){
   return '<div class="request-section"><h3>Permissions and approval</h3><p class="small">Defaults for user requests. A limit of 0 means unlimited; a TV limit counts series.</p><div class="request-grid">'+requestCheck('allow_movies','Allow movie requests')+requestCheck('allow_tv','Allow TV requests')+requestCheck('auto_approve','Automatically approve requests')+requestCheck('search_on_approval','Search when a request is approved')+requestNumber('movie_limit','Movie limit per user',0,10000)+requestNumber('tv_limit','Series limit per user',0,10000)+requestNumber('limit_days','Limit window (days)',1,365)+'</div></div>'+
-    '<div class="request-section"><h3>Search and download policy</h3><div class="request-grid">'+requestNumber('search_interval_seconds','Delay between tracker searches (seconds)',1,3600)+requestNumber('retry_interval_hours','Retry missing releases after (hours)',1,720)+requestNumber('release_delay_minutes','Wait for a preferred release (minutes)',0,10080,1,'0 means no delay after approval.')+requestNumber('min_seeders','Minimum seeders',0,100000)+requestNumber('max_concurrent_downloads','Maximum simultaneous request downloads',1,100)+requestNumber('stalled_minutes','Consider stalled after (minutes)',0,10080,1,'0 disables automatic stalled-download recovery.')+requestCheck('retry_failed_downloads','Try another release after a failed download')+'</div></div>';
+    '<div class="request-section"><h3>Search and download policy</h3><div class="request-grid">'+requestNumber('search_interval_seconds','Delay between tracker searches (seconds)',1,3600)+requestNumber('retry_interval_hours','Retry missing releases after (hours)',1,720)+requestNumber('release_delay_minutes','Wait for a preferred release (minutes)',0,10080,1,'0 means no delay after approval.')+requestNumber('min_seeders','Minimum seeders',0,100000)+requestNumber('max_concurrent_downloads','Maximum simultaneous request downloads',1,100)+requestNumber('stalled_minutes','Consider stalled after (minutes)',0,10080,1,'0 disables automatic stalled-download recovery.')+requestCheck('retry_failed_downloads','Try another release after a failed download')+'</div></div>'+renderRequestRanking();
+}
+function requestSelectionOrder(){
+  const order=requestDraft.selection_order;
+  return Array.isArray(order)&&order.length?order:(requestData.selection_criteria||[]).map(c=>c.id);
+}
+function renderRequestRanking(){
+  const order=requestSelectionOrder(),criteria=requestData.selection_criteria||[];
+  return '<div class="request-section"><h3>Release ranking</h3><p class="small">First rule wins; when two releases tie, the next rule breaks the tie. This order applies to every user and to both movies and TV. The default is quality rank, language matches, text subtitle format, keyword score, pack preference, tracker priority and seeders. Quality rank follows the allowed-qualities order of each profile.</p><div class="request-quality-list">'+order.map((id,index)=>{
+    const criterion=criteria.find(c=>c.id===id),label=criterion?criterion.label:id;
+    return '<div class="request-quality"><span class="small">'+(index+1)+'</span><strong>'+esc(label)+'</strong><button type="button" aria-label="Move '+esc(label)+' up" '+(index===0?'disabled':'')+' onclick="moveRequestSelectionRule('+index+',-1)">↑</button><button type="button" aria-label="Move '+esc(label)+' down" '+(index===order.length-1?'disabled':'')+' onclick="moveRequestSelectionRule('+index+',1)">↓</button></div>';
+  }).join('')+'</div><button type="button" style="margin-top:10px" onclick="resetRequestSelectionOrder()">Restore default order</button></div>';
+}
+function moveRequestSelectionRule(index,direction){
+  const order=requestSelectionOrder(),next=index+direction;
+  if(next<0||next>=order.length)return;
+  [order[index],order[next]]=[order[next],order[index]];
+  requestDraft.selection_order=order;
+  renderRequests();
+}
+function resetRequestSelectionOrder(){
+  requestDraft.selection_order=(requestData.selection_criteria||[]).map(c=>c.id);
+  renderRequests();
 }
 function requestDriveRoot(drive,kind,target){
   return kind==='movie'?(target==='main'?drive.MovieRoot:drive.MovieRemoteRoot):(target==='main'?drive.TVRoot:drive.TVRemoteRoot);
@@ -80,7 +104,7 @@ function renderRequestProfile(kind){
   if(profile.new_title_drive&&!eligible.some(d=>d.ID===profile.new_title_drive))driveOptions.push({id:profile.new_title_drive,label:profile.new_title_drive+' — unavailable for this destination'});
   const roots=eligible.filter(d=>!profile.new_title_drive||d.ID===profile.new_title_drive).map(d=>'<div><span>'+esc(d.ID)+'</span><code>'+esc(requestDriveRoot(d,kind,profile.destination))+'</code></div>').join('');
   let html='<div class="request-section"><h3>Library destination</h3><div class="request-grid">'+requestSelect(kind+'.destination','Add requested '+(isTV?'shows':'movies')+' to',[{id:'remote',label:'Remote library'},{id:'main',label:'Main library'}],'Only copies in the selected library satisfy a request.',true)+requestSelect(kind+'.new_title_drive','Disk for new titles',driveOptions,'Existing titles always stay on their current disk.',true)+'</div><p class="small">CineRoute checks main and remote folders before choosing a disk. All seasons and episodes of a show stay together.</p><div class="request-roots">'+(roots||'<p class="small">No matching library roots are configured for this selection.</p>')+'</div></div>';
-  html+='<div class="request-section"><h3>Allowed qualities</h3><p class="small">Most preferred first. Qualities outside this list are rejected. Within the same quality, language matches rank first, then text-subtitle preference, keyword score, pack preference and tracker priority.</p><div class="request-quality-list">'+profile.qualities.map((id,index)=>{
+  html+='<div class="request-section"><h3>Allowed qualities</h3><p class="small">Most preferred first. Qualities outside this list are rejected. The release ranking under General decides which criterion wins; by default quality is first, then language matches, text-subtitle preference, keyword score, pack preference, tracker priority and seeders.</p><div class="request-quality-list">'+profile.qualities.map((id,index)=>{
     const quality=requestData.qualities.find(q=>q.id===id);
     return '<div class="request-quality"><span class="small">'+(index+1)+'</span><strong>'+esc(quality?quality.label:id)+'</strong><button type="button" aria-label="Move '+esc(quality?quality.label:id)+' up" '+(index===0?'disabled':'')+' onclick="moveRequestQuality(\''+kind+'\','+index+',-1)">↑</button><button type="button" aria-label="Move '+esc(quality?quality.label:id)+' down" '+(index===profile.qualities.length-1?'disabled':'')+' onclick="moveRequestQuality(\''+kind+'\','+index+',1)">↓</button><button type="button" '+(profile.qualities.length===1?'disabled':'')+' onclick="removeRequestQuality(\''+kind+'\','+index+')">Remove</button></div>';
   }).join('')+'</div>';
@@ -99,7 +123,7 @@ function renderRequestProfile(kind){
 }
 function renderRequestLanguagePreferences(kind){
   const profile=requestDraft[kind],languages=requestData.languages||[];
-  return '<div class="request-section"><h3>Language priorities</h3><p class="small">Prefer releases with the checked audio and full subtitle languages. Each distinct match adds one preference point within the same quality, before text-format preference and keyword scores. These are preferences, not requirements; missing metadata earns no points. Existing conforming copies are not replaced just to gain languages.</p><p class="small">Reads tracker-reported MediaInfo / BDInfo from compatible UNIT3D APIs using keys saved in Prowlarr. Lookups follow the search delay and are cached. Forced-only subtitles and commentary tracks do not earn points. Regional variants are grouped, for example Spanish from Spain and Latin America.</p><div class="request-language-groups">'+[{field:'preferred_audio_languages',type:'audio',label:'Prioritize audio',options:[{id:'original',label:'Original language'},...languages]},{field:'preferred_subtitle_languages',type:'subtitles',label:'Prioritize full subtitles',options:languages}].map(group=>{
+  return '<div class="request-section"><h3>Language priorities</h3><p class="small">Prefer releases with the checked audio and full subtitle languages. Each distinct match adds one preference point. Where language matches sit in the ranking is set under General → Release ranking; quality is first by default. These are preferences, not requirements; missing metadata earns no points. Existing conforming copies are not replaced just to gain languages.</p><p class="small">Reads tracker-reported MediaInfo / BDInfo from compatible UNIT3D APIs using keys saved in Prowlarr. Lookups follow the search delay and are cached. Forced-only subtitles and commentary tracks do not earn points. Regional variants are grouped, for example Spanish from Spain and Latin America.</p><div class="request-language-groups">'+[{field:'preferred_audio_languages',type:'audio',label:'Prioritize audio',options:[{id:'original',label:'Original language'},...languages]},{field:'preferred_subtitle_languages',type:'subtitles',label:'Prioritize full subtitles',options:languages}].map(group=>{
     const selected=profile[group.field]||[],common=group.options.filter(option=>['original','en','es','sv'].includes(option.id)||selected.includes(option.id)),more=group.options.filter(option=>!common.includes(option));
     const checkbox=option=>'<label class="request-check"><input type="checkbox" '+(selected.includes(option.id)?'checked':'')+' onchange="toggleRequestLanguagePreference(\''+kind+'\',\''+group.type+'\',\''+esc(option.id)+'\',this.checked)"><span>'+esc(option.label)+'</span></label>';
     return '<fieldset class="request-language-group"><legend>'+group.label+'</legend><div class="request-language-options">'+common.map(checkbox).join('')+'</div>'+(more.length?'<details><summary>More languages</summary><div class="request-language-options">'+more.map(checkbox).join('')+'</div></details>':'')+'</fieldset>';

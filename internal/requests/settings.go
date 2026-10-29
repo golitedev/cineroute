@@ -26,6 +26,37 @@ var QualityOptions = []Option{
 
 var CodecOptions = []Option{{"h264", "H.264 / x264"}, {"hevc", "HEVC / x265"}, {"av1", "AV1"}, {"mpeg2", "MPEG-2"}}
 
+// SelectionOptions lists the release-ranking criteria in their default order.
+// The order itself is configurable in request settings and applies to every
+// user and both movie and TV requests.
+var SelectionOptions = []Option{
+	{"quality", "Quality rank"},
+	{"language", "Language matches"},
+	{"text_subtitles", "Text subtitle format"},
+	{"keywords", "Keyword score"},
+	{"pack", "Pack preference"},
+	{"priority", "Tracker priority"},
+	{"seeders", "Seeders"},
+}
+
+// DefaultSelectionOrder returns the historical ranking order.
+func DefaultSelectionOrder() []string {
+	out := make([]string, 0, len(SelectionOptions))
+	for _, option := range SelectionOptions {
+		out = append(out, option.ID)
+	}
+	return out
+}
+
+func validSelectionCriterion(id string) bool {
+	for _, option := range SelectionOptions {
+		if option.ID == id {
+			return true
+		}
+	}
+	return false
+}
+
 var LanguageOptions = medialanguages.Options
 
 var languageCodePattern = regexp.MustCompile(`^(original|[a-z]{2,3}(-[A-Za-z]{2,4})?)$`)
@@ -83,6 +114,7 @@ type Settings struct {
 	MovieAutoSubtitles     bool      `json:"movie_auto_subtitles"`
 	IncludeSpecials        bool      `json:"include_specials"`
 	PreferSeasonPacks      bool      `json:"prefer_season_packs"`
+	SelectionOrder         []string  `json:"selection_order"`
 	Trackers               []Tracker `json:"trackers"`
 	Movie                  Profile   `json:"movie"`
 	TV                     Profile   `json:"tv"`
@@ -97,7 +129,7 @@ func Defaults() Settings {
 		LimitDays: 7, SearchOnApproval: true, SearchIntervalSeconds: 10,
 		RetryIntervalHours: 6, RetryFailedDownloads: true, StalledMinutes: 120,
 		MaxConcurrentDownloads: 3, MinSeeders: 1, MovieAvailability: "released",
-		PreferSeasonPacks: true, Trackers: []Tracker{},
+		PreferSeasonPacks: true, SelectionOrder: DefaultSelectionOrder(), Trackers: []Tracker{},
 		Movie: profile(20, 0), TV: profile(4, 80),
 	}
 }
@@ -125,6 +157,21 @@ func (s Settings) Validate() error {
 	}
 	if !slices.Contains([]string{"announced", "in_cinemas", "released"}, s.MovieAvailability) {
 		return fmt.Errorf("invalid movie_availability")
+	}
+	if len(s.SelectionOrder) > 0 {
+		seen := map[string]bool{}
+		for _, criterion := range s.SelectionOrder {
+			if !validSelectionCriterion(criterion) {
+				return fmt.Errorf("unknown release ranking criterion %q", criterion)
+			}
+			if seen[criterion] {
+				return fmt.Errorf("duplicate release ranking criterion %q", criterion)
+			}
+			seen[criterion] = true
+		}
+		if len(seen) != len(SelectionOptions) {
+			return fmt.Errorf("selection_order must list every release ranking criterion once")
+		}
 	}
 	if len(s.Trackers) > 100 {
 		return fmt.Errorf("select at most 100 trackers")

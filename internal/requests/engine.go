@@ -568,7 +568,9 @@ func (e *Engine) process(ctx context.Context, job *Job, settings Settings, downl
 		// Log policy decisions without tracker credentials, proxy URLs or paths.
 		slog.Info("request tracker results", "request_id", job.ID, "indexer_id", id, "priority", priorities[id], "accepted", accepted[id], "rejected", trackerRejected[id])
 	}
-	sort.SliceStable(candidates, func(i, j int) bool { return Better(candidates[i], candidates[j], settings.PreferSeasonPacks) })
+	sort.SliceStable(candidates, func(i, j int) bool {
+		return Better(candidates[i], candidates[j], settings.SelectionOrder, settings.PreferSeasonPacks)
+	})
 	for i, candidate := range candidates {
 		if i >= 10 {
 			break

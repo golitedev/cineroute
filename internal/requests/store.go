@@ -44,6 +44,9 @@ func (s *Store) Load() (Settings, error) {
 	if err := json.Unmarshal([]byte(payload), &settings); err != nil {
 		return Settings{}, fmt.Errorf("decode request settings: %w", err)
 	}
+	if len(settings.SelectionOrder) == 0 {
+		settings.SelectionOrder = DefaultSelectionOrder()
+	}
 	if err := settings.Validate(); err != nil {
 		return Settings{}, fmt.Errorf("stored request settings are invalid: %w", err)
 	}
@@ -51,6 +54,9 @@ func (s *Store) Load() (Settings, error) {
 }
 
 func (s *Store) Save(settings Settings) error {
+	if len(settings.SelectionOrder) == 0 {
+		settings.SelectionOrder = DefaultSelectionOrder()
+	}
 	if err := settings.Validate(); err != nil {
 		return err
 	}

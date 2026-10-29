@@ -366,11 +366,18 @@ instead of starting downloads.
   redownload the movie. Interrupted work resumes after restart; quota/service
   hard stops defer automatic work for an hour, while no-match and no-reference
   outcomes wait for an administrator's retry.
+* **Release ranking (General):** the order in which release criteria decide.
+  Move quality rank, language matches, text subtitle format, keyword score, pack
+  preference, tracker priority or seeders up or down. The first rule wins and
+  each later rule breaks ties. This order is global: it applies to every user
+  and to both movie and TV requests. The default is quality rank, language
+  matches, text subtitle format, keyword score, pack preference, tracker
+  priority, seeders.
 * **Language priorities (Movies / TV):** admin-only checkboxes prefer audio and
-  full subtitle languages independently for each profile. Quality order remains
-  first; each distinct preferred audio or full-subtitle match adds one language
-  point, before optional text-subtitle preference, keyword scores, pack preference,
-  tracker priority and seeders.
+  full subtitle languages independently for each profile. Each distinct
+  preferred audio or full-subtitle match adds one language point. Where language
+  matches sit in the ranking is controlled by the global **Release ranking**
+  order (quality is first by default).
   These points do not bypass filters or the minimum keyword score, and language
   preferences alone do not replace an already conforming library copy. With no language or
   format preference selected, existing behavior is preserved and no native
@@ -381,8 +388,10 @@ instead of starting downloads.
   subtitles; commentary audio does not earn language points.
   **Prefer text-based subtitles** favors SRT/SubRip, ASS/SSA, WebVTT, timed text
   and other recognized text formats over PGS, VobSub and other image formats.
-  It ranks after quality and preferred-language matches, so text subtitles in
-  another language do not outrank a preferred language. With no subtitle
+  It ranks where the global **Release ranking** order places text subtitle
+  format (after quality and preferred-language matches by default), so text
+  subtitles in another language do not outrank a preferred language unless the
+  order is changed. With no subtitle
   languages selected, any full text subtitle track earns a format preference;
   otherwise only text tracks in the preferred subtitle languages earn points.
   Unknown formats are neutral and no OCR or format conversion is performed.
@@ -432,9 +441,10 @@ receipts survive restarts in `/data/requests.db`, configurable through
 `/data` volume writable; the read-only YAML configuration is not rewritten.
 
 The worker searches only selected, enabled Prowlarr torrent indexers, ranks
-releases by allowed quality, language preference points, text-subtitle preference,
-keyword score, pack preference, tracker priority
-and seeders, and validates actual torrent files before adding anything. Unknown
+releases by the configurable **Release ranking** order (by default allowed
+quality, language preference points, text-subtitle preference, keyword score,
+pack preference, tracker priority and seeders), and validates actual torrent
+files before adding anything. Unknown
 or ambiguous identities, qualities, episode numbering and overlapping packs
 remain waiting with an admin diagnostic. Codec rules use release/filename
 evidence. Allowed audio languages use tracker reports when language priorities

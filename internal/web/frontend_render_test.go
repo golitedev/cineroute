@@ -49,7 +49,7 @@ func TestFrontendSubtitlesRender(t *testing.T) {
 	if err := os.WriteFile(headPath, []byte(script[:index]), 0o644); err != nil {
 		t.Fatalf("write page script: %v", err)
 	}
-	fixture, err := json.Marshal(map[string]any{"settings": requests.Defaults(), "qualities": requests.QualityOptions, "codecs": requests.CodecOptions, "languages": requests.LanguageOptions, "drives": []config.Drive{{ID: "disk1", MovieRoot: "/disk1/media/movies", MovieRemoteRoot: "/disk1/media/movies-remote", TVRoot: "/disk1/media/tv", TVRemoteRoot: "/disk1/media/tv-remote"}}, "prowlarr_configured": true, "engine_available": false})
+	fixture, err := json.Marshal(map[string]any{"settings": requests.Defaults(), "qualities": requests.QualityOptions, "codecs": requests.CodecOptions, "languages": requests.LanguageOptions, "selection_criteria": requests.SelectionOptions, "drives": []config.Drive{{ID: "disk1", MovieRoot: "/disk1/media/movies", MovieRemoteRoot: "/disk1/media/movies-remote", TVRoot: "/disk1/media/tv", TVRemoteRoot: "/disk1/media/tv-remote"}}, "prowlarr_configured": true, "engine_available": false})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -166,6 +166,7 @@ driver.push("copyData.items[0].status='both'; renderCopies(); expect(!$('copyDet
 const requestFixture=__REQUEST_SETTINGS_FIXTURE__;
 driver.push("currentAccount={name:'admin',role:'admin'};requestData="+JSON.stringify(requestFixture)+"; requestDraft=requestClone(requestData.settings);requestSavedJSON=JSON.stringify(requestDraft);renderRequests();checkHandlers($('requestsSettingsContent').innerHTML);");
 driver.push("expect($('requestsSettingsContent').innerHTML.includes('Permissions and approval'),'request defaults not rendered');expect(!$('requestsSettingsContent').innerHTML.includes('Catalog visibility'),'removed catalog visibility selector still rendered');");
+driver.push("expect($('requestsSettingsContent').innerHTML.includes('Release ranking')&&$('requestsSettingsContent').innerHTML.includes('Language matches'),'release ranking section missing');moveRequestSelectionRule(1,-1);expect(requestDraft.selection_order[0]==='language'&&requestDirty(),'ranking order not changed');resetRequestSelectionOrder();expect(requestDraft.selection_order[0]==='quality','ranking reset failed');");
 driver.push("setRequestField('movie.destination','main');setRequestField('movie.new_title_drive','disk1');setRequestPanel('movie');checkHandlers($('requestsSettingsContent').innerHTML);");
 driver.push("expect(requestDraft.tv.destination==='remote','movie destination changed TV destination');");
 driver.push("expect($('requestsSettingsContent').innerHTML.includes('value=\"main\" selected'), 'main destination is not selected');");
