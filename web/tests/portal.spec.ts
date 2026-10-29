@@ -197,11 +197,13 @@ test('movie requests use only title identity and appear in shared status bar', a
     await page.getByRole('button', { name: 'Close', exact: true }).click();
     await expect(page.getByText('Downloading your request', { exact: true })).toBeVisible();
     await expect(page.getByRole('progressbar', { name: 'Download progress' })).toHaveAttribute('aria-valuenow', '42');
+    await expect(page.locator('.status-bar-container').getByText('42%', { exact: true })).toBeVisible();
     await page.locator('.video-card').first().click();
     await expect(page.getByRole('button', { name: 'Downloading', exact: true })).toBeDisabled();
     expect(f.created).toHaveLength(1);
     await page.getByRole('button', { name: 'Close', exact: true }).click();
     await page.getByRole('button', { name: 'Open my requests', exact: true }).click();
+    await expect(page.getByRole('dialog').getByText('42%', { exact: true })).toBeVisible();
     page.once('dialog', (dialog) => dialog.accept());
     await page.getByRole('button', { name: 'Cancel A good movie', exact: true }).click();
     await expect.poll(() => f.cancelled.length).toBe(1);
@@ -261,6 +263,7 @@ test('album requests use the same login, CSRF token, and progress bar', async ({
     await page.getByRole('button', { name: 'Download full release: A good album', exact: true }).click();
     await expect.poll(() => f.queuedAlbums).toEqual(['album1']);
     await expect(page.getByRole('progressbar', { name: 'Download progress' })).toHaveAttribute('aria-valuenow', '30');
+    await expect(page.locator('.status-bar-container').getByText('30%', { exact: true })).toBeVisible();
 });
 
 test('TV titles without announced seasons cannot create an empty request', async ({ page }) => {

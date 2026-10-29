@@ -73,7 +73,14 @@ export default function QueueView() {
                             </Button>
                         )}
                     </div>
-                    {job.status === 'downloading' && <Progress value={Math.round(progress * 100)} aria-label={t('downloadProgress')} />}
+                    {job.status === 'downloading' && (
+                        <div className='flex items-center gap-2'>
+                            <Progress className='flex-1' value={Math.round(progress * 100)} aria-label={t('downloadProgress')} />
+                            <span className='text-xs tabular-nums text-muted-foreground shrink-0' aria-hidden='true'>
+                                {Math.round(progress * 100)}%
+                            </span>
+                        </div>
+                    )}
                     {job.message && <p className='text-sm break-words text-muted-foreground'>{formatJobMessage(job, t)}</p>}
                     {music && job.status === 'failed' && (job.problem_items?.length || job.problems?.length) > 0 && (
                         <details className='text-sm'>
