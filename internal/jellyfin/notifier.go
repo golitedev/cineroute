@@ -2,10 +2,8 @@
 package jellyfin
 
 import (
-	"bytes"
 	"context"
 	"database/sql"
-	"encoding/json"
 	"fmt"
 	"log/slog"
 	"net/http"
@@ -57,12 +55,17 @@ func New(cfg config.Jellyfin) (*Notifier, error) {
 	db.SetMaxOpenConns(1)
 	for _, q := range []string{"PRAGMA busy_timeout = 5000", `CREATE TABLE IF NOT EXISTS notifications (
  id TEXT PRIMARY KEY, path TEXT NOT NULL, delivered INTEGER NOT NULL DEFAULT 0,
- attempts INTEGER NOT NULL DEFAULT 0, next_attempt INTEGER NOT NULL DEFAULT 0);
+ attempts INTEGER NOT NULL DEFAULT 0, next_attempt INTEGER NOT NULL DEFAULT 0,
+ refresh_library INTEGER NOT NULL DEFAULT 0);
  CREATE INDEX IF NOT EXISTS pending_notifications ON notifications(delivered,next_attempt);`} {
 		if _, err = db.Exec(q); err != nil {
 			db.Close()
 			return nil, err
 		}
+	}
+	if err := migrateNotifications(db); err != nil {
+		db.Close()
+		return nil, err
 	}
 	// Never forward the API key to a redirect destination.
 	client := &http.Client{Timeout: 20 * time.Second, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}
@@ -85,16 +88,66 @@ func (n *Notifier) mapped(path string) string {
 	return path
 }
 
-// Enqueue writes locally; it never waits for Jellyfin. Reusing an event ID is safe.
+// Enqueue reports a changed folder, used for subtitle installations.
+// It writes locally and never waits for Jellyfin. Reusing an event ID is safe.
 func (n *Notifier) Enqueue(id, folder string) error {
+	return n.enqueue(id, folder, false)
+}
+
+// EnqueueDownload requests an explicit refresh of the containing library after
+// download verification. Existing delivered event IDs are never replayed.
+func (n *Notifier) EnqueueDownload(id, folder string) error {
+	return n.enqueue(id, folder, true)
+}
+
+func (n *Notifier) enqueue(id, folder string, refreshLibrary bool) error {
 	if n == nil {
 		return nil
 	}
 	if id == "" || !filepath.IsAbs(folder) {
 		return fmt.Errorf("Jellyfin notifications require an event ID and absolute folder path")
 	}
-	_, err := n.db.Exec("INSERT INTO notifications(id,path) VALUES(?,?) ON CONFLICT(id) DO NOTHING", id, n.mapped(folder))
+	_, err := n.db.Exec("INSERT INTO notifications(id,path,refresh_library) VALUES(?,?,?) ON CONFLICT(id) DO NOTHING", id, n.mapped(folder), refreshLibrary)
 	return err
+}
+
+// Upgrade existing queues without replaying delivered records. Old download
+// notifications already used this prefix; subtitle and other events stay local.
+func migrateNotifications(db *sql.DB) error {
+	rows, err := db.Query("PRAGMA table_info(notifications)")
+	if err != nil {
+		return err
+	}
+	found := false
+	for rows.Next() {
+		var cid, notNull, pk int
+		var name, kind string
+		var defaultValue any
+		if err := rows.Scan(&cid, &name, &kind, &notNull, &defaultValue, &pk); err != nil {
+			rows.Close()
+			return err
+		}
+		if name == "refresh_library" {
+			found = true
+		}
+	}
+	err = rows.Err()
+	rows.Close()
+	if err != nil || found {
+		return err
+	}
+	tx, err := db.Begin()
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	if _, err := tx.Exec("ALTER TABLE notifications ADD COLUMN refresh_library INTEGER NOT NULL DEFAULT 0"); err != nil {
+		return err
+	}
+	if _, err := tx.Exec("UPDATE notifications SET refresh_library=1 WHERE delivered=0 AND id LIKE 'download:%'"); err != nil {
+		return err
+	}
+	return tx.Commit()
 }
 
 func (n *Notifier) Start(ctx context.Context, reconcile func() error) {
@@ -147,25 +200,28 @@ type update struct {
 	UpdateType string `json:"UpdateType"`
 }
 
-// Flush sends at most 200 queued events, combining events for the same folder.
+type event struct {
+	id, path       string
+	attempts       int
+	refreshLibrary bool
+}
+
+// Flush sends at most 200 events, grouping downloads by library and subtitles
+// by folder. An error for one library does not retry successful library updates.
 func (n *Notifier) Flush(ctx context.Context) error {
 	if n == nil {
 		return nil
 	}
 	n.flushMu.Lock()
 	defer n.flushMu.Unlock()
-	rows, err := n.db.QueryContext(ctx, "SELECT id,path,attempts FROM notifications WHERE delivered=0 AND next_attempt<=? ORDER BY rowid LIMIT 200", time.Now().Unix())
+	rows, err := n.db.QueryContext(ctx, "SELECT id,path,attempts,refresh_library FROM notifications WHERE delivered=0 AND next_attempt<=? ORDER BY rowid LIMIT 200", time.Now().Unix())
 	if err != nil {
 		return err
-	}
-	type event struct {
-		id, path string
-		attempts int
 	}
 	var events []event
 	for rows.Next() {
 		var e event
-		if err = rows.Scan(&e.id, &e.path, &e.attempts); err != nil {
+		if err = rows.Scan(&e.id, &e.path, &e.attempts, &e.refreshLibrary); err != nil {
 			rows.Close()
 			return err
 		}
@@ -179,45 +235,24 @@ func (n *Notifier) Flush(ctx context.Context) error {
 	if len(events) == 0 {
 		return nil
 	}
-	seen := map[string]bool{}
-	updates := []update{}
-	for _, e := range events {
-		if !seen[e.path] {
-			seen[e.path] = true
-			updates = append(updates, update{e.path, "Modified"})
-		}
-	}
-	body, err := json.Marshal(struct {
-		Updates []update `json:"Updates"`
-	}{updates})
-	if err != nil {
-		return err
-	}
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, strings.TrimRight(n.cfg.URL, "/")+"/Library/Media/Updated", bytes.NewReader(body))
-	if err != nil {
-		return fmt.Errorf("construct Jellyfin notification")
-	}
-	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("Authorization", fmt.Sprintf("MediaBrowser Token=%q", n.cfg.APIKey))
-	resp, sendErr := n.client.Do(req)
-	if sendErr != nil {
-		err = fmt.Errorf("Jellyfin request failed (connection, timeout or cancellation)")
-	} else {
-		resp.Body.Close()
-		if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-			err = fmt.Errorf("Jellyfin returned HTTP %d", resp.StatusCode)
-		}
-	}
+	results := n.deliver(ctx, events)
 	// Persist retry state even when shutdown canceled the HTTP request.
 	tx, dbErr := n.db.Begin()
 	if dbErr != nil {
 		return dbErr
 	}
 	defer tx.Rollback()
-	for _, e := range events {
-		if err == nil {
+	var firstErr error
+	pending := 0
+	for i, e := range events {
+		deliveryErr := results[i]
+		if deliveryErr == nil {
 			_, dbErr = tx.Exec("UPDATE notifications SET delivered=1 WHERE id=?", e.id)
 		} else {
+			pending++
+			if firstErr == nil {
+				firstErr = deliveryErr
+			}
 			delay := 30 * time.Second * time.Duration(1<<min(e.attempts, 7))
 			if delay > time.Hour {
 				delay = time.Hour
@@ -231,8 +266,8 @@ func (n *Notifier) Flush(ctx context.Context) error {
 	if dbErr = tx.Commit(); dbErr != nil {
 		return dbErr
 	}
-	if err == nil {
-		slog.Info("jellyfin: folder updates reported", "folders", len(updates))
+	if pending > 0 {
+		return fmt.Errorf("%d Jellyfin notifications pending: %w", pending, firstErr)
 	}
-	return err
+	return nil
 }

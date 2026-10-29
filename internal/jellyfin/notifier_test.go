@@ -141,6 +141,9 @@ func TestDisabledIsNoop(t *testing.T) {
 	if err = n.Enqueue("", ""); err != nil {
 		t.Fatal(err)
 	}
+	if err := n.EnqueueDownload("", ""); err != nil {
+		t.Fatal(err)
+	}
 	n.Start(context.Background(), nil)
 	n.Close()
 }

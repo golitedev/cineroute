@@ -70,8 +70,9 @@ requests:
   # Alternatively: CINEROUTE_REQUESTS_STATE_PATH.
   state_path: "/data/requests.db"
 
-# Optional Jellyfin notifications after verified request downloads and subtitle
-# installs. Restart CineRoute after changing these settings.
+# Optional Jellyfin library refreshes after verified request downloads, plus
+# folder notifications after subtitle installs. Libraries are discovered from
+# their configured paths; no library IDs are required. Restart after changes.
 jellyfin:
   enabled: false  # Alternatively: CINEROUTE_JELLYFIN_ENABLED=true
   url: "http://jellyfin:8096"  # CINEROUTE_JELLYFIN_URL; include a base path if used

@@ -559,12 +559,23 @@ when configured. Environment alternatives are `CINEROUTE_JELLYFIN_ENABLED`,
 `CINEROUTE_JELLYFIN_URL`, `CINEROUTE_JELLYFIN_API_KEY` and
 `CINEROUTE_JELLYFIN_STATE_PATH`. The integration is disabled by default.
 
-Notifications use `POST /Library/Media/Updated` with the changed movie or episode
-folder, so unrelated libraries do not need a full scan. Jellyfin still needs to
-process the report; API acceptance does not mean the movie or subtitles are
-already visible to clients. A finished download is reported promptly, then the
-folder is reported again when subtitles are installed, allowing subtitle work to
-wait on quotas without delaying the movie's discovery.
+After a verified download completes, CineRoute looks up Jellyfin's libraries
+using `GET /Library/VirtualFolders` and queues an explicit refresh of the matching
+library through `POST /Items/{libraryId}/Refresh`. This bypasses the filesystem
+notification debounce that can otherwise delay discovery. The matching library
+is selected from its configured locations using the mapped download folder; the
+most specific containing root wins. Main/Remote movie and TV libraries are
+selected automatically, with no library IDs to configure. Unmatched paths stay
+pending with a log message so a bad mapping cannot trigger a scan of unrelated
+libraries. Refreshes use the normal metadata/image modes and do not request
+replacement of existing metadata or artwork.
+
+Subtitle installs continue to report only the changed movie folder through
+`POST /Library/Media/Updated`. They do not request another library scan. A movie's
+library refresh is independent of subtitle processing, so quotas or missing
+subtitle matches do not delay its discovery. Jellyfin still processes refreshes
+in the background; API acceptance does not mean the movie or subtitles are
+already visible to clients.
 
 When Jellyfin sees different mount paths, configure `jellyfin.path_mappings`:
 
@@ -586,13 +597,18 @@ root wins; unmatched paths are sent unchanged. With identical mounts, leave
 `path_mappings: []`. Paths must refer to folders in Jellyfin's configured libraries.
 
 Completed download records and the durable subtitle outbox are checked every ten
-seconds. Reports for the same folder are combined. Failed requests retry with
+seconds. Download completions in the same library are combined into one refresh
+per batch, including when that library spans several disks. Subtitle reports for
+the same folder are combined. Successful notifications are acknowledged even
+when another library fails. Failed requests retry with
 backoff from thirty seconds up to one hour, and survive restarts in
 `jellyfin.state_path` (default `/data/jellyfin.db`). Persist that file and the
 request/subtitle databases. Jellyfin downtime does not fail or redownload media.
 Logs report successful folder updates and pending retries without exposing the
 API key. First enabling the integration also reports retained completed request
-downloads and subtitle installs recorded since this feature was added. Delivery
+downloads and subtitle installs recorded since this feature was added. Upgrading an
+existing queue preserves delivered receipts and upgrades pending download
+notifications to explicit library refreshes. Delivery
 is at least once, so an interrupted acknowledgement may cause a repeated report.
 
 ## Subtitles

@@ -30,7 +30,7 @@ func (s *Server) queueJellyfinUpdates() error {
 		}
 		for folder := range folders {
 			id := fmt.Sprintf("download:%x", sha256.Sum256([]byte(d.Hash+"\x00"+d.Target+"\x00"+folder+"\x00"+d.CompletedAt.String())))
-			if err := s.jellyfin.Enqueue(id, folder); err != nil {
+			if err := s.jellyfin.EnqueueDownload(id, folder); err != nil {
 				return err
 			}
 		}
