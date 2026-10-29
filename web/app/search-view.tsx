@@ -10,7 +10,6 @@ import VideoDetail from '@/components/video-detail';
 import { useT } from '@/lib/i18n';
 import { catalog, type Media, mediaTitle, mediaYear, posterURL, portalRequest, getInfo, formatApiError } from '@/lib/cineroute-api';
 import { type FilterDataType, type QobuzSearchResults, type QobuzSearchFilters, filterExplicit } from '@/lib/qobuz-dl';
-import { useStatusBar } from '@/lib/status-bar/context';
 
 // Kept for the native artist and release dialogs.
 export const filterData: (Omit<FilterDataType[number], 'value'> & { value: QobuzSearchFilters })[] = [
@@ -23,7 +22,6 @@ type VideoResults = { results: Media[]; page: number; total_pages: number; simil
 
 export default function SearchView() {
     const t = useT();
-    const { jobs } = useStatusBar();
     const [kind, setKind] = useState<Kind>('movie');
     const [field, setField] = useState<QobuzSearchFilters>('albums');
     const [query, setQuery] = useState('');
@@ -227,9 +225,6 @@ export default function SearchView() {
                         {kind === 'music'
                             ? items.map((result, index) => <ReleaseCard key={`${result.id}-${index}`} result={result} resolvedTheme='dark' />)
                             : video?.results.map((media) => {
-                                  const requested = jobs.find(
-                                      (j) => j.media?.id === media.id && j.kind === media.media_type && !['cancelled', 'declined'].includes(j.status)
-                                  );
                                   return (
                                       <button
                                           key={`${media.media_type}-${media.id}`}
@@ -250,9 +245,9 @@ export default function SearchView() {
                                                   </div>
                                               )}
                                               <div className='absolute inset-0 bg-black/0 group-hover:bg-black/20 transition-colors' />
-                                              {(media.in_library || requested) && (
+                                              {media.in_library && (
                                                   <span className='absolute bottom-2 left-2 right-2 rounded bg-black/80 text-white text-xs py-1.5 px-2 text-center'>
-                                                      {media.in_library ? t('inLibrary') : t(`status.${requested!.status}`)}
+                                                      {t('inLibrary')}
                                                   </span>
                                               )}
                                           </div>

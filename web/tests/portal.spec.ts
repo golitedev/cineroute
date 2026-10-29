@@ -495,3 +495,23 @@ test('posters show library presence independently of personal requests', async (
         await expect(card.getByText('Completed', { exact: true })).toHaveCount(0);
     }
 });
+
+test('completed requests do not create artwork badges without library presence', async ({ page }) => {
+    await fixtures(page);
+    await page.route('**/api/user/requests', (route) => route.fulfill({ json: {
+        requests: [movie, tv].map((media) => ({
+            id: `completed-${media.id}`, media, status: 'complete', message: 'Ready in the library',
+            progress: 1, seasons: [], created_at: '2024-01-01T00:00:00Z'
+        }))
+    } }));
+    await page.goto('/');
+    for (const kind of ['Movies', 'TV', 'Music']) {
+        await page.getByRole('navigation').getByRole('button', { name: kind, exact: true }).click();
+        await page.getByRole('textbox', { name: 'Search', exact: true }).fill('A good');
+        await page.getByRole('button', { name: 'Search', exact: true }).click();
+        const card = page.locator(kind === 'Music' ? '.release-card' : '.video-card').first();
+        await expect(card).toBeVisible();
+        await expect(card.getByText('Completed', { exact: true })).toHaveCount(0);
+        await expect(card.getByText('In library', { exact: true })).toHaveCount(0);
+    }
+});
