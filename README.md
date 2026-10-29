@@ -483,8 +483,9 @@ from the policy. Stalled recovery pauses only request-managed torrents and keeps
 partial files; manually paused downloads remain paused. Cancelling a request
 withdraws monitoring, while files and downloads already started are retained.
 
-“Ready” means the expected files are present in the chosen library. Jellyfin
-must watch or scan those folders as usual. This workflow supports conventional
+“Ready” means the expected files are present in the chosen library. Enable the
+optional Jellyfin integration below to report those completed files automatically;
+otherwise Jellyfin must watch or scan those folders as usual. This workflow supports conventional
 season/episode numbering; ambiguous absolute/anime numbering is left for admin
 review rather than guessed. Configure TMDB, Prowlarr, selected trackers and
 qBittorrent before expecting automatic fulfillment.
@@ -541,6 +542,58 @@ are ignored; existing workflow databases are no longer opened or migrated and
 can be archived separately.
 
 CineRoute preserves original torrent filenames and does not rename seeded files.
+
+## Jellyfin notifications
+
+CineRoute can notify Jellyfin when request-managed movie or TV downloads are
+complete and their selected files are verified, including hardlinked request
+fulfillment. It also reports external subtitles installed by automatic or manual
+alass jobs, even when another language fails or the batch is canceled afterward.
+Manual torrent intake, copy and hardlink tools outside request fulfillment do not
+currently produce download notifications.
+
+Set `jellyfin.enabled: true`, `jellyfin.url` and `jellyfin.api_key` in your config
+and restart CineRoute. Create a key in Jellyfin's **Dashboard → API Keys**. The
+URL must be reachable from the CineRoute container; include Jellyfin's base path
+when configured. Environment alternatives are `CINEROUTE_JELLYFIN_ENABLED`,
+`CINEROUTE_JELLYFIN_URL`, `CINEROUTE_JELLYFIN_API_KEY` and
+`CINEROUTE_JELLYFIN_STATE_PATH`. The integration is disabled by default.
+
+Notifications use `POST /Library/Media/Updated` with the changed movie or episode
+folder, so unrelated libraries do not need a full scan. Jellyfin still needs to
+process the report; API acceptance does not mean the movie or subtitles are
+already visible to clients. A finished download is reported promptly, then the
+folder is reported again when subtitles are installed, allowing subtitle work to
+wait on quotas without delaying the movie's discovery.
+
+When Jellyfin sees different mount paths, configure `jellyfin.path_mappings`:
+
+```yaml
+jellyfin:
+  enabled: true
+  url: "http://jellyfin:8096"
+  api_key: "" # Set CINEROUTE_JELLYFIN_API_KEY instead
+  state_path: "/data/jellyfin.db"
+  path_mappings:
+    - local: "/disk1/media/movies-remote"
+      remote: "/media/remote-movies"
+    - local: "/disk1/media/movies"
+      remote: "/media/movies"
+```
+
+Add entries for each Main/Remote root that differs. The most specific matching
+root wins; unmatched paths are sent unchanged. With identical mounts, leave
+`path_mappings: []`. Paths must refer to folders in Jellyfin's configured libraries.
+
+Completed download records and the durable subtitle outbox are checked every ten
+seconds. Reports for the same folder are combined. Failed requests retry with
+backoff from thirty seconds up to one hour, and survive restarts in
+`jellyfin.state_path` (default `/data/jellyfin.db`). Persist that file and the
+request/subtitle databases. Jellyfin downtime does not fail or redownload media.
+Logs report successful folder updates and pending retries without exposing the
+API key. First enabling the integration also reports retained completed request
+downloads and subtitle installs recorded since this feature was added. Delivery
+is at least once, so an interrupted acknowledgement may cause a repeated report.
 
 ## Subtitles
 

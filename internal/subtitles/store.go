@@ -22,6 +22,10 @@ type store struct {
 }
 
 const storeSchema = `
+CREATE TABLE IF NOT EXISTS subtitle_library_updates (
+ path TEXT PRIMARY KEY, revision TEXT NOT NULL
+);
+
 CREATE TABLE IF NOT EXISTS subtitle_items (
   id TEXT PRIMARY KEY,
   state_json TEXT NOT NULL

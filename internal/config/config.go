@@ -16,6 +16,7 @@ type Music struct {
 }
 
 type Config struct {
+	Jellyfin       Jellyfin    `yaml:"jellyfin"`
 	Music          Music       `yaml:"music"`
 	Listen         string      `yaml:"listen"`
 	PublicListen   string      `yaml:"public_listen"`
@@ -139,6 +140,7 @@ type Drive struct {
 func Default() *Config {
 	return &Config{
 		Listen:         "127.0.0.1:8787",
+		Jellyfin:       Jellyfin{StatePath: "/data/jellyfin.db"},
 		Music:          Music{Config: musicconfig.Default()},
 		Admin:          Admin{AllowedNetworks: []string{"127.0.0.0/8", "::1/128", "10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16", "fc00::/7"}},
 		AuthUsername:   "cineroute",
@@ -221,6 +223,19 @@ func Load(path string) (*Config, error) {
 }
 
 func applyEnv(cfg *Config) {
+	if v := os.Getenv("CINEROUTE_JELLYFIN_URL"); v != "" {
+		cfg.Jellyfin.URL = v
+	}
+	if v := os.Getenv("CINEROUTE_JELLYFIN_API_KEY"); v != "" {
+		cfg.Jellyfin.APIKey = v
+	}
+	if v := os.Getenv("CINEROUTE_JELLYFIN_ENABLED"); v != "" {
+		cfg.Jellyfin.Enabled = v == "1" || v == "true" || v == "yes" || v == "on"
+	}
+	if v := os.Getenv("CINEROUTE_JELLYFIN_STATE_PATH"); v != "" {
+		cfg.Jellyfin.StatePath = v
+	}
+
 	if v := os.Getenv("CINEROUTE_MUSIC_ENABLED"); v != "" {
 		cfg.Music.Enabled = v == "true" || v == "1"
 	}
@@ -279,6 +294,9 @@ func applyEnv(cfg *Config) {
 }
 
 func (c *Config) validate() error {
+	if err := c.Jellyfin.Validate(); err != nil {
+		return err
+	}
 	if c.Music.Enabled {
 		if err := c.Music.Validate(); err != nil {
 			return fmt.Errorf("music: %w", err)

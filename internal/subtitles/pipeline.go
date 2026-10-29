@@ -1084,6 +1084,13 @@ func (m *Manager) installSubtitle(item *Item, target *TargetState, text string, 
 	if err != nil {
 		return fmt.Errorf("verify installed subtitle: %w", err)
 	}
+	// Keep the library change independently of the pipeline result: a later
+	// language may fail or the batch may be canceled after this install.
+	if m.store != nil {
+		if _, err := m.store.db.Exec("INSERT INTO subtitle_library_updates(path,revision) VALUES(?,?) ON CONFLICT(path) DO UPDATE SET revision=excluded.revision", finalPath, strconv.FormatInt(info.ModTime().UnixNano(), 10)); err != nil {
+			return fmt.Errorf("record installed subtitle library update: %w", err)
+		}
+	}
 	target.Status = StatusAdded
 	target.OutputPath = finalPath
 	target.OutputBytes = info.Size()
