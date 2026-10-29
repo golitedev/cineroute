@@ -289,8 +289,14 @@ test('Music stays a media tab while albums, tracks, and artists use its filter',
     await expect(musicTab).toHaveAttribute('aria-pressed', 'true');
     const musicBox = await musicTab.boundingBox();
     const filterBox = await page.getByRole('button', { name: 'Music · Albums', exact: true }).boundingBox();
-    expect(filterBox!.x).toBeGreaterThanOrEqual(musicBox!.x + musicBox!.width);
-    expect(Math.abs(filterBox!.y + filterBox!.height / 2 - musicBox!.y - musicBox!.height / 2)).toBeLessThan(2);
+    if ((page.viewportSize()?.width ?? 0) < 640) {
+        const navBox = (await navigation.boundingBox())!;
+        expect(filterBox!.y).toBeGreaterThanOrEqual(musicBox!.y + musicBox!.height);
+        expect(Math.abs(filterBox!.x + filterBox!.width / 2 - (navBox.x + navBox.width / 2))).toBeLessThan(2);
+    } else {
+        expect(filterBox!.x).toBeGreaterThanOrEqual(musicBox!.x + musicBox!.width);
+        expect(Math.abs(filterBox!.y + filterBox!.height / 2 - musicBox!.y - musicBox!.height / 2)).toBeLessThan(2);
+    }
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBeTruthy();
     await expect(navigation.getByRole('button', { name: 'Albums', exact: true })).toHaveCount(0);
     await page.getByRole('button', { name: 'Music · Albums', exact: true }).click();
@@ -414,7 +420,7 @@ test('switching media starts clean without sending the old search to another cat
     }
 });
 
-test('mobile media tabs align left with icons and the music filter drops below when space is tight', async ({ page }) => {
+test('mobile media tabs stay centered with icons and the music filter sits centered below them', async ({ page }) => {
     await fixtures(page);
     await page.setViewportSize({ width: 320, height: 800 });
     await page.goto('/');
@@ -422,14 +428,18 @@ test('mobile media tabs align left with icons and the music filter drops below w
     const names = ['Movies', 'TV', 'Music'];
     const navBox = (await navigation.boundingBox())!;
     for (const name of names) await expect(navigation.getByRole('button', { name, exact: true }).locator('svg')).toBeVisible();
-    const moviesBox = (await navigation.getByRole('button', { name: 'Movies', exact: true }).boundingBox())!;
-    expect(moviesBox.x - navBox.x).toBeLessThan(2);
+    const initial = await Promise.all(names.map((name) => navigation.getByRole('button', { name, exact: true }).boundingBox()));
+    const groupLeft = initial[0]!.x;
+    const groupRight = initial[2]!.x + initial[2]!.width;
+    expect(Math.abs(groupLeft - navBox.x - (navBox.x + navBox.width - groupRight))).toBeLessThan(3);
     await navigation.getByRole('button', { name: 'Music', exact: true }).click();
     const filter = navigation.getByRole('button', { name: 'Music · Albums', exact: true });
     await expect(filter.locator('svg').first()).toBeVisible();
     const filterBox = (await filter.boundingBox())!;
     const tabBoxes = await Promise.all(names.map((name) => navigation.getByRole('button', { name, exact: true }).boundingBox()));
     expect(filterBox.y).toBeGreaterThan(Math.max(...tabBoxes.map((box) => box!.y + box!.height)));
-    expect(filterBox.x).toBeGreaterThanOrEqual(navBox.x - 0.5);
-    expect(filterBox.x + filterBox.width).toBeLessThanOrEqual(navBox.x + navBox.width + 0.5);
+    expect(Math.abs(filterBox.x + filterBox.width / 2 - (navBox.x + navBox.width / 2))).toBeLessThan(2);
+    for (const [index, box] of tabBoxes.entries()) {
+        for (const dimension of ['x', 'y', 'width', 'height'] as const) expect(Math.abs(box![dimension] - initial[index]![dimension])).toBeLessThan(0.5);
+    }
 });

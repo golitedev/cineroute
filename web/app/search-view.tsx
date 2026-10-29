@@ -150,7 +150,7 @@ export default function SearchView() {
                         {loading ? <LoaderCircle className='animate-spin' /> : <ArrowRight />}
                     </Button>
                 </form>
-                <nav className='flex items-center justify-start gap-1 sm:justify-center sm:gap-2 flex-wrap' aria-label={t('search')}>
+                <nav className='flex items-center justify-center gap-1 sm:gap-2 flex-wrap' aria-label={t('search')}>
                     <Button
                         variant={kind === 'movie' ? 'secondary' : 'outline'}
                         className='border px-2 aria-[pressed=true]:border-transparent sm:px-4'
@@ -179,32 +179,34 @@ export default function SearchView() {
                             <Music2 className='size-4' />
                             {t('music')}
                         </Button>
-                        {kind === 'music' && (
-                            <DropdownMenu>
-                                <DropdownMenuTrigger asChild>
-                                    <Button
-                                        variant='ghost'
-                                        size='sm'
-                                        className='gap-1 px-1 text-muted-foreground sm:absolute sm:left-full sm:top-1/2 sm:ml-2 sm:-translate-y-1/2 sm:gap-2 sm:px-3'
-                                        aria-label={`${t('music')} · ${t(field)}`}
-                                    >
-                                        <MusicIcon className='size-4' />
-                                        {t(field)}
-                                        <ChevronDown className='size-3' />
-                                    </Button>
-                                </DropdownMenuTrigger>
-                                <DropdownMenuContent align='end'>
-                                    <DropdownMenuRadioGroup value={field} onValueChange={(value) => setField(value as QobuzSearchFilters)}>
-                                        {filterData.map((f) => (
-                                            <DropdownMenuRadioItem key={f.value} value={f.value}>
-                                                <f.icon className='size-4 mr-2' />
-                                                {t(f.value)}
-                                            </DropdownMenuRadioItem>
-                                        ))}
-                                    </DropdownMenuRadioGroup>
-                                </DropdownMenuContent>
-                            </DropdownMenu>
-                        )}
+                        <div className='flex min-h-10 basis-full items-center justify-center sm:contents'>
+                            {kind === 'music' && (
+                                <DropdownMenu>
+                                    <DropdownMenuTrigger asChild>
+                                        <Button
+                                            variant='ghost'
+                                            size='sm'
+                                            className='gap-1 px-1 text-muted-foreground sm:absolute sm:left-full sm:top-1/2 sm:ml-2 sm:-translate-y-1/2 sm:gap-2 sm:px-3'
+                                            aria-label={`${t('music')} · ${t(field)}`}
+                                        >
+                                            <MusicIcon className='size-4' />
+                                            {t(field)}
+                                            <ChevronDown className='size-3' />
+                                        </Button>
+                                    </DropdownMenuTrigger>
+                                    <DropdownMenuContent align='end'>
+                                        <DropdownMenuRadioGroup value={field} onValueChange={(value) => setField(value as QobuzSearchFilters)}>
+                                            {filterData.map((f) => (
+                                                <DropdownMenuRadioItem key={f.value} value={f.value}>
+                                                    <f.icon className='size-4 mr-2' />
+                                                    {t(f.value)}
+                                                </DropdownMenuRadioItem>
+                                            ))}
+                                        </DropdownMenuRadioGroup>
+                                    </DropdownMenuContent>
+                                </DropdownMenu>
+                            )}
+                        </div>
                     </div>
                 </nav>
                 <div role='status' aria-live='polite' className='text-sm text-center text-muted-foreground'>
