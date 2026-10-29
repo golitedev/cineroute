@@ -31,7 +31,7 @@ export const es: Dictionary = {
     loadMore: 'Cargar más',
     music: 'Música',
     tv: 'Series',
-    movies: 'Películas',
+    movies: 'Pelis',
     noQueued: 'No hay solicitudes en curso.',
     openQueue: 'Abrir mis solicitudes',
     queueDescription: 'Tus descargas, solicitudes y resultados recientes',

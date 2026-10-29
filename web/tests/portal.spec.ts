@@ -425,7 +425,9 @@ test('mobile media tabs align left with icons and the music filter drops below w
     const moviesBox = (await navigation.getByRole('button', { name: 'Movies', exact: true }).boundingBox())!;
     expect(moviesBox.x - navBox.x).toBeLessThan(2);
     await navigation.getByRole('button', { name: 'Music', exact: true }).click();
-    const filterBox = (await navigation.getByRole('button', { name: 'Music · Albums', exact: true }).boundingBox())!;
+    const filter = navigation.getByRole('button', { name: 'Music · Albums', exact: true });
+    await expect(filter.locator('svg').first()).toBeVisible();
+    const filterBox = (await filter.boundingBox())!;
     const tabBoxes = await Promise.all(names.map((name) => navigation.getByRole('button', { name, exact: true }).boundingBox()));
     expect(filterBox.y).toBeGreaterThan(Math.max(...tabBoxes.map((box) => box!.y + box!.height)));
     expect(filterBox.x).toBeGreaterThanOrEqual(navBox.x - 0.5);

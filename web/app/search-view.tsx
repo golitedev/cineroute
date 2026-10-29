@@ -188,7 +188,7 @@ export default function SearchView() {
                                         className='gap-1 px-1 text-muted-foreground sm:absolute sm:left-full sm:top-1/2 sm:ml-2 sm:-translate-y-1/2 sm:gap-2 sm:px-3'
                                         aria-label={`${t('music')} · ${t(field)}`}
                                     >
-                                        <MusicIcon className='hidden size-4 sm:block' />
+                                        <MusicIcon className='size-4' />
                                         {t(field)}
                                         <ChevronDown className='size-3' />
                                     </Button>
