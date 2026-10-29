@@ -171,6 +171,12 @@ test('clean home with centered media controls and one shared history popup', asy
     await expect(page.getByRole('heading', { name: 'My requests', exact: true })).toBeVisible();
     await expect(page.getByText('An earlier movie', { exact: true })).toBeVisible();
     await expect(page.getByText('A good album', { exact: true })).toBeVisible();
+    const requests = page.getByRole('dialog');
+    await expect(requests).toBeFocused();
+    const queueSearch = requests.getByRole('textbox', { name: 'Search...', exact: true });
+    await expect(queueSearch).not.toBeFocused();
+    await queueSearch.click();
+    await expect(queueSearch).toBeFocused();
     await page.screenshot({ path: `/tmp/cineroute-${test.info().project.name}-requests.png` });
     await page.getByRole('button', { name: 'Close', exact: true }).click();
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBeTruthy();
