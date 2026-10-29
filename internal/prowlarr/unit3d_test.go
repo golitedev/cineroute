@@ -34,7 +34,7 @@ func TestUnit3dMetadataBatchesUsesSavedKeysAndCaches(t *testing.T) {
 			t.Errorf("wrong or sensitive query: %s", r.URL.RawQuery)
 		}
 		json.NewEncoder(w).Encode(map[string]any{"data": []any{
-			map[string]any{"attributes": map[string]any{"details_link": tracker.URL + "/torrents/42", "media_info": "Audio\nLanguage : Spanish\nText\nLanguage : Swedish\nForced : No", "download_link": "https://private/download?passkey=DO_NOT_PUBLISH"}},
+			map[string]any{"attributes": map[string]any{"details_link": tracker.URL + "/torrents/42", "media_info": "Video\nBit rate : 9 096 kb/s\nAudio\nLanguage : Spanish\nText\nLanguage : Swedish\nForced : No", "download_link": "https://private/download?passkey=DO_NOT_PUBLISH"}},
 			map[string]any{"attributes": map[string]any{"details_link": tracker.URL + "/torrents/43", "media_info": "Audio\nLanguage : English"}},
 		}})
 	}))
@@ -46,6 +46,9 @@ func TestUnit3dMetadataBatchesUsesSavedKeysAndCaches(t *testing.T) {
 		if out[0].Languages.PreferenceScore([]string{"es"}, []string{"sv"}, "en") != 2 || out[1].Languages.PreferenceScore([]string{"es"}, []string{"sv"}, "en") != 0 {
 			t.Fatalf("wrong per-torrent metadata: %+v", out)
 		}
+	}
+	if releases[0].Languages.VideoBitrateBPS != 9096000 {
+		t.Fatal("video bitrate was lost during enrichment or caching")
 	}
 	if hits.Load() != 1 || paces.Load() != 1 {
 		t.Fatalf("cache/batch failed: hits %d paces %d", hits.Load(), paces.Load())

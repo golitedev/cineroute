@@ -95,7 +95,7 @@ func TestSelectionOrderValidationAndLegacyDefault(t *testing.T) {
 		t.Fatal(err)
 	}
 	loaded, err := store.Load()
-	if err != nil || !reflect.DeepEqual(loaded.SelectionOrder, settings.SelectionOrder) {
+	if err != nil || !reflect.DeepEqual(loaded.SelectionOrder, NormalizeSelectionOrder(settings.SelectionOrder)) {
 		t.Fatalf("selection order did not persist: %v %v", loaded.SelectionOrder, err)
 	}
 	for name, order := range map[string][]string{

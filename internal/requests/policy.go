@@ -18,6 +18,7 @@ import (
 )
 
 type Candidate struct {
+	videoBitrateRank    int64
 	Release             prowlarr.Release
 	Quality             string
 	Rank                int
@@ -245,46 +246,86 @@ func ImprovesExisting(quality string, score int, old Existing, p Profile) bool {
 	return !old.Conforms || Improved(quality, score, old.Quality, old.Score, p)
 }
 
-// Better reports whether a should be selected before b under the configured
-// release-ranking order. Criteria whose values tie are decided by the next
-// criterion; the final tie-breaker is the smaller torrent size.
+// Better compares candidates after prepareBitrateRanking has qualified video
+// rates across tied groups. Smaller torrent size remains the final fallback.
 func Better(a, b Candidate, order []string, preferPacks bool) bool {
-	if len(order) == 0 {
-		order = DefaultSelectionOrder()
-	}
-	for _, criterion := range order {
-		switch criterion {
-		case "quality":
-			if a.Rank != b.Rank {
-				return a.Rank < b.Rank
-			}
-		case "language":
-			if a.LanguageScore != b.LanguageScore {
-				return a.LanguageScore > b.LanguageScore
-			}
-		case "text_subtitles":
-			if a.SubtitleFormatScore != b.SubtitleFormatScore {
-				return a.SubtitleFormatScore > b.SubtitleFormatScore
-			}
-		case "keywords":
-			if a.Score != b.Score {
-				return a.Score > b.Score
-			}
-		case "pack":
-			if a.Pack != b.Pack {
-				return a.Pack == preferPacks
-			}
-		case "priority":
-			if a.Priority != b.Priority {
-				return a.Priority < b.Priority
-			}
-		case "seeders":
-			if as, bs := candidateSeeders(a), candidateSeeders(b); as != bs {
-				return as > bs
-			}
+	for _, criterion := range NormalizeSelectionOrder(order) {
+		av, bv := rankingValue(a, criterion, preferPacks), rankingValue(b, criterion, preferPacks)
+		if av != bv {
+			return av > bv
 		}
 	}
 	return a.Release.Size < b.Release.Size
+}
+
+// All ranking values use higher-is-better, so grouping and comparison agree.
+func rankingValue(c Candidate, criterion string, preferPacks bool) int64 {
+	switch criterion {
+	case "quality":
+		return -int64(c.Rank)
+	case "language":
+		return int64(c.LanguageScore)
+	case "text_subtitles":
+		return int64(c.SubtitleFormatScore)
+	case "keywords":
+		return int64(c.Score)
+	case "pack":
+		if c.Pack == preferPacks {
+			return 1
+		}
+	case "priority":
+		return -int64(c.Priority)
+	case "video_bitrate":
+		return c.videoBitrateRank
+	case "seeders":
+		return int64(candidateSeeders(c))
+	}
+	return 0
+}
+
+// prepareBitrateRanking keeps unknown reports neutral and ensures a transitive
+// sort. Pairwise "compare only when both known" can create ordering cycles.
+// Instead, qualify an entire group tied on the earlier configured criteria.
+func prepareBitrateRanking(candidates []Candidate, order []string, preferPacks bool) {
+	order = NormalizeSelectionOrder(order)
+	index := slices.Index(order, "video_bitrate")
+	for i := range candidates {
+		candidates[i].videoBitrateRank = 0
+	}
+	if index < 0 {
+		return
+	}
+	type group struct {
+		indices        []int
+		quality, codec string
+		valid          bool
+	}
+	groups := map[string]*group{}
+	for i, c := range candidates {
+		prefix := make([]int64, 0, index)
+		for _, criterion := range order[:index] {
+			prefix = append(prefix, rankingValue(c, criterion, preferPacks))
+		}
+		key := fmt.Sprint(prefix)
+		codec := Codec(c.Release.Title)
+		g := groups[key]
+		if g == nil {
+			g = &group{quality: c.Quality, codec: codec, valid: c.Quality != "" && codec != ""}
+			groups[key] = g
+		}
+		g.indices = append(g.indices, i)
+		if c.Quality != g.quality || codec != g.codec || c.Release.Languages.VideoBitrateBPS <= 0 {
+			g.valid = false
+		}
+	}
+	for _, g := range groups {
+		if !g.valid {
+			continue
+		}
+		for _, i := range g.indices {
+			candidates[i].videoBitrateRank = candidates[i].Release.Languages.VideoBitrateBPS
+		}
+	}
 }
 
 func candidateSeeders(c Candidate) int {

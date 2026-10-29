@@ -36,14 +36,41 @@ var SelectionOptions = []Option{
 	{"keywords", "Keyword score"},
 	{"pack", "Pack preference"},
 	{"priority", "Tracker priority"},
+	{"video_bitrate", "Video bitrate"},
 	{"seeders", "Seeders"},
 }
 
-// DefaultSelectionOrder returns the historical ranking order.
+// DefaultSelectionOrder returns the default ranking order.
 func DefaultSelectionOrder() []string {
 	out := make([]string, 0, len(SelectionOptions))
 	for _, option := range SelectionOptions {
 		out = append(out, option.ID)
+	}
+	return out
+}
+
+// NormalizeSelectionOrder upgrades complete legacy orders while preserving
+// their priorities. New bitrate ranking precedes the old seeders fallback.
+func NormalizeSelectionOrder(order []string) []string {
+	if len(order) == 0 {
+		return DefaultSelectionOrder()
+	}
+	if len(order) != len(SelectionOptions)-1 || slices.Contains(order, "video_bitrate") {
+		return order
+	}
+	seen := map[string]bool{}
+	for _, criterion := range order {
+		if !validSelectionCriterion(criterion) || seen[criterion] {
+			return order
+		}
+		seen[criterion] = true
+	}
+	out := make([]string, 0, len(order)+1)
+	for _, criterion := range order {
+		if criterion == "seeders" {
+			out = append(out, "video_bitrate")
+		}
+		out = append(out, criterion)
 	}
 	return out
 }
@@ -162,7 +189,7 @@ func (s Settings) Validate() error {
 	}
 	if len(s.SelectionOrder) > 0 {
 		seen := map[string]bool{}
-		for _, criterion := range s.SelectionOrder {
+		for _, criterion := range NormalizeSelectionOrder(s.SelectionOrder) {
 			if !validSelectionCriterion(criterion) {
 				return fmt.Errorf("unknown release ranking criterion %q", criterion)
 			}

@@ -18,7 +18,7 @@ import (
 )
 
 func TestAdminLanguagePrioritiesRankReportsWithoutChangingRoutingOrKeywordMinimum(t *testing.T) {
-	for _, mode := range []string{"off", "language", "text"} {
+	for _, mode := range []string{"off", "language", "text", "bitrate"} {
 		t.Run(mode, func(t *testing.T) {
 			enabled := mode != "off"
 			f := newWorkflowFixture(t, false)
@@ -38,7 +38,7 @@ func TestAdminLanguagePrioritiesRankReportsWithoutChangingRoutingOrKeywordMinimu
 					if r.Header.Get("Authorization") != "Bearer PRIVATE_TRACKER_KEY" || r.Header.Get("X-Api-Key") != "" {
 						t.Error("native lookup authentication wrong")
 					}
-					json.NewEncoder(w).Encode(map[string]any{"data": []any{map[string]any{"attributes": map[string]string{"details_link": provider.URL + "/torrents/1", "media_info": "Audio\nLanguage : English\nText\nFormat : PGS\nLanguage : Swedish\nForced : No"}}, map[string]any{"attributes": map[string]string{"details_link": provider.URL + "/torrents/2", "media_info": "Audio\nLanguage : Spanish\nText\nFormat : UTF-8\nLanguage : Swedish\nForced : No"}}}})
+					json.NewEncoder(w).Encode(map[string]any{"data": []any{map[string]any{"attributes": map[string]string{"details_link": provider.URL + "/torrents/1", "media_info": "Video\nBit rate : 4 803 kb/s\nAudio\nLanguage : English\nText\nFormat : PGS\nLanguage : Swedish\nForced : No"}}, map[string]any{"attributes": map[string]string{"details_link": provider.URL + "/torrents/2", "media_info": "Video\nBit rate : 9 096 kb/s\nAudio\nLanguage : Spanish\nText\nFormat : UTF-8\nLanguage : Swedish\nForced : No"}}}})
 				case "/ordinary":
 					ordinaryHits.Add(1)
 					w.Write(f.torrent)
@@ -54,6 +54,9 @@ func TestAdminLanguagePrioritiesRankReportsWithoutChangingRoutingOrKeywordMinimu
 			f.s.engine = requests.NewEngine(f.s.requests, f.s.tmdb, f.s.prowlarr, requestBackend{f.s})
 			settings, _ := f.s.requests.Load()
 			settings.Movie.Keywords = []requests.Keyword{{Pattern: "PreferredGroup", Match: "contains", Mode: "preferred", Score: 100}}
+			if mode == "bitrate" {
+				settings.Movie.Keywords = []requests.Keyword{}
+			}
 			if mode == "language" {
 				settings.Movie.PreferredAudioLanguages = []string{"es"}
 				settings.Movie.PreferredSubtitleLanguages = []string{"sv"}
@@ -86,11 +89,11 @@ func TestAdminLanguagePrioritiesRankReportsWithoutChangingRoutingOrKeywordMinimu
 				t.Fatalf("routing changed: %+v", d)
 			}
 			if enabled {
-				if nativeHits.Load() != 1 || preferredHits.Load() != 1 || ordinaryHits.Load() != 0 || (mode == "language" && d.LanguageScore != 2) || (mode == "text" && d.SubtitleFormatScore != 1) || !slices.Contains(d.Languages.Audio, "es") || !slices.Contains(d.Languages.Subtitles, "sv") {
+				if d.Languages.VideoBitrateBPS != 9096000 || nativeHits.Load() != 1 || preferredHits.Load() != 1 || ordinaryHits.Load() != 0 || (mode == "language" && d.LanguageScore != 2) || (mode == "text" && d.SubtitleFormatScore != 1) || !slices.Contains(d.Languages.Audio, "es") || !slices.Contains(d.Languages.Subtitles, "sv") {
 					t.Fatalf("language ranking did not beat keyword preference: %+v hits %d/%d/%d", d, nativeHits.Load(), preferredHits.Load(), ordinaryHits.Load())
 				}
-			} else if nativeHits.Load() != 0 || ordinaryHits.Load() != 1 || preferredHits.Load() != 0 {
-				t.Fatal("language lookups changed default behavior")
+			} else if nativeHits.Load() != 1 || ordinaryHits.Load() != 1 || preferredHits.Load() != 0 || d.Languages.VideoBitrateBPS != 4803000 {
+				t.Fatal("bitrate metadata was not fetched or overrode earlier keyword priority")
 			}
 			if data, _ := os.ReadFile(sentinel); string(data) != "original main copy" {
 				t.Fatal("existing main copy modified")
@@ -115,7 +118,7 @@ func TestAdminLanguagePrioritiesRankReportsWithoutChangingRoutingOrKeywordMinimu
 				t.Fatal("history lacks reported languages/priority points")
 			}
 			public := userWorkflowCall(t, f.s, "alice", "GET", "/api/user/requests", "")
-			for _, secret := range []string{"PRIVATE_TRACKER_KEY", "PRIVATE_PROWLARR_KEY", "preferred_audio_languages", "languages", "language_score"} {
+			for _, secret := range []string{"PRIVATE_TRACKER_KEY", "PRIVATE_PROWLARR_KEY", "preferred_audio_languages", "languages", "language_score", "video_bitrate_bps"} {
 				if strings.Contains(public.Body.String(), secret) {
 					t.Errorf("user response exposed admin metadata %q", secret)
 				}

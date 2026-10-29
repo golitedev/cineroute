@@ -53,6 +53,11 @@ func Normalize(value string) string {
 }
 
 type Metadata struct {
+	// VideoBitrateBPS is the actual reported video stream rate, never overall,
+	// nominal, maximum or audio bitrate. Multiple video streams remain unknown.
+	VideoBitrateBPS int64 `json:"video_bitrate_bps,omitempty"`
+	videoTracks     int
+
 	Audio             []string `json:"audio,omitempty"`
 	Subtitles         []string `json:"subtitles,omitempty"`
 	ForcedSubtitles   []string `json:"forced_subtitles,omitempty"`
@@ -99,9 +104,19 @@ func (m Metadata) TextPreferenceScore(preferred []string) int {
 	return score
 }
 
-type track struct{ kind, language, title, forced, format, codecID string }
+type track struct{ kind, language, title, forced, format, codecID, bitrate string }
 
 func (m *Metadata) add(t track) {
+	if t.kind == "video" {
+		m.videoTracks++
+		if m.videoTracks == 1 {
+			m.VideoBitrateBPS = parseVideoBitrate(t.bitrate)
+		} else {
+			m.VideoBitrateBPS = 0
+		}
+		return
+	}
+
 	code := Normalize(t.language)
 	title := strings.ToLower(t.title)
 	for _, word := range []string{"commentary", "comentario", "commentaire", "kommentar"} {
@@ -164,6 +179,8 @@ func Parse(mediaInfo, bdInfo string) Metadata {
 			}
 			value = strings.TrimSpace(value)
 			switch strings.ToLower(strings.TrimSpace(key)) {
+			case "bit rate":
+				current.bitrate = value
 			case "language":
 				current.language = value
 			case "title":
@@ -184,7 +201,7 @@ func Parse(mediaInfo, bdInfo string) Metadata {
 	m.ForcedSubtitles = unique(m.ForcedSubtitles)
 	m.TextSubtitles = unique(m.TextSubtitles)
 	m.ImageSubtitles = unique(m.ImageSubtitles)
-	if len(m.Audio)+len(m.Subtitles)+len(m.ForcedSubtitles) > 0 || m.HasTextSubtitles || m.HasImageSubtitles {
+	if len(m.Audio)+len(m.Subtitles)+len(m.ForcedSubtitles) > 0 || m.HasTextSubtitles || m.HasImageSubtitles || m.VideoBitrateBPS > 0 {
 		m.Status = "reported"
 	}
 	return m
@@ -200,6 +217,7 @@ func parseJSON(m *Metadata, raw string) {
 				Forced   json.RawMessage
 				Format   string
 				CodecID  string
+				BitRate  json.RawMessage
 			}
 		}
 	}
@@ -208,7 +226,7 @@ func parseJSON(m *Metadata, raw string) {
 	}
 	for _, t := range report.Media.Track {
 		forced := strings.Trim(string(t.Forced), `"`)
-		m.add(track{kind: strings.ToLower(t.Type), language: t.Language, title: t.Title, forced: forced, format: t.Format, codecID: t.CodecID})
+		m.add(track{kind: strings.ToLower(t.Type), language: t.Language, title: t.Title, forced: forced, format: t.Format, codecID: t.CodecID, bitrate: jsonBitrate(t.BitRate)})
 	}
 }
 

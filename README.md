@@ -385,20 +385,32 @@ instead of starting downloads.
   outcomes wait for an administrator's retry.
 * **Release ranking (General):** the order in which release criteria decide.
   Move quality rank, language matches, text subtitle format, keyword score, pack
-  preference, tracker priority or seeders up or down. The first rule wins and
+  preference, tracker priority, video bitrate or seeders up or down. The first rule wins and
   each later rule breaks ties. This order is global: it applies to every user
   and to both movie and TV requests. The default is quality rank, language
   matches, text subtitle format, keyword score, pack preference, tracker
-  priority, seeders.
+  priority, video bitrate, seeders.
+  **Video bitrate** uses the actual video stream bitrate from tracker-supplied
+  MediaInfo text or JSON. It never substitutes overall, audio, nominal or maximum
+  bitrate, and does not estimate bitrate from torrent size. Higher rates win only
+  when the whole group tied on earlier rules has usable rates and the same
+  quality tier and codec. If any report is missing or ambiguous, or the group
+  mixes quality tiers or codecs, the rule is skipped for that group and later
+  rules decide. This keeps unavailable metadata neutral and sorting consistent.
+  The default puts video bitrate before seeders; smaller torrent size remains
+  the final fallback. Existing custom orders gain video bitrate immediately
+  before seeders. This is a selection preference, not an upgrade trigger for
+  existing conforming copies. Request history and selection logs show reported
+  video bitrate for newly selected releases.
 * **Language priorities (Movies / TV):** admin-only checkboxes prefer audio and
   full subtitle languages independently for each profile. Each distinct
   preferred audio or full-subtitle match adds one language point. Where language
   matches sit in the ranking is controlled by the global **Release ranking**
   order (quality is first by default).
   These points do not bypass filters or the minimum keyword score, and language
-  preferences alone do not replace an already conforming library copy. With no language or
-  format preference selected, existing behavior is preserved and no native
-  metadata lookups are performed.
+  preferences alone do not replace an already conforming library copy. Native
+  reports are also read for the video-bitrate ranking rule, even without language
+  or subtitle-format preferences.
   Regional variants are grouped (for example all Spanish audio), and original
   audio is resolved using TMDB's original language without double-counting it.
   Forced-only, signs/songs-only and commentary tracks do not count as full
@@ -460,7 +472,7 @@ receipts survive restarts in `/data/requests.db`, configurable through
 The worker searches only selected, enabled Prowlarr torrent indexers, ranks
 releases by the configurable **Release ranking** order (by default allowed
 quality, language preference points, text-subtitle preference, keyword score,
-pack preference, tracker priority and seeders), and validates actual torrent
+pack preference, tracker priority, video bitrate and seeders), and validates actual torrent
 files before adding anything. Unknown
 or ambiguous identities, qualities, episode numbering and overlapping packs
 remain waiting with an admin diagnostic. Codec rules use release/filename

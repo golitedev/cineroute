@@ -516,7 +516,7 @@ func (e *Engine) process(ctx context.Context, job *Job, settings Settings, downl
 		if err != nil {
 			return err
 		}
-		if job.SpanishAudio || len(p.PreferredAudioLanguages)+len(p.PreferredSubtitleLanguages) > 0 || p.PreferTextSubtitles {
+		if job.SpanishAudio || len(p.PreferredAudioLanguages)+len(p.PreferredSubtitleLanguages) > 0 || p.PreferTextSubtitles || slices.Contains(settings.SelectionOrder, "video_bitrate") {
 			// Read native reports only for otherwise eligible, selected releases.
 			// Metadata may also confirm an existing strict audio-language filter.
 			precheck := p
@@ -535,7 +535,7 @@ func (e *Engine) process(ctx context.Context, job *Job, settings Settings, downl
 				}
 				eligible = append(eligible, release)
 			}
-			job.Message = "Reading tracker audio and subtitle languages"
+			job.Message = "Reading tracker media details"
 			if err := e.Store.Update(*job); err != nil {
 				return err
 			}
@@ -567,6 +567,7 @@ func (e *Engine) process(ctx context.Context, job *Job, settings Settings, downl
 		// Log policy decisions without tracker credentials, proxy URLs or paths.
 		slog.Info("request tracker results", "request_id", job.ID, "indexer_id", id, "priority", priorities[id], "accepted", accepted[id], "rejected", trackerRejected[id])
 	}
+	prepareBitrateRanking(candidates, settings.SelectionOrder, settings.PreferSeasonPacks)
 	sort.SliceStable(candidates, func(i, j int) bool {
 		if job.SpanishAudio && settings.IsSpanishTracker(candidates[i].Release.IndexerID) != settings.IsSpanishTracker(candidates[j].Release.IndexerID) {
 			return settings.IsSpanishTracker(candidates[i].Release.IndexerID)
@@ -653,7 +654,7 @@ func (e *Engine) process(ctx context.Context, job *Job, settings Settings, downl
 		if err = e.Store.SaveDownload(download); err != nil {
 			return err
 		}
-		slog.Info("request release selected", "request_id", job.ID, "indexer_id", candidate.Release.IndexerID, "priority", candidate.Priority, "quality", candidate.Quality, "language_score", candidate.LanguageScore, "text_subtitle_score", candidate.SubtitleFormatScore, "keyword_score", candidate.Score, "season_pack", candidate.Pack)
+		slog.Info("request release selected", "request_id", job.ID, "indexer_id", candidate.Release.IndexerID, "priority", candidate.Priority, "quality", candidate.Quality, "language_score", candidate.LanguageScore, "text_subtitle_score", candidate.SubtitleFormatScore, "keyword_score", candidate.Score, "video_bitrate_bps", candidate.Release.Languages.VideoBitrateBPS, "video_bitrate_rank", candidate.videoBitrateRank, "season_pack", candidate.Pack)
 		*downloads = append(*downloads, download)
 		job.Status = "downloading"
 		job.Message = "Download started"
