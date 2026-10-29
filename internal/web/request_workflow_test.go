@@ -509,3 +509,44 @@ func TestCookieRequestsWorkThroughPublicListenerWithSharedAdminQueue(t *testing.
 		t.Fatalf("public request did not use shared worker: %d", len(downloads))
 	}
 }
+
+func TestCompletedMovieRequestStopsScanningQBittorrent(t *testing.T) {
+	f := newWorkflowFixture(t, false)
+	job := createWorkflowJob(t, f, "alice", false)
+	if err := f.s.engine.Tick(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	finishWorkflowDownload(t, f)
+	if err := f.s.engine.Tick(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	current, err := f.s.requests.Job(job.ID)
+	if err != nil || current.Status != "complete" {
+		t.Fatalf("completion: %+v %v", current, err)
+	}
+
+	// Removing the finished torrent is a manual qBittorrent decision. The
+	// completed request must not poll the torrent list or add anything again.
+	f.qb.mu.Lock()
+	added := len(f.qb.added)
+	for hash := range f.qb.torrents {
+		delete(f.qb.torrents, hash)
+	}
+	f.qb.listRequests = 0
+	f.qb.mu.Unlock()
+	if err := f.s.engine.Tick(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	f.qb.mu.Lock()
+	defer f.qb.mu.Unlock()
+	if f.qb.listRequests != 0 {
+		t.Fatalf("completed request still polled qBittorrent %d times", f.qb.listRequests)
+	}
+	if len(f.qb.added) != added {
+		t.Fatalf("completed request added another torrent: %d -> %d", added, len(f.qb.added))
+	}
+	current, err = f.s.requests.Job(job.ID)
+	if err != nil || current.Status != "complete" {
+		t.Fatalf("removing the torrent changed the request: %+v %v", current, err)
+	}
+}

@@ -37,6 +37,8 @@ type fakeQB struct {
 	// infoRequests counts /api/v2/torrents/info requests with no hashes/tag
 	// filter (unfiltered full-list polls).
 	infoRequests int
+	// listRequests counts every torrent-list request, filtered or not.
+	listRequests int
 }
 
 type qbTorrent struct {
@@ -148,6 +150,7 @@ func (f *fakeQB) handler() http.Handler {
 		hashes := r.URL.Query().Get("hashes")
 		f.mu.Lock()
 		defer f.mu.Unlock()
+		f.listRequests++
 		if tag == "" && hashes == "" {
 			f.infoRequests++
 		}

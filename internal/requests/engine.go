@@ -195,7 +195,7 @@ func (e *Engine) Tick(ctx context.Context) error {
 		if ctx.Err() != nil {
 			return ctx.Err()
 		}
-		if job.Status == "pending" || terminal(job.Status) {
+		if job.Status == "pending" || job.Status == "complete" || terminal(job.Status) {
 			continue
 		}
 		if err := e.process(ctx, &job, settings, &downloads); err != nil {
@@ -247,6 +247,19 @@ func (e *Engine) process(ctx context.Context, job *Job, settings Settings, downl
 		job.Status = "waiting"
 		job.Message = "Select a season to continue this request"
 		return nil
+	}
+	// A finished request download is final. Do not scan the library, search
+	// again, or touch qBittorrent after qBittorrent reported the files at their
+	// verified destination. Manual torrent changes are the user's business.
+	if job.Media.MediaType == "movie" {
+		for _, d := range *downloads {
+			if scope(d, *job) && d.Status == "complete" && !d.AddedAt.Before(job.CreatedAt) && (job.RetryAt.IsZero() || d.CompletedAt.After(job.RetryAt)) {
+				job.Status = "complete"
+				job.Message = "Ready in the library"
+				job.Progress = 1
+				return nil
+			}
+		}
 	}
 	inventory, err := e.Backend.Inventory(ctx, *job, *downloads)
 	if err != nil {

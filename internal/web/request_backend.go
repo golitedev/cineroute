@@ -97,14 +97,8 @@ func (b requestBackend) Inventory(ctx context.Context, job requests.Job, downloa
 		return out, nil
 	}
 	excluded, sizes := requests.DownloadFileIndex(downloads)
-	// Unfinished manually routed torrents are not already-available library copies.
-	active := []qbittorrent.Torrent{}
-	if b.s.qb != nil {
-		active, err = b.s.qb.Torrents(ctx, url.Values{"filter": {"downloading"}})
-		if err != nil {
-			return out, fmt.Errorf("download inventory unavailable")
-		}
-	}
+	// qBittorrent is never queried here: once a request's own download has been
+	// recorded, the filesystem and CineRoute's own records are the only inputs.
 	settings, err := b.s.requests.Load()
 	if err != nil {
 		return out, err
@@ -113,16 +107,6 @@ func (b requestBackend) Inventory(ctx context.Context, job requests.Job, downloa
 	for _, relative := range files {
 		path := filepath.Join(folder.Path, relative)
 		if requests.IsExtra(relative) || excluded[path] {
-			continue
-		}
-		pending := false
-		for _, torrent := range active {
-			if !downloadComplete(torrent) && torrent.ContentPath != "" && within(torrent.ContentPath, path) {
-				pending = true
-				break
-			}
-		}
-		if pending {
 			continue
 		}
 		info, statErr := os.Stat(path)
