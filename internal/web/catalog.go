@@ -81,23 +81,21 @@ func (s *Server) catalogDetails(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	details.Seasons = seasons
-	writeJSON(w, 200, map[string]any{"media": details.Result, "original_language": details.OriginalLanguage, "seasons": details.Seasons, "monitor": settings.TVMonitor, "auto_approve": settings.AutoApprove || a.Role == "admin", "digitally_available": tmdb.DigitallyAvailable(details, time.Now())})
+	writeJSON(w, 200, map[string]any{"media": details.Result, "original_language": details.OriginalLanguage, "seasons": details.Seasons, "auto_approve": settings.AutoApprove || a.Role == "admin", "digitally_available": tmdb.DigitallyAvailable(details, time.Now())})
 }
 
 type publicJob struct {
-	PreferSpanishAudio bool      `json:"prefer_spanish_audio"`
-	ID                 string    `json:"id"`
-	Media              any       `json:"media"`
-	Status             string    `json:"status"`
-	Message            string    `json:"message"`
-	Progress           float64   `json:"progress"`
-	Seasons            []int     `json:"seasons"`
-	FollowFuture       bool      `json:"follow_future"`
-	CreatedAt          time.Time `json:"created_at"`
+	ID        string    `json:"id"`
+	Media     any       `json:"media"`
+	Status    string    `json:"status"`
+	Message   string    `json:"message"`
+	Progress  float64   `json:"progress"`
+	Seasons   []int     `json:"seasons"`
+	CreatedAt time.Time `json:"created_at"`
 }
 
 func jobView(job requests.Job) publicJob {
-	return publicJob{PreferSpanishAudio: job.PreferSpanishAudio, ID: job.ID, Media: job.Media.Result, Status: job.Status, Message: job.Message, Progress: job.Progress, Seasons: job.Seasons, FollowFuture: job.FollowFuture, CreatedAt: job.CreatedAt}
+	return publicJob{ID: job.ID, Media: job.Media.Result, Status: job.Status, Message: job.Message, Progress: job.Progress, Seasons: job.Seasons, CreatedAt: job.CreatedAt}
 }
 func (s *Server) userRequests(w http.ResponseWriter, r *http.Request) {
 	jobs, err := s.requests.Jobs(actor(r).Name)
@@ -117,11 +115,9 @@ func (s *Server) createUserRequest(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var body struct {
-		MediaType          string `json:"media_type"`
-		TMDBID             int    `json:"tmdb_id"`
-		Seasons            []int  `json:"seasons"`
-		FollowFuture       bool   `json:"follow_future"`
-		PreferSpanishAudio *bool  `json:"prefer_spanish_audio"`
+		MediaType string `json:"media_type"`
+		TMDBID    int    `json:"tmdb_id"`
+		Seasons   []int  `json:"seasons"`
 	}
 	r.Body = http.MaxBytesReader(w, r.Body, 16<<10)
 	decoder := json.NewDecoder(r.Body)
@@ -147,7 +143,7 @@ func (s *Server) createUserRequest(w http.ResponseWriter, r *http.Request) {
 	profile := profileFor(settings, body.MediaType)
 	a := actor(r)
 	now := time.Now().UTC()
-	job := requests.Job{Owner: a.Name, Media: media, Target: profile.Destination, PreferredDrive: profile.NewTitleDrive, Seasons: []int{}, Episodes: []string{}, Status: "pending", Message: "Waiting for administrator approval", FollowFuture: body.FollowFuture}
+	job := requests.Job{Owner: a.Name, Media: media, Target: profile.Destination, PreferredDrive: profile.NewTitleDrive, Seasons: []int{}, Episodes: []string{}, Status: "pending", Message: "Waiting for administrator approval"}
 	if body.MediaType == "tv" {
 		for _, number := range body.Seasons {
 			found := false
@@ -165,27 +161,11 @@ func (s *Server) createUserRequest(w http.ResponseWriter, r *http.Request) {
 				job.Seasons = append(job.Seasons, number)
 			}
 		}
-		if body.Seasons == nil {
-			for _, season := range media.Seasons {
-				if season.Number != 0 || settings.IncludeSpecials {
-					if settings.TVMonitor == "future" || settings.TVMonitor == "all" || season.AirDate == "" || season.AirDate <= now.Format("2006-01-02") {
-						job.Seasons = append(job.Seasons, season.Number)
-					}
-				}
-			}
-		}
-		if settings.TVMonitor == "future" {
-			job.OnlyFuture = true
-			job.FollowFuture = true
-		}
-		if settings.TVMonitor == "all" {
-			job.FollowFuture = true
-		}
-		if len(job.Seasons) == 0 && !job.FollowFuture {
-			writeErr(w, 400, "Select at least one season or follow future seasons.")
+		if len(job.Seasons) == 0 {
+			writeErr(w, 400, "Select at least one season.")
 			return
 		}
-	} else if len(body.Seasons) > 0 || body.FollowFuture {
+	} else if len(body.Seasons) > 0 {
 		writeErr(w, 400, "Movies do not have seasons.")
 		return
 	}
@@ -198,7 +178,7 @@ func (s *Server) createUserRequest(w http.ResponseWriter, r *http.Request) {
 			job.NextSearch = now.Add(time.Duration(settings.RetryIntervalHours) * time.Hour)
 		}
 	}
-	created, err := s.requests.Create(job, settings, a.Role == "admin", body.PreferSpanishAudio)
+	created, err := s.requests.Create(job, settings, a.Role == "admin")
 	if errors.Is(err, requests.ErrQuota) {
 		writeErr(w, 429, err.Error())
 		return

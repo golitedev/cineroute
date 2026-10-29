@@ -187,9 +187,6 @@ func (b requestBackend) Submit(ctx context.Context, job requests.Job, candidate 
 	if current.Status == "cancelled" || current.Status == "declined" {
 		return d, errors.New("request was withdrawn")
 	}
-	if current.PreferSpanishAudio != job.PreferSpanishAudio {
-		return d, requests.ErrPreferencesChanged
-	}
 	pin, err := s.requests.Placement(job.Media.MediaType, job.Media.ID)
 	if err != nil {
 		return d, err

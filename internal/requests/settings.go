@@ -81,7 +81,6 @@ type Settings struct {
 	MinSeeders             int       `json:"min_seeders"`
 	MovieAvailability      string    `json:"movie_availability"`
 	MovieAutoSubtitles     bool      `json:"movie_auto_subtitles"`
-	TVMonitor              string    `json:"tv_monitor"`
 	IncludeSpecials        bool      `json:"include_specials"`
 	PreferSeasonPacks      bool      `json:"prefer_season_packs"`
 	Trackers               []Tracker `json:"trackers"`
@@ -98,7 +97,7 @@ func Defaults() Settings {
 		LimitDays: 7, SearchOnApproval: true, SearchIntervalSeconds: 10,
 		RetryIntervalHours: 6, RetryFailedDownloads: true, StalledMinutes: 120,
 		MaxConcurrentDownloads: 3, MinSeeders: 1, MovieAvailability: "released",
-		TVMonitor: "requested_seasons", PreferSeasonPacks: true, Trackers: []Tracker{},
+		PreferSeasonPacks: true, Trackers: []Tracker{},
 		Movie: profile(20, 0), TV: profile(4, 80),
 	}
 }
@@ -126,9 +125,6 @@ func (s Settings) Validate() error {
 	}
 	if !slices.Contains([]string{"announced", "in_cinemas", "released"}, s.MovieAvailability) {
 		return fmt.Errorf("invalid movie_availability")
-	}
-	if !slices.Contains([]string{"requested_seasons", "all_existing", "future", "all"}, s.TVMonitor) {
-		return fmt.Errorf("invalid tv_monitor")
 	}
 	if len(s.Trackers) > 100 {
 		return fmt.Errorf("select at most 100 trackers")

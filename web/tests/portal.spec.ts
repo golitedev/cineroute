@@ -116,7 +116,6 @@ async function fixtures(page: Page, authenticated = true) {
                           { season_number: 2, name: 'Season 2', episode_count: 8, air_date: '2099-01-01' }
                       ]
                     : null,
-                monitor: 'all',
                 auto_approve: true,
                 digitally_available: true
             });
@@ -130,8 +129,6 @@ async function fixtures(page: Page, authenticated = true) {
                 message: 'Downloading your request',
                 progress: 0.42,
                 seasons: body.seasons || [],
-                follow_future: body.follow_future || false,
-                prefer_spanish_audio: body.prefer_spanish_audio,
                 created_at: '2024-01-03T00:00:00Z'
             };
             const existingIndex = jobs.findIndex((item) => item.id === job.id);
@@ -179,7 +176,7 @@ test('clean home with centered media controls and one shared history popup', asy
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBeTruthy();
 });
 
-test('movie requests preserve Spanish preference and appear in shared status bar', async ({ page }) => {
+test('movie requests use only title identity and appear in shared status bar', async ({ page }) => {
     const f = await fixtures(page);
     await page.goto('/');
     await page.getByRole('button', { name: 'Movies', exact: true }).click();
@@ -192,20 +189,17 @@ test('movie requests preserve Spanish preference and appear in shared status bar
     await card.click();
     await expect(page.getByRole('dialog').getByRole('alert')).toHaveCount(0);
     await expect(page.getByRole('note', { name: 'Release availability' })).toHaveCount(0);
-    await page.getByRole('checkbox', { name: 'Prefer Spanish audio' }).check();
+    await expect(page.getByRole('checkbox', { name: 'Prefer Spanish audio' })).toHaveCount(0);
     await page.getByRole('button', { name: 'Add to library', exact: true }).click();
     await expect.poll(() => f.created.length).toBe(1);
-    expect(f.created[0]).toEqual({ media_type: 'movie', tmdb_id: 101, prefer_spanish_audio: true });
+    expect(f.created[0]).toEqual({ media_type: 'movie', tmdb_id: 101 });
     await expect(page.getByRole('status')).toContainText(['Downloading your request']);
     await page.getByRole('button', { name: 'Close', exact: true }).click();
     await expect(page.getByText('Downloading your request', { exact: true })).toBeVisible();
     await expect(page.getByRole('progressbar', { name: 'Download progress' })).toHaveAttribute('aria-valuenow', '42');
     await page.locator('.video-card').first().click();
-    await expect(page.getByRole('checkbox', { name: 'Prefer Spanish audio' })).toBeChecked();
-    await page.getByRole('checkbox', { name: 'Prefer Spanish audio' }).uncheck();
-    await page.getByRole('button', { name: 'Update request', exact: true }).click();
-    await expect.poll(() => f.created.length).toBe(2);
-    expect(f.created[1].prefer_spanish_audio).toBe(false);
+    await expect(page.getByRole('button', { name: 'Downloading', exact: true })).toBeDisabled();
+    expect(f.created).toHaveLength(1);
     await page.getByRole('button', { name: 'Close', exact: true }).click();
     await page.getByRole('button', { name: 'Open my requests', exact: true }).click();
     page.once('dialog', (dialog) => dialog.accept());
@@ -213,7 +207,7 @@ test('movie requests preserve Spanish preference and appear in shared status bar
     await expect.poll(() => f.cancelled.length).toBe(1);
 });
 
-test('TV details send selected seasons and future monitoring', async ({ page }) => {
+test('TV details send only explicitly selected seasons', async ({ page }) => {
     const f = await fixtures(page);
     await page.goto('/');
     await page.getByRole('button', { name: 'TV', exact: true }).click();
@@ -222,11 +216,11 @@ test('TV details send selected seasons and future monitoring', async ({ page }) 
     await page.getByRole('button', { name: 'A good show 2023', exact: true }).click();
     await expect(page.getByRole('checkbox', { name: /Season 1/ })).toBeChecked();
     await expect(page.getByRole('checkbox', { name: /Season 2/ })).not.toBeChecked();
-    await expect(page.getByRole('checkbox', { name: 'Follow future seasons', exact: true })).toBeChecked();
+    await expect(page.getByRole('checkbox', { name: 'Follow future seasons', exact: true })).toHaveCount(0);
     await page.getByRole('checkbox', { name: /Season 2/ }).check();
     await page.getByRole('button', { name: 'Add to library', exact: true }).click();
     await expect.poll(() => f.created.length).toBe(1);
-    expect(f.created[0]).toEqual({ media_type: 'tv', tmdb_id: 202, prefer_spanish_audio: false, seasons: [1, 2], follow_future: true });
+    expect(f.created[0]).toEqual({ media_type: 'tv', tmdb_id: 202, seasons: [1, 2] });
 });
 
 test('music keeps square artwork and movie selection does not query Qobuz', async ({ page }) => {
@@ -267,10 +261,10 @@ test('album requests use the same login, CSRF token, and progress bar', async ({
     await expect(page.getByRole('progressbar', { name: 'Download progress' })).toHaveAttribute('aria-valuenow', '30');
 });
 
-test('TV titles without announced seasons can still follow future seasons', async ({ page }) => {
+test('TV titles without announced seasons cannot create an empty request', async ({ page }) => {
     const f = await fixtures(page);
     await page.route('**/api/catalog/tv/202', (route) =>
-        route.fulfill({ contentType: 'application/json', body: JSON.stringify({ media: tv, seasons: null, monitor: 'all', auto_approve: true }) })
+        route.fulfill({ contentType: 'application/json', body: JSON.stringify({ media: tv, seasons: null, auto_approve: true }) })
     );
     await page.goto('/');
     await page.getByRole('button', { name: 'TV', exact: true }).click();
@@ -279,9 +273,8 @@ test('TV titles without announced seasons can still follow future seasons', asyn
     await page.getByRole('button', { name: 'A good show 2023', exact: true }).click();
     await expect(page.getByText('No seasons announced yet.', { exact: true })).toBeVisible();
     await expect(page.getByRole('dialog').getByRole('alert')).toHaveCount(0);
-    await page.getByRole('button', { name: 'Add to library', exact: true }).click();
-    await expect.poll(() => f.created.length).toBe(1);
-    expect(f.created[0]).toMatchObject({ media_type: 'tv', seasons: [], follow_future: true });
+    await expect(page.getByRole('button', { name: 'Add to library', exact: true })).toBeDisabled();
+    expect(f.created).toHaveLength(0);
 });
 
 test('Music stays a media tab while albums, tracks, and artists use its filter', async ({ page }) => {
@@ -344,7 +337,12 @@ for (const kind of ['movie', 'tv'] as const) {
         await page.route(`**/api/catalog/${kind}/${media.id}`, (route) =>
             route.fulfill({
                 contentType: 'application/json',
-                body: JSON.stringify({ media, seasons: null, monitor: 'all', auto_approve: true, digitally_available: false })
+                body: JSON.stringify({
+                    media,
+                    seasons: kind === 'tv' ? [{ season_number: 1, name: 'Season 1', episode_count: 8, air_date: '2099-01-01' }] : null,
+                    auto_approve: true,
+                    digitally_available: false
+                })
             })
         );
         await page.goto('/');
@@ -359,6 +357,7 @@ for (const kind of ['movie', 'tv'] as const) {
         await expect(warning).toBeVisible();
         await expect(warning).toContainText('You can still request it.');
         await expect(warning).toContainText(kind === 'movie' ? 'may not have a digital release yet' : 'may not have aired yet');
+        if (kind === 'tv') await page.getByRole('checkbox', { name: /Season 1/ }).check();
         const request = page.getByRole('button', { name: 'Add to library', exact: true });
         await expect(request).toBeEnabled();
         await request.click();

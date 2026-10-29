@@ -330,25 +330,15 @@ warning never blocks a request. Existing installations that stored the removed
 request policy or existing jobs. **Movie availability** separately controls
 when the worker starts searching trackers for a requested movie.
 
-Movie and TV request details include **Prefer Spanish audio**. It is a soft,
-per-user request preference, not a language requirement or an admin-policy edit.
-Within the same quality, confirmed Spanish audio ranks before other language
-preferences. Lat-Team receives the highest effective tracker priority only if
-the administrator selected it and it is enabled in Prowlarr. Its identity comes
-from the configured Prowlarr definition (or an exact normalized display name),
-never a release's claimed tracker name. Tracker priority remains a tie-breaker:
-confirmed Spanish on another tracker beats unknown audio on Lat-Team, and all
-quality/codec/size/keyword/audio filters still apply. All selected trackers are
-still searched. Changing the checkbox updates the same request, preserves
-approval and quota accounting, and is shown in personal requests and admin
-queue/history. Existing copies and shared active downloads may still satisfy
-the request without a separate Spanish version or replacement.
-
 The **Requests** admin tab, immediately after TV, contains the shared policy
 and a **Queue** for approval, decline, cancellation, retry and diagnostic details.
 Requests either enter this approval queue or are approved automatically according
 to policy. Limits are enforced per user; admins are exempt. Re-requesting a title
-merges seasons into the user's existing request instead of creating extra downloads.
+merges seasons into the user's existing request instead of creating extra downloads. TV
+requests require at least one explicitly selected season; new seasons are never
+added automatically. Legacy per-request audio and future-season flags are
+ignored. Older requests with no selected seasons wait for a season selection
+instead of starting downloads.
 
 * **General:** allowed media types, automatic approval, per-user movie/series
   limits and their time window, searches on approval, search pacing, retry
@@ -361,7 +351,7 @@ merges seasons into the user's existing request instead of creating extra downlo
   placement or a selected disk for new titles, ordered allowed qualities,
   upgrade targets, minimum keyword scores, codecs, audio languages and sizes.
   Movie limits apply to a whole release; TV has separate episode and pack caps.
-  A maximum size of 0 means unlimited. TV monitoring, specials and season-pack
+  A maximum size of 0 means unlimited. TV specials and season-pack
   preference are separate from movie release availability.
 * **Subtitles after download (Movies):** **Automatically run the alass subtitle
   flow** is off by default and applies to new movie downloads started while it
@@ -407,8 +397,7 @@ merges seasons into the user's existing request instead of creating extra downlo
   (six-hour reports, five-minute configuration/failure refresh), and never expose
   tracker keys to either browser or persist keys in the requests database.
   Admin History shows the selected release's reported languages and its language
-  points at selection time. Users have only the fixed Spanish-audio preference;
-  other language/format settings and tracker selections remain admin-only.
+  points at selection time. Language/format settings and tracker selections remain admin-only.
 * **History:** after TV, see requests from every user, their destination, current
   status, progress, retry time and all recorded download attempts. Search by title,
   user, tracker, disk or hash, filter by status and page through older requests.
@@ -452,7 +441,7 @@ evidence. Allowed audio languages use tracker reports when language priorities
 enable native lookups, otherwise falling back to the existing title-based rule;
 CineRoute does not inspect downloaded audio streams at search time.
 TV packs must contain only requested, aired episodes that are missing or eligible
-for upgrade. New episodes and future seasons are polled according to monitoring.
+for upgrade. New episodes are polled only within the explicitly selected seasons.
 Quality upgrades retain existing files and seeding torrents, adding a separate
 release only when it improves the profile; conflicting filenames are rejected.
 
@@ -667,9 +656,8 @@ The public listener serves a static React interface embedded in CineRoute's Go
 binary. Albums, Movies and TV share the centered search controls. The existing
 bottom queue button opens **My requests**, with active work and recent history
 across all three media types; history stays out of the search page. Movie and
-TV details include season selection, future-season monitoring and the Spanish
-audio preference. Downloading and release searches appear in the same bottom
-status bar as music downloads. Administration remains on the LAN listener.
+TV details include explicit season selection. Downloading and release searches
+appear in the same bottom status bar as music downloads. Administration remains on the LAN listener.
 
 Music runs in the CineRoute process, without another service or container.
 Enable `music.enabled` in `config.yaml`, set `music.qobuz.user_id` and

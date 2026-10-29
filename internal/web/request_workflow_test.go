@@ -124,7 +124,7 @@ func createWorkflowJob(t *testing.T, f *workflowFixture, user string, tv bool) r
 	t.Helper()
 	body := `{"media_type":"movie","tmdb_id":101}`
 	if tv {
-		body = `{"media_type":"tv","tmdb_id":202,"seasons":[1],"follow_future":false}`
+		body = `{"media_type":"tv","tmdb_id":202,"seasons":[1]}`
 	}
 	out := userWorkflowCall(t, f.s, user, "POST", "/api/user/requests", body)
 	if out.Code != 201 {

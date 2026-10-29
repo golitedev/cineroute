@@ -15,9 +15,9 @@ import (
 	"cineroute/internal/requests"
 )
 
-func TestAlternativeTitleSelectionHonorsTrackerPriorityAndSpanishOverride(t *testing.T) {
-	for _, spanish := range []bool{false, true} {
-		t.Run(fmt.Sprintf("spanish=%v", spanish), func(t *testing.T) {
+func TestAlternativeTitleSelectionHonorsConfiguredTrackerPriority(t *testing.T) {
+	for _, preferLat := range []bool{false, true} {
+		t.Run(fmt.Sprintf("preferLat=%v", preferLat), func(t *testing.T) {
 			f := newWorkflowFixture(t, true)
 			var aitherHits, latHits atomic.Int32
 			aitherTorrent := buildFixtureTorrent("Example.Show.AKA.Programa.Ejemplo.S01.1080p.WEB-DL.x264", 0, map[string]int64{"Programa.Ejemplo.S01E01.mkv": 512, "Programa.Ejemplo.S01E02.mkv": 512})
@@ -59,13 +59,14 @@ func TestAlternativeTitleSelectionHonorsTrackerPriorityAndSpanishOverride(t *tes
 				t.Fatal(err)
 			}
 			settings.Trackers = []requests.Tracker{{ID: 17, Name: "Lat-Team (API)", Priority: 22}, {ID: 1, Name: "Aither (API)", Priority: 20}}
+			if preferLat {
+				settings.Trackers[0].Priority = 10
+			}
 			if err := f.s.requests.Save(settings); err != nil {
 				t.Fatal(err)
 			}
 			job := createWorkflowJob(t, f, "alice", true)
-			if _, err := f.s.requests.Create(job, settings, false, &spanish); err != nil {
-				t.Fatal(err)
-			}
+			seedRemovedRequestOptions(t, f.s, job.ID)
 			if err := f.s.engine.Tick(context.Background()); err != nil {
 				t.Fatal(err)
 			}
@@ -75,7 +76,7 @@ func TestAlternativeTitleSelectionHonorsTrackerPriorityAndSpanishOverride(t *tes
 				t.Fatalf("request did not download: %+v; %v", current, err)
 			}
 			want, aitherWant, latWant := 1, int32(1), int32(0)
-			if spanish {
+			if preferLat {
 				want, aitherWant, latWant = 17, 0, 1
 			}
 			if downloads[0].IndexerID != want || len(downloads[0].Episodes) != 2 || aitherHits.Load() != aitherWant || latHits.Load() != latWant {

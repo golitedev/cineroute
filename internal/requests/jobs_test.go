@@ -16,7 +16,6 @@ func TestWorkerUpdatesPreserveNewSeasonsAndCancellation(t *testing.T) {
 	}
 	expanded := original
 	expanded.Seasons = []int{2}
-	expanded.FollowFuture = true
 	if _, err := s.Create(expanded, settings, false); err != nil {
 		t.Fatal(err)
 	}
@@ -26,7 +25,7 @@ func TestWorkerUpdatesPreserveNewSeasonsAndCancellation(t *testing.T) {
 		t.Fatal(err)
 	}
 	current, err := s.Job(original.ID)
-	if err != nil || len(current.Seasons) != 2 || !current.FollowFuture || current.Status != "queued" || !current.NextSearch.Before(original.NextSearch) {
+	if err != nil || len(current.Seasons) != 2 || current.Status != "queued" || !current.NextSearch.Before(original.NextSearch) {
 		t.Fatalf("lost concurrent addition: %+v %v", current, err)
 	}
 	if _, err := s.Action(original.ID, "", "retry"); err != nil {

@@ -15,7 +15,6 @@ import (
 // Explicit admin views keep recovery torrent data, download URLs and file lists
 // out of responses. The public listener never registers this endpoint.
 type requestHistoryDownload struct {
-	PreferSpanishAudio  bool                    `json:"prefer_spanish_audio,omitempty"`
 	Languages           medialanguages.Metadata `json:"languages"`
 	LanguageScore       int                     `json:"language_score"`
 	SubtitleFormatScore int                     `json:"subtitle_format_score"`
@@ -166,7 +165,6 @@ func (s *Server) requestHistory(w http.ResponseWriter, r *http.Request) {
 	for _, d := range downloads {
 		entry := requestHistoryDownload{Hash: d.Hash, RequestID: d.RequestID, RequestedBy: d.RequestedBy, Title: d.Title, Tracker: d.Indexer, TrackerURL: trackerPageURL(d.InfoURL), Quality: d.Quality, Drive: d.DriveID, Status: historyDownloadState(d, settings, now), TorrentState: d.TorrentState, Progress: d.Progress, Size: d.Size, Episodes: d.Episodes, AddedAt: d.AddedAt, CompletedAt: d.CompletedAt, FailedAt: d.FailedAt, LastProgress: d.LastProgress, ObservedAt: d.ObservedAt, Error: d.Error}
 		entry.Languages, entry.LanguageScore = d.Languages, d.LanguageScore
-		entry.PreferSpanishAudio = d.PreferSpanishAudio
 		entry.SubtitleFormatScore = d.SubtitleFormatScore
 		key := scope{d.MediaType, d.TMDBID, d.Target}
 		byTitle[key] = append(byTitle[key], entry)
@@ -188,9 +186,6 @@ func (s *Server) requestHistory(w http.ResponseWriter, r *http.Request) {
 		}
 		if query != "" {
 			haystack := job.Media.DisplayTitle() + " " + job.Owner + " " + job.Target + " " + job.Message + " " + job.AdminError
-			if job.PreferSpanishAudio {
-				haystack += " Spanish audio preferred"
-			}
 			for _, d := range related {
 				haystack += " " + d.Title + " " + d.Tracker + " " + d.RequestedBy + " " + d.Hash + " " + d.Drive
 			}

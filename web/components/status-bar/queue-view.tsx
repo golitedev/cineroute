@@ -55,8 +55,6 @@ export default function QueueView() {
                             <p className='text-xs text-muted-foreground break-words mt-1'>
                                 {music ? t('music') : job.kind === 'tv' ? t('tv') : t('movies')}
                                 {job.artist ? ` · ${job.artist}` : ''}
-                                {job.follow_future ? ` · ${t('followFuture')}` : ''}
-                                {job.prefer_spanish_audio ? ` · ${t('spanishAudio')}` : ''}
                             </p>
                             <p className={cn('text-xs mt-1', job.status === 'failed' && 'text-destructive')}>{t(`status.${job.status}`)}</p>
                         </div>

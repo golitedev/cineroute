@@ -11,7 +11,6 @@ import { useStatusBar } from '@/lib/status-bar/context';
 type Detail = {
     media: Media;
     seasons: { season_number: number; name: string; episode_count: number; air_date: string }[];
-    monitor: string;
     auto_approve: boolean;
     digitally_available: boolean;
 };
@@ -24,8 +23,6 @@ export default function VideoDetail({ media, onClose }: { media: Media | null; o
     const { jobs, refresh } = useStatusBar();
     const [detail, setDetail] = useState<Detail | null>(null);
     const [seasons, setSeasons] = useState<number[]>([]);
-    const [future, setFuture] = useState(false);
-    const [spanish, setSpanish] = useState(false);
     const [saving, setSaving] = useState(false);
     const [error, setError] = useState('');
     const [message, setMessage] = useState('');
@@ -49,8 +46,6 @@ export default function VideoDetail({ media, onClose }: { media: Media | null; o
                             .filter((s) => s.episode_count > 0 && (!s.air_date || s.air_date <= new Date().toISOString().slice(0, 10)))
                             .map((s) => s.season_number)
                     );
-                    setFuture(['all', 'future'].includes(data.monitor));
-                    setSpanish(!!existing?.prefer_spanish_audio);
                 })
                 .catch((e) => {
                     if (active) setError(e.message);
@@ -61,7 +56,7 @@ export default function VideoDetail({ media, onClose }: { media: Media | null; o
     }, [media?.id, media?.media_type]);
     async function submit() {
         if (!media || !detail || saving) return;
-        if (media.media_type === 'tv' && !seasons.length && !future) {
+        if (media.media_type === 'tv' && !seasons.length) {
             setError(t('chooseSeasons'));
             return;
         }
@@ -72,8 +67,7 @@ export default function VideoDetail({ media, onClose }: { media: Media | null; o
             const result = await portalRequest<{ request: VideoJob }>('/api/user/requests', 'POST', {
                 media_type: media.media_type,
                 tmdb_id: media.id,
-                prefer_spanish_audio: spanish,
-                ...(media.media_type === 'tv' ? { seasons, follow_future: future } : {})
+                ...(media.media_type === 'tv' ? { seasons } : {})
             });
             setMessage(result.request.message);
             await refresh();
@@ -83,8 +77,7 @@ export default function VideoDetail({ media, onClose }: { media: Media | null; o
             setSaving(false);
         }
     }
-    const changed = existing && !!existing.prefer_spanish_audio !== spanish;
-    const disabled = saving || !detail || (media?.media_type === 'movie' && !!existing && !changed);
+    const disabled = saving || !detail || (media?.media_type === 'movie' && !!existing) || (media?.media_type === 'tv' && !seasons.length);
     return (
         <Dialog
             open={!!media}
@@ -146,32 +139,18 @@ export default function VideoDetail({ media, onClose }: { media: Media | null; o
                                         ))}
                                 </div>
                                 {!detail.seasons.length && <p className='text-sm text-muted-foreground'>{t('noSeasons')}</p>}
-                                <label className='flex items-center gap-2 text-sm cursor-pointer'>
-                                    <input type='checkbox' checked={future} onChange={(e) => setFuture(e.target.checked)} />
-                                    {t('followFuture')}
-                                </label>
-                                {detail.monitor === 'future' && <p className='text-xs text-muted-foreground'>{t('futureHint')}</p>}
                             </fieldset>
                         )}
-                        <label className='flex items-start gap-3 text-sm border-t pt-4 cursor-pointer'>
-                            <input type='checkbox' className='mt-1' checked={spanish} disabled={saving} onChange={(e) => setSpanish(e.target.checked)} />
-                            <span>
-                                {t('spanishAudio')}
-                                <small className='block text-muted-foreground mt-1'>{t('spanishHint')}</small>
-                            </span>
-                        </label>
                         <div className='flex flex-col sm:flex-row gap-3 sm:items-center'>
                             <Button disabled={disabled} onClick={() => void submit()}>
                                 {saving && <LoaderCircle className='size-4 animate-spin' />}
-                                {changed
-                                    ? t('updateRequest')
-                                    : existing
-                                      ? media?.media_type === 'tv'
-                                          ? t('addSeasons')
-                                          : t(`status.${existing.status}`)
-                                      : detail.auto_approve
-                                        ? t('addLibrary')
-                                        : t('requestApproval')}
+                                {existing
+                                    ? media?.media_type === 'tv'
+                                        ? t('addSeasons')
+                                        : t(`status.${existing.status}`)
+                                    : detail.auto_approve
+                                      ? t('addLibrary')
+                                      : t('requestApproval')}
                             </Button>
                             <p className='text-xs text-muted-foreground'>{detail.auto_approve ? t('autoHint') : t('approvalHint')}</p>
                         </div>

@@ -53,8 +53,6 @@ export type Job = {
     media?: Media;
     progress?: number;
     seasons?: number[];
-    follow_future?: boolean;
-    prefer_spanish_audio?: boolean;
     id: string;
     album_id: string;
     title: string;
@@ -122,8 +120,6 @@ export type VideoJob = {
     message: string;
     progress: number;
     seasons: number[];
-    follow_future: boolean;
-    prefer_spanish_audio: boolean;
     created_at: string;
 };
 export const mediaTitle = (media: Media) => media.title || media.name || '';

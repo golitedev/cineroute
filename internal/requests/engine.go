@@ -2,7 +2,6 @@ package requests
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"log/slog"
 	"slices"
@@ -221,7 +220,11 @@ func (e *Engine) process(ctx context.Context, job *Job, settings Settings, downl
 	if job.Media.MediaType == "tv" {
 		p = settings.TV
 	}
-	p = requestProfile(p, *job)
+	if job.Media.MediaType == "tv" && len(job.Seasons) == 0 {
+		job.Status = "waiting"
+		job.Message = "Select a season to continue this request"
+		return nil
+	}
 	inventory, err := e.Backend.Inventory(ctx, *job, *downloads)
 	if err != nil {
 		return err
@@ -347,7 +350,7 @@ func (e *Engine) process(ctx context.Context, job *Job, settings Settings, downl
 			job.Progress = 1
 			job.Status = "complete"
 			job.Message = "Requested episodes are ready in the library"
-			future := job.FollowFuture
+			future := false
 			for _, season := range job.Media.Seasons {
 				if slices.Contains(job.Seasons, season.Number) {
 					count := 0
@@ -426,9 +429,6 @@ func (e *Engine) process(ctx context.Context, job *Job, settings Settings, downl
 			if indexer.ID == tracker.ID && indexer.Enable && indexer.Protocol == "torrent" {
 				ids = append(ids, indexer.ID)
 				priorities[indexer.ID] = tracker.Priority
-				if job.PreferSpanishAudio && isLatTeam(indexer) {
-					priorities[indexer.ID] = 0
-				}
 			}
 		}
 	}
@@ -521,9 +521,6 @@ func (e *Engine) process(ctx context.Context, job *Job, settings Settings, downl
 				rejectRelease(release, err.Error())
 				continue
 			}
-			if job.PreferSpanishAudio && slices.Contains(release.Languages.Audio, "es") {
-				candidate.RequestedAudioScore = 1
-			}
 			if job.Media.MediaType == "movie" && inventory.Movie != nil && !ImprovesExisting(candidate.Quality, candidate.Score, *inventory.Movie, p) {
 				continue
 			}
@@ -582,7 +579,6 @@ func (e *Engine) process(ctx context.Context, job *Job, settings Settings, downl
 		recordSource := func(d Download) Download {
 			d.AutoSubtitles = job.Media.MediaType == "movie" && settings.MovieAutoSubtitles
 			d.RequestID, d.RequestedBy = job.ID, job.Owner
-			d.PreferSpanishAudio = job.PreferSpanishAudio
 			d.IndexerID, d.Indexer, d.InfoURL = candidate.Release.IndexerID, candidate.Release.Indexer, candidate.Release.InfoURL
 			d.Languages, d.LanguageScore = candidate.Release.Languages, candidate.LanguageScore
 			d.SubtitleFormatScore = candidate.SubtitleFormatScore
@@ -604,9 +600,6 @@ func (e *Engine) process(ctx context.Context, job *Job, settings Settings, downl
 			return nil
 		})
 		if err != nil {
-			if errors.Is(err, ErrPreferencesChanged) {
-				return nil
-			}
 			if planned {
 				job.Status = "error"
 				job.Message = "A download is awaiting verification"
@@ -620,7 +613,7 @@ func (e *Engine) process(ctx context.Context, job *Job, settings Settings, downl
 		if err = e.Store.SaveDownload(download); err != nil {
 			return err
 		}
-		slog.Info("request release selected", "request_id", job.ID, "indexer_id", candidate.Release.IndexerID, "priority", candidate.Priority, "quality", candidate.Quality, "requested_audio_score", candidate.RequestedAudioScore, "language_score", candidate.LanguageScore, "text_subtitle_score", candidate.SubtitleFormatScore, "keyword_score", candidate.Score, "season_pack", candidate.Pack)
+		slog.Info("request release selected", "request_id", job.ID, "indexer_id", candidate.Release.IndexerID, "priority", candidate.Priority, "quality", candidate.Quality, "language_score", candidate.LanguageScore, "text_subtitle_score", candidate.SubtitleFormatScore, "keyword_score", candidate.Score, "season_pack", candidate.Pack)
 		*downloads = append(*downloads, download)
 		job.Status = "downloading"
 		job.Message = "Download started"
@@ -655,10 +648,6 @@ func (e *Engine) wantedEpisodes(ctx context.Context, job *Job, settings Settings
 			continue
 		}
 		selected := slices.Contains(job.Seasons, season.Number)
-		if !selected && job.FollowFuture && season.AirDate != "" && season.AirDate >= job.CreatedAt.Format("2006-01-02") {
-			job.Seasons = append(job.Seasons, season.Number)
-			selected = true
-		}
 		if !selected {
 			continue
 		}
@@ -668,9 +657,6 @@ func (e *Engine) wantedEpisodes(ctx context.Context, job *Job, settings Settings
 		}
 		for _, episode := range episodes {
 			if episode.AirDate == "" || episode.AirDate > today || episode.Number <= 0 {
-				continue
-			}
-			if job.OnlyFuture && episode.AirDate < job.CreatedAt.Format("2006-01-02") {
 				continue
 			}
 			wanted[EpisodeKey(season.Number, episode.Number)] = true

@@ -99,7 +99,7 @@ func TestCatalogIncludesAllReleasesAndAvailabilityIsAdvisory(t *testing.T) {
 			}
 			body := fmt.Sprintf(`{"media_type":%q,"tmdb_id":%d}`, tc.kind, tc.id)
 			if tc.kind == "tv" {
-				body = fmt.Sprintf(`{"media_type":"tv","tmdb_id":%d,"seasons":[],"follow_future":true}`, tc.id)
+				body = fmt.Sprintf(`{"media_type":"tv","tmdb_id":%d,"seasons":[1]}`, tc.id)
 			}
 			if created := userWorkflowCall(t, f.s, "alice", "POST", "/api/user/requests", body); created.Code != 201 {
 				t.Fatalf("availability warning blocked a request: %d %s", created.Code, created.Body.String())
@@ -139,7 +139,7 @@ func TestRemovedCatalogSettingDoesNotChangePolicyOrExistingRequests(t *testing.T
 		t.Fatalf("saving migrated policy: %d %s", out.Code, out.Body.String())
 	}
 	current, _ := f.s.requests.Job(job.ID)
-	if current.Status != "complete" || current.PreferSpanishAudio {
+	if current.Status != "complete" {
 		t.Fatal("removing the filter requeued an existing request")
 	}
 }
