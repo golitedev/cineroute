@@ -5,14 +5,11 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
-	"os"
-	"path/filepath"
 	"slices"
 	"strconv"
 	"strings"
 	"time"
 
-	"cineroute/internal/library"
 	"cineroute/internal/requests"
 	"cineroute/internal/tmdb"
 )
@@ -42,12 +39,10 @@ func (s *Server) catalogSearch(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, 502, "Movie search is temporarily unavailable. Try again shortly.")
 		return
 	}
-	downloads, inventoryErr := s.requests.Downloads()
-	excluded, sizes := requests.DownloadFileIndex(downloads)
 	filtered := []catalogMedia{}
 	for _, item := range result.Results {
 		if (item.MediaType == "movie" && settings.AllowMovies) || (item.MediaType == "tv" && settings.AllowTV) {
-			filtered = append(filtered, catalogMedia{Result: item, InLibrary: inventoryErr == nil && s.catalogInLibrary(item, excluded, sizes)})
+			filtered = append(filtered, catalogMedia{Result: item, InLibrary: s.catalogInLibrary(item)})
 		}
 	}
 	writeJSON(w, 200, struct {
@@ -257,31 +252,4 @@ func (s *Server) requestAction(w http.ResponseWriter, r *http.Request) {
 type catalogMedia struct {
 	tmdb.Result
 	InLibrary bool `json:"in_library"`
-}
-
-func (s *Server) catalogInLibrary(media tmdb.Result, excluded map[string]bool, sizes map[string]int64) bool {
-	match := s.requestMatches(tmdb.Details{Result: media})
-	if match == nil {
-		return false
-	}
-	for _, root := range match.Paths {
-		files, err := library.WalkVideoFiles(root)
-		if err != nil {
-			continue
-		}
-		for _, file := range files {
-			path := filepath.Join(root, file)
-			if excluded[path] || requests.IsExtra(file) {
-				continue
-			}
-			if media.MediaType == "tv" && len(requests.EpisodeKeys(file)) == 0 {
-				continue
-			}
-			info, err := os.Stat(path)
-			if err == nil && info.Mode().IsRegular() && info.Size() > 0 && info.Size() >= sizes[path] {
-				return true
-			}
-		}
-	}
-	return false
 }

@@ -1,10 +1,12 @@
 package web
 
 import (
+	"context"
 	"encoding/json"
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 
 	"cineroute/internal/requests"
 	"cineroute/internal/tmdb"
@@ -17,22 +19,39 @@ func TestCatalogLibraryBadgeUsesFilesNotRequestHistory(t *testing.T) {
 	if err := os.MkdirAll(root, 0755); err != nil {
 		t.Fatal(err)
 	}
-	if f.s.catalogInLibrary(movie, nil, nil) {
+	if f.s.catalogInLibrary(movie) {
 		t.Fatal("empty folder marked in library")
 	}
 	path := filepath.Join(root, "Example.Movie.2024.mkv")
 	if err := os.WriteFile(path, []byte("video"), 0644); err != nil {
 		t.Fatal(err)
 	}
-	if !f.s.catalogInLibrary(movie, nil, nil) {
-		t.Fatal("existing remote movie absent")
+
+	if f.s.catalogInLibrary(movie) {
+		t.Fatal("search bypassed cached empty library")
 	}
-	if f.s.catalogInLibrary(movie, map[string]bool{path: true}, nil) {
+	f.s.catalogLibrary.Refresh()
+	if !f.s.catalogInLibrary(movie) {
+		t.Fatal("existing remote movie absent after refresh")
+	}
+	if err := f.s.requests.SaveDownload(requests.Download{Hash: "test", MediaType: "movie", TMDBID: 101, Target: "remote", Status: "downloading", FileSizes: map[string]int64{path: 100}}); err != nil {
+		t.Fatal(err)
+	}
+	f.s.catalogLibrary.Refresh()
+	if f.s.catalogInLibrary(movie) {
 		t.Fatal("unfinished download marked in library")
 	}
-	if f.s.catalogInLibrary(movie, nil, map[string]int64{path: 100}) {
+	if err := f.s.requests.SaveDownload(requests.Download{Hash: "test", MediaType: "movie", TMDBID: 101, Target: "remote", Status: "complete", FileSizes: map[string]int64{path: 100}}); err != nil {
+		t.Fatal(err)
+	}
+	f.s.catalogLibrary.Refresh()
+	if f.s.catalogInLibrary(movie) {
 		t.Fatal("truncated download marked in library")
 	}
+	if err := f.s.requests.SaveDownload(requests.Download{Hash: "test", MediaType: "movie", TMDBID: 101, Target: "remote", Status: "complete", FileSizes: map[string]int64{path: 5}}); err != nil {
+		t.Fatal(err)
+	}
+	f.s.catalogLibrary.Refresh()
 	out := userWorkflowCall(t, f.s, "alice", "GET", "/api/catalog/search?q=Example", "")
 	var page struct {
 		Results []catalogMedia `json:"results"`
@@ -46,8 +65,12 @@ func TestCatalogLibraryBadgeUsesFilesNotRequestHistory(t *testing.T) {
 	if err := os.Remove(path); err != nil {
 		t.Fatal(err)
 	}
-	if f.s.catalogInLibrary(movie, nil, nil) {
-		t.Fatal("removed movie still marked in library")
+	if !f.s.catalogInLibrary(movie) {
+		t.Fatal("warm search unexpectedly read disk")
+	}
+	f.s.catalogLibrary.Refresh()
+	if f.s.catalogInLibrary(movie) {
+		t.Fatal("removed movie still marked in library after refresh")
 	}
 }
 
@@ -62,18 +85,57 @@ func TestCatalogShowLibraryBadgeRecognizesEpisodes(t *testing.T) {
 	if err := os.WriteFile(sample, []byte("sample"), 0644); err != nil {
 		t.Fatal(err)
 	}
-	if f.s.catalogInLibrary(show, nil, nil) {
+	if f.s.catalogInLibrary(show) {
 		t.Fatal("sample marked in library")
 	}
 	path := filepath.Join(root, "Example.Show.S01E01.mkv")
 	if err := os.WriteFile(path, []byte("episode"), 0644); err != nil {
 		t.Fatal(err)
 	}
-	excluded, sizes := requests.DownloadFileIndex([]requests.Download{{Status: "downloading", FileSizes: map[string]int64{path: 7}}})
-	if f.s.catalogInLibrary(show, excluded, sizes) {
+
+	if err := f.s.requests.SaveDownload(requests.Download{Hash: "test", MediaType: "tv", TMDBID: 202, Status: "downloading", FileSizes: map[string]int64{path: 7}}); err != nil {
+		t.Fatal(err)
+	}
+	f.s.catalogLibrary.Refresh()
+	if f.s.catalogInLibrary(show) {
 		t.Fatal("incomplete episode marked in library")
 	}
-	if !f.s.catalogInLibrary(show, nil, nil) {
+	if err := f.s.requests.SaveDownload(requests.Download{Hash: "test", MediaType: "tv", TMDBID: 202, Status: "complete", FileSizes: map[string]int64{path: 7}}); err != nil {
+		t.Fatal(err)
+	}
+	f.s.catalogLibrary.Refresh()
+	if !f.s.catalogInLibrary(show) {
 		t.Fatal("existing episode absent")
+	}
+}
+
+func TestDownloadCompletionRefreshesCatalogCache(t *testing.T) {
+	f := newWorkflowFixture(t, false)
+	media := tmdb.Result{ID: 101, MediaType: "movie", Title: "Example Movie", ReleaseDate: "2024-01-01"}
+	if f.s.catalogInLibrary(media) {
+		t.Fatal("movie present before download")
+	}
+	f.s.catalogLibrary.Start(context.Background())
+	defer f.s.catalogLibrary.Stop()
+	createWorkflowJob(t, f, "alice", false)
+	if err := f.s.engine.Tick(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	finishWorkflowDownload(t, f)
+	// Physical files exist, but their unfinished record must still suppress them.
+	f.s.catalogLibrary.Refresh()
+	if f.s.catalogInLibrary(media) {
+		t.Fatal("unfinished file marked present")
+	}
+	if err := f.s.engine.Tick(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	deadline := time.After(time.Second)
+	for !f.s.catalogInLibrary(media) {
+		select {
+		case <-deadline:
+			t.Fatal("completion did not refresh catalog cache")
+		case <-time.After(time.Millisecond):
+		}
 	}
 }

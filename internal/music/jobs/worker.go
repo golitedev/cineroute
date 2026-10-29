@@ -22,6 +22,8 @@ const maxProblems = 30
 // Run processes the queue until ctx is cancelled. Albums are handled one at a
 // time.
 func (m *Manager) Run(ctx context.Context) {
+	m.libraryCache.Start(ctx)
+	defer m.libraryCache.Stop()
 	for {
 		job, jctx, cancel, ok := m.next()
 		if !ok {
@@ -103,6 +105,7 @@ func (m *Manager) process(root, ctx context.Context, job Job) {
 
 	switch out.status {
 	case StatusCompleted:
+		m.libraryCache.Invalidate()
 		log.Info("album added", "path", out.rel)
 		if m.deps.AfterImport != nil {
 			go m.deps.AfterImport(context.WithoutCancel(root), out.rel)

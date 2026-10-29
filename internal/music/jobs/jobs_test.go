@@ -189,6 +189,9 @@ func TestCompleteAlbumIsImported(t *testing.T) {
 		albumRip("a1", []int{1, 2, 3}, 2, t)(ctx, o)
 		return streamrip.Result{}, nil
 	})
+	if e.m.InLibrary(testAlbum("a1", 3)) {
+		t.Fatal("album present before import")
+	}
 	e.start()
 	job, err := e.m.Enqueue(context.Background(), "a1", "")
 	if err != nil {
@@ -208,6 +211,14 @@ func TestCompleteAlbumIsImported(t *testing.T) {
 	}
 	if got := <-e.imported; got != j.LibraryPath {
 		t.Fatalf("after-import hook got %q", got)
+	}
+	deadline := time.After(time.Second)
+	for !e.m.InLibrary(testAlbum("a1", 3)) {
+		select {
+		case <-deadline:
+			t.Fatal("import did not refresh library cache")
+		case <-time.After(time.Millisecond):
+		}
 	}
 	if entries, _ := os.ReadDir(filepath.Join(e.cfg.Paths.Staging, "downloads")); len(entries) != 0 {
 		t.Fatalf("staging not cleaned: %v", entries)
@@ -589,31 +600,49 @@ func TestPerUserQueueLimitAndRetryOwnership(t *testing.T) {
 func TestInLibraryChecksConfiguredNamingAndRecordedPaths(t *testing.T) {
 	e := newEnv(t, fakeAlbums{}, nil)
 	album := testAlbum("a1", 1)
-	rel := filepath.Join("Outkast", "Aquemini (1998)")
-	path := filepath.Join(e.cfg.Paths.Library, rel)
+	path := filepath.Join(e.cfg.Paths.Library, "Outkast", "Aquemini (1998)")
 	if e.m.InLibrary(album) {
 		t.Fatal("missing album marked in library")
 	}
 	if err := os.MkdirAll(path, 0755); err != nil {
 		t.Fatal(err)
 	}
+	e.m.RefreshLibrary()
+	if e.m.InLibrary(album) {
+		t.Fatal("empty album folder marked in library")
+	}
+	if err := os.WriteFile(filepath.Join(path, "01. Song.flac"), []byte("audio"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	if e.m.InLibrary(album) {
+		t.Fatal("search bypassed cached library")
+	}
+	e.m.RefreshLibrary()
 	if !e.m.InLibrary(album) {
 		t.Fatal("existing album without job absent")
 	}
 	if err := os.RemoveAll(path); err != nil {
 		t.Fatal(err)
 	}
-	old := filepath.Join(e.cfg.Paths.Library, "old-import")
+	old := filepath.Join(e.cfg.Paths.Library, "old-import", "Disc 1")
 	if err := os.MkdirAll(old, 0755); err != nil {
 		t.Fatal(err)
 	}
+	if err := os.WriteFile(filepath.Join(old, "song.mp3"), []byte("audio"), 0644); err != nil {
+		t.Fatal(err)
+	}
 	e.m.jobs = append(e.m.jobs, &Job{AlbumID: "a1", LibraryPath: "old-import", Status: StatusCompleted})
+	e.m.RefreshLibrary()
 	if !e.m.InLibrary(album) {
 		t.Fatal("recorded import path absent")
 	}
 	if err := os.RemoveAll(old); err != nil {
 		t.Fatal(err)
 	}
+	if !e.m.InLibrary(album) {
+		t.Fatal("warm search unexpectedly read disk")
+	}
+	e.m.RefreshLibrary()
 	if e.m.InLibrary(album) {
 		t.Fatal("deleted import still in library")
 	}

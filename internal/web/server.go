@@ -24,6 +24,7 @@ import (
 	"cineroute/internal/copies"
 	"cineroute/internal/jellyfin"
 	"cineroute/internal/library"
+	"cineroute/internal/librarycache"
 	"cineroute/internal/music"
 	"cineroute/internal/prowlarr"
 	"cineroute/internal/qbittorrent"
@@ -145,6 +146,8 @@ type Server struct {
 	allocMu   sync.Mutex
 	page      *template.Template
 
+	catalogLibrary *librarycache.Cache[catalogLibrary]
+
 	mu      sync.RWMutex
 	intakes map[string]*Intake
 	recent  []*Intake
@@ -182,7 +185,9 @@ func New(cfg *config.Config, qb *qbittorrent.Client, tmdbClient *tmdb.Client, pr
 		requests:  requests.NewStore(cfg.Requests.StatePath),
 		intakes:   map[string]*Intake{},
 	}
+	s.catalogLibrary = librarycache.New(s.scanCatalogLibrary)
 	s.engine = requests.NewEngine(s.requests, tmdbClient, prowlarrClient, requestBackend{s})
+	s.engine.LibraryChanged = s.catalogLibrary.Invalidate
 	s.page = template.Must(template.New("index.html").ParseFS(assetsFS, "templates/index.html"))
 	go s.cleanupLoop()
 	return s

@@ -29,6 +29,9 @@ type Engine struct {
 	lease       atomic.Bool
 	cancel      context.CancelFunc
 	wg          sync.WaitGroup
+
+	// LibraryChanged runs after a persisted download changes state.
+	LibraryChanged func()
 }
 
 func NewEngine(store *Store, tmdbClient *tmdb.Client, indexers *prowlarr.Client, backend Backend) *Engine {
@@ -164,6 +167,9 @@ func (e *Engine) Tick(ctx context.Context) error {
 		}
 		if saveErr := e.Store.SaveDownload(observed); saveErr != nil {
 			return saveErr
+		}
+		if d.Status != observed.Status && e.LibraryChanged != nil {
+			e.LibraryChanged()
 		}
 		downloads[i] = observed
 	}
@@ -653,6 +659,9 @@ func (e *Engine) process(ctx context.Context, job *Job, settings Settings, downl
 		download = recordSource(download)
 		if err = e.Store.SaveDownload(download); err != nil {
 			return err
+		}
+		if e.LibraryChanged != nil {
+			e.LibraryChanged()
 		}
 		slog.Info("request release selected", "request_id", job.ID, "indexer_id", candidate.Release.IndexerID, "priority", candidate.Priority, "quality", candidate.Quality, "language_score", candidate.LanguageScore, "text_subtitle_score", candidate.SubtitleFormatScore, "keyword_score", candidate.Score, "video_bitrate_bps", candidate.Release.Languages.VideoBitrateBPS, "video_bitrate_rank", candidate.videoBitrateRank, "season_pack", candidate.Pack)
 		*downloads = append(*downloads, download)

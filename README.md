@@ -760,6 +760,14 @@ executed as a separate process.
 
 ### Unified public portal and music
 
+Artwork's **In library** badges use a shared in-memory index, warmed at startup
+and refreshed every five minutes. Request-download state changes and music
+imports trigger an earlier background refresh. Searches and pagination reuse
+that snapshot; files added or removed outside CineRoute appear after the next
+refresh. Movie/TV badges exclude known unfinished downloads, and music badges
+require a nonempty audio file. Download-time duplicate and overwrite checks
+continue to read current library data directly.
+
 The public listener serves a static React interface embedded in CineRoute's Go
 binary. Albums, Movies and TV share the centered search controls. The existing
 bottom queue button opens **My requests**, with active work and recent history

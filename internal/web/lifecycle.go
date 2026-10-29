@@ -33,6 +33,7 @@ func (s *Server) Start(ctx context.Context) error {
 	}
 	s.jellyfin.Start(ctx, s.queueJellyfinUpdates)
 	s.subtitles.StartAutomatic(ctx)
+	s.catalogLibrary.Start(ctx)
 	s.engine.Start(ctx)
 	return nil
 }
@@ -45,4 +46,5 @@ func (s *Server) Close() {
 		s.subtitles.StopAutomatic()
 	}
 	s.jellyfin.Close()
+	s.catalogLibrary.Stop()
 }

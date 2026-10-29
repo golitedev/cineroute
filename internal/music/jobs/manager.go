@@ -14,6 +14,7 @@ import (
 	"sync"
 	"time"
 
+	"cineroute/internal/librarycache"
 	"cineroute/internal/music/config"
 	"cineroute/internal/music/flacfix"
 	"cineroute/internal/music/genres"
@@ -60,6 +61,8 @@ type Manager struct {
 	log    *slog.Logger
 	genres *genres.Translator // nil when genre translation is off
 
+	libraryCache *librarycache.Cache[map[string]bool]
+
 	mu      sync.Mutex
 	jobs    []*Job
 	queued  map[string]time.Time // job id -> time it entered the queue
@@ -92,6 +95,7 @@ func New(cfg *config.Config, deps Deps) (*Manager, error) {
 		running: map[string]context.CancelFunc{},
 		wake:    make(chan struct{}, 1),
 	}
+	m.libraryCache = librarycache.New(m.scanLibrary)
 	if cfg.Metadata.TranslateGenres {
 		m.genres = genres.New(cfg.Metadata.GenreTranslations)
 	}
@@ -523,23 +527,4 @@ func (m *Manager) queueFullLocked(owner string, limits []int) bool {
 		}
 	}
 	return count >= limits[0]
-}
-
-// InLibrary uses the same naming rules as the duplicate check at enqueue time.
-// Recorded import paths also cover downloads made with different quality settings.
-func (m *Manager) InLibrary(album qobuz.Album) bool {
-	if album.ID == "" || album.Title == "" || album.Artist == "" {
-		return false
-	}
-	if rel, err := m.folderFor(album, library.Quality{}); err == nil && library.Exists(m.cfg.Paths.Library, rel) {
-		return true
-	}
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	for _, job := range m.jobs {
-		if job.AlbumID == album.ID && job.LibraryPath != "" && library.Exists(m.cfg.Paths.Library, job.LibraryPath) {
-			return true
-		}
-	}
-	return false
 }

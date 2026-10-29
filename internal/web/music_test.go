@@ -170,6 +170,9 @@ func TestMusicCatalogBadgesUseLibraryFolders(t *testing.T) {
 	if err := os.MkdirAll(path, 0755); err != nil {
 		t.Fatal(err)
 	}
+	if err := os.WriteFile(filepath.Join(path, "01. Song.flac"), []byte("audio"), 0644); err != nil {
+		t.Fatal(err)
+	}
 	decorated := string(s.musicLibraryBadges(raw))
 	if strings.Count(decorated, `"in_library":true`) != 2 || strings.Contains(decorated, root) {
 		t.Fatalf("music badges: %s", decorated)
@@ -177,6 +180,7 @@ func TestMusicCatalogBadgesUseLibraryFolders(t *testing.T) {
 	if err := os.RemoveAll(path); err != nil {
 		t.Fatal(err)
 	}
+	m.RefreshLibrary()
 	if strings.Contains(string(s.musicLibraryBadges(raw)), `"in_library":true`) {
 		t.Fatal("removed release still in library")
 	}
