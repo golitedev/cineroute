@@ -93,6 +93,7 @@ export const en = {
     'status.downloading': 'Downloading',
     'status.verifying': 'Verifying',
     'status.importing': 'Importing',
+    inLibrary: 'In library',
     'status.completed': 'Completed',
     'status.failed': 'Failed',
     'status.skipped': 'Skipped',

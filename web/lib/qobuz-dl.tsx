@@ -64,6 +64,7 @@ export type FetchedQobuzAlbum = QobuzAlbum & {
 };
 
 export type QobuzAlbum = {
+    in_library?: boolean;
     maximum_bit_depth: number;
     image: {
         small: string;

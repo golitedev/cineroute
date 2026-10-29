@@ -97,6 +97,7 @@ export const es: Dictionary = {
     'status.downloading': 'Descargando',
     'status.verifying': 'Verificando',
     'status.importing': 'Importando',
+    inLibrary: 'En la biblioteca',
     'status.completed': 'Completada',
     'status.failed': 'Fallida',
     'status.skipped': 'Omitida',

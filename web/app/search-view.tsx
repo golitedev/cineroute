@@ -250,9 +250,9 @@ export default function SearchView() {
                                                   </div>
                                               )}
                                               <div className='absolute inset-0 bg-black/0 group-hover:bg-black/20 transition-colors' />
-                                              {requested && (
+                                              {(media.in_library || requested) && (
                                                   <span className='absolute bottom-2 left-2 right-2 rounded bg-black/80 text-white text-xs py-1.5 px-2 text-center'>
-                                                      {t(`status.${requested.status}`)}
+                                                      {media.in_library ? t('inLibrary') : t(`status.${requested!.status}`)}
                                                   </span>
                                               )}
                                           </div>

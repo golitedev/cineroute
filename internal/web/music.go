@@ -9,6 +9,7 @@ import (
 	"strings"
 
 	"cineroute/internal/music/jobs"
+	"cineroute/internal/music/qobuz"
 )
 
 var musicID = regexp.MustCompile(`^[A-Za-z0-9]{1,64}$`)
@@ -64,7 +65,7 @@ func (s *Server) musicCatalog(w http.ResponseWriter, r *http.Request) {
 		}
 		result, err = s.music.Catalog.ArtistPage(r.Context(), id)
 		if err == nil {
-			musicOK(w, map[string]any{"artist": result})
+			musicOK(w, map[string]any{"artist": s.musicLibraryBadges(result)})
 			return
 		}
 	case "get-releases":
@@ -94,7 +95,7 @@ func (s *Server) musicCatalog(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, 502, "Music search is temporarily unavailable. Check the Qobuz account configuration.")
 		return
 	}
-	musicOK(w, result)
+	musicOK(w, s.musicLibraryBadges(result))
 }
 func publicMusicJob(job jobs.Job) jobs.Job { job.LibraryPath = ""; return job }
 func (s *Server) musicJobs(w http.ResponseWriter, r *http.Request) {
@@ -186,4 +187,39 @@ func (s *Server) musicRemove(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	musicOK(w, nil)
+}
+
+// Decorate nested catalog albums too, so search, track and artist release cards
+// all receive library status without extra Qobuz requests or exposing paths.
+func (s *Server) musicLibraryBadges(raw json.RawMessage) json.RawMessage {
+	var value any
+	if json.Unmarshal(raw, &value) != nil {
+		return raw
+	}
+	var visit func(any)
+	visit = func(v any) {
+		switch node := v.(type) {
+		case map[string]any:
+			for _, child := range node {
+				visit(child)
+			}
+			if node["artist"] != nil && node["title"] != nil && node["id"] != nil {
+				data, _ := json.Marshal(node)
+				album, err := qobuz.ParseAlbumMetadata(data)
+				if err == nil {
+					node["in_library"] = s.music.Jobs.InLibrary(album)
+				}
+			}
+		case []any:
+			for _, child := range node {
+				visit(child)
+			}
+		}
+	}
+	visit(value)
+	result, err := json.Marshal(value)
+	if err != nil {
+		return raw
+	}
+	return result
 }

@@ -524,3 +524,22 @@ func (m *Manager) queueFullLocked(owner string, limits []int) bool {
 	}
 	return count >= limits[0]
 }
+
+// InLibrary uses the same naming rules as the duplicate check at enqueue time.
+// Recorded import paths also cover downloads made with different quality settings.
+func (m *Manager) InLibrary(album qobuz.Album) bool {
+	if album.ID == "" || album.Title == "" || album.Artist == "" {
+		return false
+	}
+	if rel, err := m.folderFor(album, library.Quality{}); err == nil && library.Exists(m.cfg.Paths.Library, rel) {
+		return true
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	for _, job := range m.jobs {
+		if job.AlbumID == album.ID && job.LibraryPath != "" && library.Exists(m.cfg.Paths.Library, job.LibraryPath) {
+			return true
+		}
+	}
+	return false
+}

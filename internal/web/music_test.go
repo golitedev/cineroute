@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -13,6 +14,7 @@ import (
 	"cineroute/internal/music"
 	musicconfig "cineroute/internal/music/config"
 	"cineroute/internal/music/jobs"
+	musiclibrary "cineroute/internal/music/library"
 	"cineroute/internal/music/qobuz"
 )
 
@@ -140,5 +142,42 @@ func TestDisabledMusicDoesNotBreakVideoPortal(t *testing.T) {
 	}
 	if out := musicCall(s, "alice", "GET", "/api/user/requests", ""); out.Code != 200 {
 		t.Fatal("video requests unavailable with music disabled")
+	}
+}
+
+func TestMusicCatalogBadgesUseLibraryFolders(t *testing.T) {
+	s := musicServer(t)
+	cfg := musicconfig.Default()
+	root := t.TempDir()
+	cfg.Paths.Library = filepath.Join(root, "library")
+	cfg.Paths.Staging = filepath.Join(root, "staging")
+	cfg.Paths.Data = filepath.Join(root, "state")
+	m, err := jobs.New(&cfg, jobs.Deps{Albums: musicFixture{}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	s.music.Jobs = m
+	raw := json.RawMessage(`{"albums":{"items":[{"id":"a1","title":"A single","artist":{"name":"Artist"},"release_date_original":"2024-01-01"}]},"tracks":{"items":[{"id":123,"title":"Song","album":{"id":"a1","title":"A single","artist":{"name":"Artist"},"release_date_original":"2024-01-01"}}]}}`)
+	album, err := qobuz.ParseAlbumMetadata(json.RawMessage(`{"id":"a1","title":"A single","artist":{"name":"Artist"},"release_date_original":"2024-01-01"}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	rel, err := musiclibrary.FolderFor(cfg.Naming.Folder, album, musiclibrary.Quality{}, cfg.Qobuz.Quality, cfg.Naming.RestrictCharacters)
+	if err != nil {
+		t.Fatal(err)
+	}
+	path := filepath.Join(cfg.Paths.Library, rel)
+	if err := os.MkdirAll(path, 0755); err != nil {
+		t.Fatal(err)
+	}
+	decorated := string(s.musicLibraryBadges(raw))
+	if strings.Count(decorated, `"in_library":true`) != 2 || strings.Contains(decorated, root) {
+		t.Fatalf("music badges: %s", decorated)
+	}
+	if err := os.RemoveAll(path); err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(s.musicLibraryBadges(raw)), `"in_library":true`) {
+		t.Fatal("removed release still in library")
 	}
 }

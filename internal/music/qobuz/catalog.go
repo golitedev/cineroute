@@ -120,6 +120,13 @@ func (a Album) Year() string {
 func (a Album) URL() string { return "https://play.qobuz.com/album/" + a.ID }
 
 type albumResp struct {
+	AudioInfo struct {
+		MaxBitDepth     float64 `json:"maximum_bit_depth"`
+		MaxSamplingRate float64 `json:"maximum_sampling_rate"`
+	} `json:"audio_info"`
+	Dates struct {
+		Original string `json:"original"`
+	} `json:"dates"`
 	ID      json.RawMessage `json:"id"`
 	QobuzID json.RawMessage `json:"qobuz_id"`
 	Title   string          `json:"title"`
@@ -179,22 +186,8 @@ func (c *Client) Album(ctx context.Context, albumID string) (Album, error) {
 			return Album{}, fmt.Errorf("unexpected Qobuz album response: %w", err)
 		}
 		if offset == 0 {
-			a = Album{
-				ID:              firstNonEmpty(rawID(r.ID), albumID),
-				Title:           strings.TrimSpace(r.Title),
-				Version:         strings.TrimSpace(deref(r.Version)),
-				Artist:          strings.TrimSpace(r.Artist.Name),
-				ReleaseDate:     firstNonEmpty(deref(r.ReleaseDateOriginal), deref(r.ReleaseDate)),
-				Label:           strings.TrimSpace(r.Label.Name),
-				Genre:           strings.TrimSpace(r.Genre.Name),
-				UPC:             r.UPC,
-				Cover:           firstNonEmpty(r.Image.Small, r.Image.Thumbnail, r.Image.Large),
-				MaxBitDepth:     int(r.MaxBitDepth),
-				MaxSamplingRate: r.MaxSamplingRate,
-				Streamable:      r.Streamable,
-				Downloadable:    r.Downloadable,
-				TracksCount:     r.TracksCount,
-			}
+			a = albumMetadata(r)
+			a.ID = firstNonEmpty(a.ID, albumID)
 		}
 		added := 0
 		for _, t := range r.Tracks.Items {
@@ -255,4 +248,41 @@ func deref(s *string) string {
 		return ""
 	}
 	return *s
+}
+
+// ParseAlbumMetadata decodes catalog album fields without fetching its tracks.
+func ParseAlbumMetadata(raw json.RawMessage) (Album, error) {
+	var r albumResp
+	if err := json.Unmarshal(raw, &r); err != nil {
+		return Album{}, err
+	}
+	return albumMetadata(r), nil
+}
+
+func albumMetadata(r albumResp) Album {
+	if r.MaxBitDepth == 0 {
+		r.MaxBitDepth = r.AudioInfo.MaxBitDepth
+	}
+	if r.MaxSamplingRate == 0 {
+		r.MaxSamplingRate = r.AudioInfo.MaxSamplingRate
+	}
+	if r.ReleaseDateOriginal == nil && r.Dates.Original != "" {
+		r.ReleaseDateOriginal = &r.Dates.Original
+	}
+	return Album{
+		ID:              rawID(r.ID),
+		Title:           strings.TrimSpace(r.Title),
+		Version:         strings.TrimSpace(deref(r.Version)),
+		Artist:          strings.TrimSpace(r.Artist.Name),
+		ReleaseDate:     firstNonEmpty(deref(r.ReleaseDateOriginal), deref(r.ReleaseDate)),
+		Label:           strings.TrimSpace(r.Label.Name),
+		Genre:           strings.TrimSpace(r.Genre.Name),
+		UPC:             r.UPC,
+		Cover:           firstNonEmpty(r.Image.Small, r.Image.Thumbnail, r.Image.Large),
+		MaxBitDepth:     int(r.MaxBitDepth),
+		MaxSamplingRate: r.MaxSamplingRate,
+		Streamable:      r.Streamable,
+		Downloadable:    r.Downloadable,
+		TracksCount:     r.TracksCount,
+	}
 }

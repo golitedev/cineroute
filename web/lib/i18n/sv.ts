@@ -95,6 +95,7 @@ export const sv: Dictionary = {
     'status.downloading': 'Laddar ner',
     'status.verifying': 'Kontrollerar',
     'status.importing': 'Importerar',
+    inLibrary: 'I biblioteket',
     'status.completed': 'Slutförd',
     'status.failed': 'Misslyckad',
     'status.skipped': 'Överhoppad',

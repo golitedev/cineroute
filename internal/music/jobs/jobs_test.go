@@ -585,3 +585,36 @@ func TestPerUserQueueLimitAndRetryOwnership(t *testing.T) {
 		t.Fatalf("retry bypassed limit: %v", err)
 	}
 }
+
+func TestInLibraryChecksConfiguredNamingAndRecordedPaths(t *testing.T) {
+	e := newEnv(t, fakeAlbums{}, nil)
+	album := testAlbum("a1", 1)
+	rel := filepath.Join("Outkast", "Aquemini (1998)")
+	path := filepath.Join(e.cfg.Paths.Library, rel)
+	if e.m.InLibrary(album) {
+		t.Fatal("missing album marked in library")
+	}
+	if err := os.MkdirAll(path, 0755); err != nil {
+		t.Fatal(err)
+	}
+	if !e.m.InLibrary(album) {
+		t.Fatal("existing album without job absent")
+	}
+	if err := os.RemoveAll(path); err != nil {
+		t.Fatal(err)
+	}
+	old := filepath.Join(e.cfg.Paths.Library, "old-import")
+	if err := os.MkdirAll(old, 0755); err != nil {
+		t.Fatal(err)
+	}
+	e.m.jobs = append(e.m.jobs, &Job{AlbumID: "a1", LibraryPath: "old-import", Status: StatusCompleted})
+	if !e.m.InLibrary(album) {
+		t.Fatal("recorded import path absent")
+	}
+	if err := os.RemoveAll(old); err != nil {
+		t.Fatal(err)
+	}
+	if e.m.InLibrary(album) {
+		t.Fatal("deleted import still in library")
+	}
+}

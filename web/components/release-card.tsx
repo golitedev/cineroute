@@ -45,6 +45,7 @@ const ReleaseCard = ({
     const [focusCard, setFocusCard] = useState(false);
 
     const album = getAlbum(result) || null;
+    const inLibrary = getType(result) !== 'artists' && ((result as QobuzAlbum).in_library || album?.in_library);
 
     const [imageLoaded, setImageLoaded] = useState(false);
     const imageAnimationControls = useAnimation();
@@ -204,6 +205,11 @@ const ReleaseCard = ({
                         </motion.div>
                     )}
                 </motion.div>
+                {inLibrary && (
+                    <span className='pointer-events-none absolute z-[4] bottom-2 left-2 right-2 rounded bg-black/80 text-white text-xs py-1.5 px-2 text-center group-hover:opacity-0 group-focus-within:opacity-0'>
+                        {t('inLibrary')}
+                    </span>
+                )}
                 <Skeleton className='absolute left-0 top-0 z-[1] w-full aspect-square flex items-center justify-center' />
             </div>
             <div className='space-y-1'>

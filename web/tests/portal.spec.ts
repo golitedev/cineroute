@@ -472,3 +472,26 @@ test('waiting Spanish request shows its warning and can return to normal routing
     expect(f.created[0]).toEqual({ media_type: 'movie', tmdb_id: 101, spanish_audio: false });
     await expect(page.getByRole('dialog')).toHaveCount(0);
 });
+
+test('posters show library presence independently of personal requests', async ({ page }) => {
+    await fixtures(page);
+    await page.route('**/api/catalog/search?**', (route) => {
+        const media = new URL(route.request().url()).searchParams.get('type') === 'tv' ? tv : movie;
+        return route.fulfill({ json: { results: [{ ...media, in_library: true }], page: 1, total_pages: 1 } });
+    });
+    await page.route('**/api/music/get-music?**', (route) => route.fulfill({ json: {
+        success: true,
+        data: { query: 'Library', switchTo: null,
+            albums: { items: [{ ...album, in_library: true }], total: 1 },
+            tracks: { items: [], total: 0 }, artists: { items: [], total: 0 } }
+    } }));
+    await page.goto('/');
+    for (const kind of ['Movies', 'TV', 'Music']) {
+        await page.getByRole('navigation').getByRole('button', { name: kind, exact: true }).click();
+        await page.getByRole('textbox', { name: 'Search', exact: true }).fill('Library');
+        await page.getByRole('button', { name: 'Search', exact: true }).click();
+        const card = page.locator(kind === 'Music' ? '.release-card' : '.video-card').first();
+        await expect(card.getByText('In library', { exact: true })).toBeVisible();
+        await expect(card.getByText('Completed', { exact: true })).toHaveCount(0);
+    }
+});

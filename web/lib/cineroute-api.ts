@@ -105,6 +105,7 @@ async function request<T>(path: string, method = 'GET', body?: unknown): Promise
     return result.data;
 }
 export type Media = {
+    in_library?: boolean;
     id: number;
     media_type: 'movie' | 'tv';
     title?: string;
