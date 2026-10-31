@@ -9,6 +9,7 @@
      Firefox bookmarks toolbar. The SVG is still served for the header logo. -->
 <link rel="icon" type="image/png" sizes="64x64" href="/favicon.png">
 <link rel="stylesheet" href="/app.css">
+<link rel="stylesheet" href="/admin.css">
 <script src="/viewport.js" defer></script>
 </head>
 <body>
@@ -56,31 +57,43 @@
 
 <div id="appShell" class="hidden">
 <aside id="adminSidebar" class="admin-sidebar" aria-label="Administration sidebar">
-  <button class="sidebar-close" type="button" onclick="closeAdminSidebar()" aria-label="Close navigation">×</button>
-  <a class="admin-brand" href="/" aria-label="CineRoute administration"><img src="/favicon.svg" alt=""><span>CineRoute<small>ADMINISTRATION</small></span></a>
-  <div class="admin-instance"><span class="instance-mark"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="7" width="18" height="14" rx="3"/><path d="m8 3 4 4 4-4"/></svg></span><div><strong>Media library</strong><span>Library management</span></div><span class="instance-dot" title="Admin workspace"></span></div>
+  <div class="sidebar-header">
+    <div class="sidebar-logo-row">
+      <a class="admin-brand" href="/" aria-label="CineRoute administration"><svg viewBox="0 0 36 36" fill="currentColor" aria-hidden="true"><path d="M28 4H12L3 32h16l2-6H11l5-16h10z"/><path d="m20 13 12 7-16 9z" opacity=".65"/></svg><span>CINEROUTE</span></a>
+      <button id="sidebarPin" class="sidebar-pin" type="button" onclick="toggleAdminSidebar()" aria-label="Unpin sidebar" title="Unpin sidebar"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m16 3 5 5-4 1-4 4-1 4-5-5 4-1 4-4zM7 17l-4 4"/></svg></button>
+      <button class="sidebar-close" type="button" onclick="closeAdminSidebar()" aria-label="Close navigation">×</button>
+    </div>
+    <div class="admin-instance"><span class="instance-mark"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="3" width="18" height="7" rx="2"/><rect x="3" y="14" width="18" height="7" rx="2"/><path d="M7 6.5h.01M7 17.5h.01"/></svg></span><div><strong>CineRoute</strong><span>Media administration</span></div></div>
+    <button id="adminActivityButton" class="sidebar-activity" type="button" onclick="openAdminRequests('history')"><span class="activity-mark"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 12h4l3-8 4 16 3-8h4"/></svg></span><span>Activity Center</span><span class="activity-count" id="adminActivityCount">—</span></button>
+  </div>
   <nav class="view-nav" id="viewNav" aria-label="Administration">
-    <p class="nav-label">Workspace</p>
-    <button id="routeTab" type="button" class="primary" aria-current="page" onclick="showView('route')" title="Route torrents"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3v12m-4-4 4 4 4-4"/><path d="M5 15v5h14v-5"/></svg><span>Route torrents</span></button>
-    <button id="requestsTab" type="button" onclick="showView('requests')" title="Request management"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="4" y="5" width="16" height="16" rx="3"/><path d="M9 5V3h6v2M8 11h8m-8 5h5"/></svg><span>Request management</span></button>
-    <p class="nav-label">Library</p>
-    <button id="moviesTab" type="button" onclick="showView('copies',true,'movie')" title="Movies"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="3" width="18" height="18" rx="3"/><path d="M7 3v18M17 3v18M3 8h4m-4 8h4M17 8h4m-4 8h4"/></svg><span>Movies</span></button>
-    <button id="tvTab" type="button" onclick="showView('copies',true,'tv')" title="TV shows"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="7" width="18" height="14" rx="3"/><path d="m8 3 4 4 4-4"/></svg><span>TV shows</span></button>
-    <p class="nav-label">Tools</p>
-    <button id="hardlinksTab" type="button" onclick="showView('hardlinks')" title="Hardlinks"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m10 13 4-4m-6 6-1 1a4 4 0 0 1-6-6l4-4a4 4 0 0 1 6 0m2 2 1-1a4 4 0 0 1 6 6l-4 4a4 4 0 0 1-6 0" transform="translate(1 1)"/></svg><span>Hardlinks</span></button>
-    <button id="subtitlesTab" type="button" onclick="showView('subtitles')" title="Subtitles"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="4" width="18" height="16" rx="3"/><path d="M7 12h3m4 0h3M7 16h10"/></svg><span>Subtitles</span></button>
+    <div class="sidebar-group"><p class="nav-label">Management</p>
+      <button id="routeTab" type="button" class="primary" aria-current="page" onclick="showView('route')" title="Route torrents"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3v12m-4-4 4 4 4-4"/><path d="M5 15v5h14v-5"/></svg><span>Route torrents</span></button>
+      <button id="queueTab" type="button" onclick="openAdminRequests('queue')" title="Request queue"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M8 6h12M8 12h12M8 18h12M3 6h.01M3 12h.01M3 18h.01"/></svg><span>Request queue</span></button>
+    </div>
+    <div class="sidebar-group"><p class="nav-label">Resources</p>
+      <button id="moviesTab" type="button" onclick="showView('copies',true,'movie')" title="Movies"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M7 3v18M17 3v18M3 8h4m-4 8h4M17 8h4m-4 8h4"/></svg><span>Movies</span></button>
+      <button id="tvTab" type="button" onclick="showView('copies',true,'tv')" title="TV shows"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="7" width="18" height="14" rx="2"/><path d="m8 3 4 4 4-4"/></svg><span>TV shows</span></button>
+      <button id="hardlinksTab" type="button" onclick="showView('hardlinks')" title="Hardlinks"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m10 13 4-4m-6 6-1 1a4 4 0 0 1-6-6l4-4a4 4 0 0 1 6 0m2 2 1-1a4 4 0 0 1 6 6l-4 4a4 4 0 0 1-6 0" transform="translate(1 1)"/></svg><span>Hardlinks</span></button>
+    </div>
+    <div class="sidebar-group"><p class="nav-label">Administration</p>
+      <button id="subtitlesTab" type="button" onclick="showView('subtitles')" title="Subtitles"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M7 12h3m4 0h3M7 16h10"/></svg><span>Subtitles</span></button>
+      <button id="requestsTab" type="button" onclick="openAdminRequests('general')" title="Request settings"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m9 3-.5 3-2 1-3-.7L2 9l2.5 2v2L2 15l1.5 2.7 3-.7 2 1 .5 3h6l.5-3 2-1 3 .7L22 15l-2.5-2v-2L22 9l-1.5-2.7-3 .7-2-1L15 3z"/><circle cx="12" cy="12" r="3"/></svg><span>Request settings</span></button>
+    </div>
   </nav>
-  <div class="admin-sidebar-footer"><div class="admin-user"><span class="admin-avatar"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="8" r="3"/><path d="M5 21v-2a7 7 0 0 1 14 0v2"/></svg></span><div><strong id="adminAccountName"></strong><small>Administrator</small></div><button type="button" class="sidebar-signout" onclick="signOut()" title="Sign out" aria-label="Sign out"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 4H5a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h4m5-12 4 4-4 4m-6-4h14"/></svg></button></div></div>
+  <div class="admin-sidebar-footer">
+    <details class="admin-account-menu" id="adminAccountMenu"><summary class="admin-user"><span class="admin-avatar" id="adminAccountInitial"></span><span class="admin-user-label"><strong id="adminAccountName"></strong><small>Administrator</small></span><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m9 5 3-3 3 3m-6 14 3 3 3-3"/></svg></summary><div class="admin-account-actions"><span>Signed in as administrator</span><button type="button" onclick="signOut()"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 4H5a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h4m5-12 4 4-4 4m-6-4h14"/></svg>Sign out</button></div></details>
+    <span class="sidebar-footer-label">CineRoute</span>
+  </div>
 </aside>
 <button class="sidebar-backdrop" id="sidebarBackdrop" type="button" aria-label="Close navigation" onclick="closeAdminSidebar()" tabindex="-1"></button>
 <div class="admin-workspace" id="adminWorkspace">
   <div class="admin-topbar">
     <button class="sidebar-toggle" id="sidebarToggle" type="button" aria-label="Collapse sidebar" aria-controls="adminSidebar" aria-expanded="true" onclick="toggleAdminSidebar()"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="4" width="18" height="16" rx="3"/><path d="M9 4v16"/></svg></button>
     <div class="admin-breadcrumb"><span>Administration</span><span aria-hidden="true">/</span><strong id="adminBreadcrumb">Route torrents</strong></div>
-    <span class="admin-mode-label">Admin workspace</span>
   </div>
   <div class="admin-content">
-    <div class="admin-page-heading"><div><p class="admin-eyebrow">CINEROUTE / ADMIN</p><h1 id="adminPageTitle">Route torrents</h1><p id="adminPageDescription">Send your downloads to the right place in your library.</p></div></div>
+    <div class="admin-page-heading"><span class="admin-page-icon" id="adminPageIcon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3v12m-4-4 4 4 4-4"/><path d="M5 15v5h14v-5"/></svg></span><div><h1 id="adminPageTitle">Route torrents</h1><p id="adminPageDescription">Send your downloads to the right place in your library.</p></div></div>
     <section class="admin-services" aria-label="Service status"><span class="service-label">Services</span><div id="statusbar" role="status" aria-live="polite"></div></section>
 
 <div id="routeView">
@@ -101,7 +114,7 @@
 </div>
 
 <div id="copyView" class="hidden">
-  <div class="card">
+  <div class="library-overview">
     <div class="copy-toolbar">
       <div>
         <h2 id="copyTitle" style="margin-bottom:4px">Movies</h2>
@@ -112,8 +125,8 @@
     <div id="copyStats" class="copy-stats"></div>
     <div id="copyMessage"></div>
   </div>
-  <div class="card">
-    <div class="actions" style="margin-top:0;margin-bottom:12px">
+  <div class="library-content">
+    <div class="library-search actions" style="margin-top:0;margin-bottom:12px">
       <input class="copy-search-input" id="copySearchInput" type="text" placeholder="Filter library titles" aria-label="Filter library titles" autocomplete="off" oninput="setCopySearch(this.value)">
       <button id="copySearchClear" type="button" onclick="clearCopySearch()">Clear</button>
     </div>
@@ -123,7 +136,7 @@
       <button data-filter="remote_only" onclick="setCopyFilter('remote_only')">Remote only</button>
       <button data-filter="both" onclick="setCopyFilter('both')">Both copies</button>
     </div>
-    <div id="copyList"></div>
+    <div class="library-table"><div class="library-table-heading" aria-hidden="true"><span>Title</span><span>Copies</span><span></span></div><div id="copyList"></div></div>
     <div id="copyPagination" class="pagination"></div>
   </div>
   <div id="copyDetail" class="card copy-detail hidden"></div>
@@ -335,7 +348,7 @@ function showApp(){
   const admin=currentAccount.role==="admin"&&!portalMode;
   $("loginCard").classList.add("hidden");$("appShell").classList.toggle("hidden",!admin);$("userShell").classList.toggle("hidden",admin);
   $("accountBar").classList.remove("hidden");$("accountName").textContent=currentAccount.name;
-  document.body.classList.toggle("admin-mode",admin);$("adminAccountName").textContent=currentAccount.name;
+  document.body.classList.toggle("admin-mode",admin);$("adminAccountName").textContent=currentAccount.name;$("adminAccountInitial").textContent=currentAccount.name.charAt(0).toUpperCase();
   closeAdminSidebar();
   $("statusbar").style.display=admin?"":"none";$("headerTag").textContent=admin?"route torrents into the media library":"movies and shows, requested by you";
 }
@@ -363,6 +376,7 @@ function copyURL(path="",openId=""){
 function closeAdminSidebar(){
   const wasOpen=document.body.classList.contains("sidebar-open");
   document.body.classList.remove("sidebar-open");
+  $("adminAccountMenu").open=false;
   updateAdminSidebar();
   if(wasOpen)$("sidebarToggle").focus();
 }
@@ -373,6 +387,7 @@ function updateAdminSidebar(){
   $("adminSidebar").inert=mobile&&!expanded;
   $("sidebarToggle").setAttribute("aria-expanded",String(expanded));
   $("sidebarToggle").setAttribute("aria-label",expanded?"Collapse sidebar":"Expand sidebar");
+  $("sidebarPin").setAttribute("aria-label",expanded?"Unpin sidebar":"Pin sidebar");
 }
 function toggleAdminSidebar(){
   const mobile=!!window.matchMedia?.("(max-width: 900px)").matches;
@@ -383,6 +398,23 @@ function toggleAdminSidebar(){
 document.addEventListener("keydown",event=>{if(event.key==="Escape")closeAdminSidebar()});
 window.matchMedia?.("(max-width: 900px)").addEventListener("change",()=>closeAdminSidebar());
 
+function openAdminRequests(panel){
+  requestPanel=panel;showView("requests");
+  if(panel==="queue")loadAdminQueue();
+}
+function updateAdminNavigation(){
+  const onRequests=!$("requestsView").classList.contains("hidden");
+  if(onRequests){
+    const title=requestPanel==="queue"?"Request queue":requestPanel==="history"?"Activity Center":"Request settings";
+    $("adminPageTitle").textContent=title;$("adminBreadcrumb").textContent=title;
+  }
+  $("queueTab").classList.toggle("primary",onRequests&&requestPanel==="queue");
+  $("requestsTab").classList.toggle("primary",onRequests&&requestPanel!=="queue"&&requestPanel!=="history");
+  $("adminActivityButton").classList.toggle("active",onRequests&&requestPanel==="history");
+  ["route","queue","movies","tv","requests","hardlinks","subtitles"].forEach(key=>{
+    const tab=$(key+"Tab");if(tab.classList.contains("primary"))tab.setAttribute("aria-current","page");else tab.removeAttribute("aria-current");
+  });
+}
 function showView(view,load=true,type){
   if(view==="copies"&&type&&type!==copyType){
     copyType=type;openCopy="";copyPage=0;copyFilter="all";copySearchTerm="";copyData=null;copyLoadToken++;
@@ -402,9 +434,17 @@ function showView(view,load=true,type){
   const titles={route:["Route torrents","Send your downloads to the right place in your library."],copies:[copyType==="tv"?"TV shows":"Movies","Your main and remote libraries, side by side."],requests:["Request management","Review the queue and configure how user requests reach your library."],hardlinks:["Hardlinks","Keep your library connected without duplicating your media."],subtitles:["Subtitles","Find, review and manage subtitles for your movie library."]};
   const [title,description]=titles[view]||titles.route;
   $("adminPageTitle").textContent=title;$("adminBreadcrumb").textContent=title;$("adminPageDescription").textContent=description;
-  ["route","movies","tv","requests","hardlinks","subtitles"].forEach(key=>{
-    const tab=$(key+"Tab");if(tab.classList.contains("primary"))tab.setAttribute("aria-current","page");else tab.removeAttribute("aria-current");
-  });
+  updateAdminNavigation();
+  let tabId="routeTab";
+  if(view==="copies")tabId=copyType==="tv"?"tvTab":"moviesTab";
+  if(view==="hardlinks")tabId="hardlinksTab";
+  if(view==="subtitles")tabId="subtitlesTab";
+  if(view==="requests"){
+    tabId="requestsTab";
+    if(requestPanel==="queue")tabId="queueTab";
+    if(requestPanel==="history")tabId="adminActivityButton";
+  }
+  const icon=$(tabId).querySelector("svg");if(icon)$("adminPageIcon").innerHTML=icon.outerHTML;
   closeAdminSidebar();
   if(view==="requests"&&load)loadRequests();
   if(view==="copies"&&load)loadCopies();

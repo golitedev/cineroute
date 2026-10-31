@@ -218,6 +218,8 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /catalog.js", s.serveAsset("templates/catalog.js"))
 	mux.HandleFunc("GET /viewport.js", s.serveAsset("templates/viewport.js"))
 	mux.HandleFunc("GET /app.css", s.serveAsset("templates/app.css"))
+	mux.HandleFunc("GET /admin.css", s.serveAsset("templates/admin.css"))
+	mux.HandleFunc("GET /admin-montserrat.woff2", s.serveAsset("templates/fonts/montserrat-latin.woff2"))
 	mux.HandleFunc("GET /health", s.health)
 	mux.HandleFunc("POST /api/login", s.login)
 	mux.HandleFunc("POST /api/logout", s.logout)
@@ -321,6 +323,9 @@ func (s *Server) serveAsset(name string) http.HandlerFunc {
 		panic("embedded asset missing: " + name)
 	}
 	ct := "image/svg+xml"
+	if strings.HasSuffix(name, ".woff2") {
+		ct = "font/woff2"
+	}
 	if strings.HasSuffix(name, ".png") {
 		ct = "image/png"
 	}

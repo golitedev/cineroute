@@ -51,7 +51,7 @@ async function saveRequestSettings(){
   }catch(e){requestMessage(e.message,true)}
   finally{requestSaving=false;updateRequestSaveState()}
 }
-function setRequestPanel(panel){requestPanel=panel;renderRequests();if(panel==='queue')loadAdminQueue();if(panel==='history')loadAdminRequestHistory()}
+function setRequestPanel(panel){requestPanel=panel;updateAdminNavigation();renderRequests();if(panel==='queue')loadAdminQueue();if(panel==='history')loadAdminRequestHistory()}
 function requestNumber(path,label,min,max,step=1,hint=''){
   return '<label class="request-field"><span>'+label+'</span><input type="number" required min="'+min+'" max="'+max+'" step="'+step+'" value="'+esc(requestValue(path))+'" oninput="setRequestField(\''+path+'\',this.value.length?Number(this.value):NaN)">'+(hint?'<small>'+hint+'</small>':'')+'</label>';
 }
@@ -67,6 +67,7 @@ function renderRequests(){
   const titles={queue:'Request queue',general:'Request defaults',trackers:'Trackers',movie:'Movie profile',tv:'TV profile',history:'Request history'};
   $('requestsPanelTitle').textContent=titles[requestPanel];
   $('requestsSettingsContent').innerHTML=requestPanel==='queue'?renderRequestQueue():requestPanel==='history'?renderRequestHistory():requestPanel==='general'?renderRequestGeneral():requestPanel==='trackers'?renderRequestTrackers():renderRequestProfile(requestPanel);
+  updateAdminNavigation();
   updateRequestSaveState();
 }
 function renderRequestGeneral(){
@@ -226,7 +227,7 @@ async function loadAdminRequestHistory(){
   try{
     const data=await api('/api/requests/history?page='+requestHistoryPage+'&status='+encodeURIComponent(requestHistoryStatus)+'&q='+encodeURIComponent(requestHistoryQuery),{signal:requestHistoryController.signal});
     if(token!==requestHistoryToken||currentAccount?.role!=='admin'||currentAccount.name!==owner)return;
-    requestHistoryData=data;requestHistoryPage=data.page;
+    requestHistoryData=data;requestHistoryPage=data.page;$("adminActivityCount").textContent=String(data.total||0);
   }catch(e){if(token===requestHistoryToken&&e.name!=='AbortError')requestHistoryError=e.message}
   finally{if(token===requestHistoryToken){requestHistoryLoading=false;paintRequestHistory()}}
 }

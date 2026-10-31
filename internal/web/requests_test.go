@@ -99,13 +99,19 @@ func TestRequestSettingsAuthenticationValidationAndRestart(t *testing.T) {
 		t.Fatal("administration sidebar missing")
 	}
 	sidebar := page[sidebarStart:sidebarEnd]
-	workspace, library, tools := strings.Index(sidebar, `>Workspace</p>`), strings.Index(sidebar, `>Library</p>`), strings.Index(sidebar, `>Tools</p>`)
-	requestTab := strings.Index(sidebar, `id="requestsTab"`)
-	if !(workspace >= 0 && workspace < requestTab && requestTab < library && library < tools) {
-		t.Fatal("request management is not in the sidebar workspace group")
+	management, resources, administration := strings.Index(sidebar, `>Management</p>`), strings.Index(sidebar, `>Resources</p>`), strings.Index(sidebar, `>Administration</p>`)
+	requestTab, queueTab := strings.Index(sidebar, `id="requestsTab"`), strings.Index(sidebar, `id="queueTab"`)
+	if !(management >= 0 && management < queueTab && queueTab < resources && resources < administration && administration < requestTab) {
+		t.Fatal("request queue and settings are not in their sidebar groups")
 	}
 	if strings.Contains(page, `id="openPortalButton"`) || strings.Contains(page, `Search &amp; request`) {
 		t.Fatal("user search entry is still exposed in the admin navigation")
+	}
+	for path, contentType := range map[string]string{"/admin.css": "text/css", "/admin-montserrat.woff2": "font/woff2"} {
+		asset := requestCall(t, handler, http.MethodGet, path, nil, false)
+		if asset.Code != http.StatusOK || !strings.Contains(asset.Header().Get("Content-Type"), contentType) || asset.Body.Len() == 0 {
+			t.Fatalf("admin asset %s unavailable at login: %d", path, asset.Code)
+		}
 	}
 	asset := requestCall(t, handler, http.MethodGet, "/requests.js", nil, false)
 	if asset.Code != http.StatusOK || !strings.Contains(asset.Header().Get("Content-Type"), "javascript") || asset.Header().Get("Cache-Control") != "no-cache" {
