@@ -4,7 +4,6 @@
 	import {
 		Pin,
 		PinOff,
-		Server,
 		ChevronsUpDown,
 		LogOut,
 		Clapperboard,
@@ -147,15 +146,6 @@
 							><X class="size-4" /></button
 						>{/if}
 				</div>
-				<Button large label="Media library" onclick={() => go('movies')}
-					><div class="flex aspect-square size-8 shrink-0 items-center justify-center rounded-full bg-primary text-primary-foreground">
-						<Server class="size-4" />
-					</div>
-					{#if sidebar.isExpanded}<div class="grid flex-1 text-left text-sm leading-tight">
-							<span class="truncate font-medium">CineRoute</span><span class="truncate text-xs">Media library</span>
-						</div>
-						<ChevronsUpDown class="ml-auto size-4 shrink-0" />{/if}</Button
-				>
 			</Header>
 			<Content class={sidebar.isExpanded ? '-mt-2' : ''}>
 				{#each groups as group}<Group
