@@ -114,6 +114,14 @@ make build
 ./cineroute -config config.yaml
 ```
 
+The admin UI is a Svelte 5 application in `admin/`; the public site stays in
+`web/`. `make build` compiles both frontends and embeds their static assets in
+the Go binary. Node.js is needed only when building. To rebuild just the admin,
+run `make admin`, then rebuild the Go binary. For admin development, run the Go
+backend on port 8787 and `cd admin && npm run dev`; Vite proxies API requests to
+that backend. Validate it with `cd admin && npm run check && npm run build && npm test`
+(install Playwright Chromium first with `npx playwright install chromium`).
+
 Open `http://127.0.0.1:8787`.
 
 ## Docker Compose

@@ -99,11 +99,6 @@ func writeErr(w http.ResponseWriter, status int, msg string) {
 	writeJSON(w, status, apiResponse{Error: msg})
 }
 
-func (s *Server) pageIndex(w http.ResponseWriter, r *http.Request) {
-	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	s.page.Execute(w, nil)
-}
-
 func (s *Server) health(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
 }

@@ -93,30 +93,6 @@ func TestRequestSettingsAuthenticationValidationAndRestart(t *testing.T) {
 	if resp.Code != http.StatusBadRequest {
 		t.Fatalf("missing remote root: %d %s", resp.Code, resp.Body.String())
 	}
-	page := requestCall(t, handler, http.MethodGet, "/", nil, false).Body.String()
-	sidebarStart, sidebarEnd := strings.Index(page, `<aside id="adminSidebar"`), strings.Index(page, `</aside>`)
-	if sidebarStart < 0 || sidebarEnd < sidebarStart {
-		t.Fatal("administration sidebar missing")
-	}
-	sidebar := page[sidebarStart:sidebarEnd]
-	management, resources, administration := strings.Index(sidebar, `>Management</p>`), strings.Index(sidebar, `>Resources</p>`), strings.Index(sidebar, `>Administration</p>`)
-	requestTab, queueTab := strings.Index(sidebar, `id="requestsTab"`), strings.Index(sidebar, `id="queueTab"`)
-	if !(management >= 0 && management < queueTab && queueTab < resources && resources < administration && administration < requestTab) {
-		t.Fatal("request queue and settings are not in their sidebar groups")
-	}
-	if strings.Contains(page, `id="openPortalButton"`) || strings.Contains(page, `Search &amp; request`) {
-		t.Fatal("user search entry is still exposed in the admin navigation")
-	}
-	for path, contentType := range map[string]string{"/admin.css": "text/css", "/admin-montserrat.woff2": "font/woff2"} {
-		asset := requestCall(t, handler, http.MethodGet, path, nil, false)
-		if asset.Code != http.StatusOK || !strings.Contains(asset.Header().Get("Content-Type"), contentType) || asset.Body.Len() == 0 {
-			t.Fatalf("admin asset %s unavailable at login: %d", path, asset.Code)
-		}
-	}
-	asset := requestCall(t, handler, http.MethodGet, "/requests.js", nil, false)
-	if asset.Code != http.StatusOK || !strings.Contains(asset.Header().Get("Content-Type"), "javascript") || asset.Header().Get("Cache-Control") != "no-cache" {
-		t.Fatalf("request script unavailable at login: %d", asset.Code)
-	}
 }
 
 func TestRequestTrackersOnlyReadIndexerConfiguration(t *testing.T) {

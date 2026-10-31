@@ -8,6 +8,14 @@ RUN --mount=type=cache,target=/root/.npm npm ci --no-audit --no-fund
 COPY web/ ./
 RUN npm run build
 
+# Compile the Svelte administration application; it also runs without Node.
+FROM --platform=$BUILDPLATFORM node:24-alpine AS admin
+WORKDIR /src/admin
+COPY admin/package.json admin/package-lock.json ./
+RUN --mount=type=cache,target=/root/.npm npm ci --no-audit --no-fund
+COPY admin/ ./
+RUN npm run check && npm run build
+
 # Build natively on the runner and cross-compile the target binary. This keeps
 # the ARM64 build out of QEMU emulation while still producing both images.
 FROM --platform=$BUILDPLATFORM golang:1.26.10-alpine AS build
@@ -20,6 +28,7 @@ RUN --mount=type=cache,target=/go/pkg/mod \
     go mod download
 COPY . .
 COPY --from=web /web/out/ internal/publicui/dist/
+COPY --from=admin /src/internal/adminui/dist/ internal/adminui/dist/
 RUN --mount=type=cache,target=/go/pkg/mod \
     --mount=type=cache,target=/root/.cache/go-build \
     CGO_ENABLED=0 GOOS=$TARGETOS GOARCH=$TARGETARCH \

@@ -10,7 +10,6 @@ import (
 	"embed"
 	"encoding/base64"
 	"fmt"
-	"html/template"
 	"log/slog"
 	"net/http"
 	"sort"
@@ -19,6 +18,7 @@ import (
 	"sync"
 	"time"
 
+	"cineroute/internal/adminui"
 	"cineroute/internal/allocator"
 	"cineroute/internal/config"
 	"cineroute/internal/copies"
@@ -34,7 +34,6 @@ import (
 	"cineroute/internal/torrentmeta"
 )
 
-//go:embed templates
 //go:embed logo
 var assetsFS embed.FS
 
@@ -144,7 +143,6 @@ type Server struct {
 	requests  *requests.Store
 	engine    *requests.Engine
 	allocMu   sync.Mutex
-	page      *template.Template
 
 	catalogLibrary *librarycache.Cache[catalogLibrary]
 
@@ -188,7 +186,6 @@ func New(cfg *config.Config, qb *qbittorrent.Client, tmdbClient *tmdb.Client, pr
 	s.catalogLibrary = librarycache.New(s.scanCatalogLibrary)
 	s.engine = requests.NewEngine(s.requests, tmdbClient, prowlarrClient, requestBackend{s})
 	s.engine.LibraryChanged = s.catalogLibrary.Invalidate
-	s.page = template.Must(template.New("index.html").ParseFS(assetsFS, "templates/index.html"))
 	go s.cleanupLoop()
 	return s
 }
@@ -210,16 +207,11 @@ func (s *Server) cleanupLoop() {
 
 func (s *Server) Handler() http.Handler {
 	mux := http.NewServeMux()
-	mux.HandleFunc("GET /{$}", s.pageIndex)
+	mux.Handle("GET /{$}", adminui.Handler())
+	mux.Handle("GET /admin/", http.StripPrefix("/admin", adminui.Handler()))
 	mux.HandleFunc("GET /favicon.png", s.serveAsset("logo/favicon.png"))
 	mux.HandleFunc("GET /favicon.svg", s.serveAsset("logo/favicon.svg"))
 	mux.HandleFunc("GET /logo.svg", s.serveAsset("logo/logo.svg"))
-	mux.HandleFunc("GET /requests.js", s.serveAsset("templates/requests.js"))
-	mux.HandleFunc("GET /catalog.js", s.serveAsset("templates/catalog.js"))
-	mux.HandleFunc("GET /viewport.js", s.serveAsset("templates/viewport.js"))
-	mux.HandleFunc("GET /app.css", s.serveAsset("templates/app.css"))
-	mux.HandleFunc("GET /admin.css", s.serveAsset("templates/admin.css"))
-	mux.HandleFunc("GET /admin-montserrat.woff2", s.serveAsset("templates/fonts/montserrat-latin.woff2"))
 	mux.HandleFunc("GET /health", s.health)
 	mux.HandleFunc("POST /api/login", s.login)
 	mux.HandleFunc("POST /api/logout", s.logout)

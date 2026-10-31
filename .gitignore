@@ -16,3 +16,9 @@ third_party/alass/target/
 /web/tsconfig.tsbuildinfo
 /internal/publicui/dist/*
 !/internal/publicui/dist/placeholder.txt
+
+/admin/node_modules/
+/admin/test-results/
+/admin/playwright-report/
+/internal/adminui/dist/*
+!/internal/adminui/dist/placeholder.txt

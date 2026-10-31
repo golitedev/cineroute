@@ -7,6 +7,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -111,6 +112,12 @@ func TestPublicListenerNeverExposesAdministrativeRoutes(t *testing.T) {
 	}
 	if out := securityCall(s.PublicHandler(), securityRequest("GET", "/requests.js")); out.Code == 200 {
 		t.Fatal("admin script exposed publicly")
+	}
+	adminPage := securityCall(s.Handler(), securityRequest("GET", "/"))
+	for _, asset := range regexp.MustCompile(`(?:src|href)="(/admin/assets/[^"]+)"`).FindAllStringSubmatch(adminPage.Body.String(), -1) {
+		if out := securityCall(s.PublicHandler(), securityRequest("GET", asset[1])); out.Code == http.StatusOK {
+			t.Fatalf("Svelte admin asset exposed publicly: %s", asset[1])
+		}
 	}
 	if data, err := os.ReadFile(sentinel); err != nil || string(data) != "original media" {
 		t.Fatalf("media changed: %s %v", data, err)

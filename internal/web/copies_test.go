@@ -73,16 +73,6 @@ func TestLibraryCopiesScanAndHardlinkWithoutTrackerRequests(t *testing.T) {
 	if !strings.Contains(status.Body.String(), `"prowlarr":"configured"`) || trackerRequests.Load() != 0 {
 		t.Fatalf("Prowlarr status = %s; tracker calls = %d", status.Body.String(), trackerRequests.Load())
 	}
-	page := httptest.NewRecorder()
-	handler.ServeHTTP(page, httptest.NewRequest(http.MethodGet, "/", nil))
-	if !strings.Contains(page.Body.String(), `id="moviesTab"`) || !strings.Contains(page.Body.String(), `id="tvTab"`) {
-		t.Fatal("movie and TV tabs are missing")
-	}
-	for _, removed := range []string{"Companions", "Find companion", "/api/companions", "LAT-Team", "Search next batch", "Clear reviews"} {
-		if strings.Contains(page.Body.String(), removed) {
-			t.Errorf("removed search feature remains in page: %s", removed)
-		}
-	}
 	for _, path := range []string{"/api/companions", "/api/companions/search-missing", "/api/companions/item/search", "/api/companions/item/approve", "/api/intakes/item/companion-search"} {
 		for _, method := range []string{http.MethodGet, http.MethodPost} {
 			response := httptest.NewRecorder()

@@ -1,0 +1,1 @@
+Run make admin to build the Svelte administration interface before building CineRoute.
