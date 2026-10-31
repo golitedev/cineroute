@@ -50,14 +50,12 @@
 				{ id: 'movies', label: 'Movies', icon: Film },
 				{ id: 'tv', label: 'TV shows', icon: Tv },
 				{ id: 'hardlinks', label: 'Hardlinks', icon: Link },
+				{ id: 'subtitles', label: 'Subtitles', icon: Subtitles },
 			],
 		},
 		{
 			label: 'Administration',
-			items: [
-				{ id: 'subtitles', label: 'Subtitles', icon: Subtitles },
-				{ id: 'settings', label: 'Request settings', icon: Settings },
-			],
+			items: [{ id: 'settings', label: 'Request settings', icon: Settings }],
 		},
 	];
 	let toggleButton: HTMLButtonElement;
