@@ -563,6 +563,7 @@ async function relinkHardlink(id,button){
 }
 
 // ---- movie and TV library copies ----
+const copySize=(files,sizes)=>files.length?" "+fmtBytes(files.reduce((total,path)=>total+(sizes?.[path]||0),0)):"";
 const copyStatus=item=>({main_only:"main only",remote_only:"remote only",both:"both copies"}[item.status]||item.status);
 async function loadCopies(openId){
   if(openId!==undefined)openCopy=openId||"";
@@ -588,7 +589,7 @@ function renderCopies(){
   $("copySearchClear").disabled=!copySearchTerm;
   const filtered=filteredCopies(),totalPages=Math.max(1,Math.ceil(filtered.length/20));
   copyPage=Math.min(copyPage,totalPages-1);
-  $("copyList").innerHTML=filtered.slice(copyPage*20,(copyPage+1)*20).map(item=>'<div class="copy-row"><div><div class="title">'+esc(item.folder_name)+'</div><div class="meta">'+esc(item.drive_id)+' · <span class="copy-tag main'+(item.existing_files.length?' present':'')+'">main</span> · <span class="copy-tag'+(item.remote_files.length?' present':'')+'">remote</span></div></div><span class="badge '+(item.status==="both"?'ok':'')+' status">'+copyStatus(item)+'</span><button data-id="'+esc(item.id)+'" onclick="openCopyItem(this.dataset.id)">Open</button></div>').join("")||'<div class="small">'+(items.length?'No titles match this filter.':'Scan the library to browse movie and TV copies.')+'</div>';
+  $("copyList").innerHTML=filtered.slice(copyPage*20,(copyPage+1)*20).map(item=>'<div class="copy-row"><div><div class="title">'+esc(item.folder_name)+'</div><div class="meta">'+esc(item.drive_id)+' · <span class="copy-tag main'+(item.existing_files.length?' present':'')+'">main'+copySize(item.existing_files,item.existing_file_sizes)+'</span> · <span class="copy-tag'+(item.remote_files.length?' present':'')+'">remote'+copySize(item.remote_files,item.remote_file_sizes)+'</span></div></div><span class="badge '+(item.status==="both"?'ok':'')+' status">'+copyStatus(item)+'</span><button data-id="'+esc(item.id)+'" onclick="openCopyItem(this.dataset.id)">Open</button></div>').join("")||'<div class="small">'+(items.length?'No titles match this filter.':'Scan the library to browse movie and TV copies.')+'</div>';
   $("copyPagination").innerHTML=filtered.length?'<button '+(copyPage===0?'disabled':'')+' onclick="copyPage--;renderCopies()">Previous</button><span class="small">Page '+(copyPage+1)+' of '+totalPages+' · '+filtered.length+' titles</span><button '+(copyPage>=totalPages-1?'disabled':'')+' onclick="copyPage++;renderCopies()">Next</button>':"";
   renderCopyDetail();
 }

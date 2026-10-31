@@ -155,6 +155,7 @@ driver.push("showView('copies',false,'movie');");
 driver.push("copyData = " + JSON.stringify({items:[copyItem]}) + "; openCopy='copy_1'; renderCopies();");
 driver.push("expect($('copyTitle').textContent === 'Movies', 'movie view title wrong');");
 driver.push("expect($('copyList').innerHTML.includes('Hugo (2011)'), 'movie library row missing');");
+driver.push("expect($('copyList').innerHTML.includes('main 123 B</span>')&&$('copyList').innerHTML.includes('remote</span>'), 'movie preview size or absent copy label wrong');");
 driver.push("expect($('copyDetail').innerHTML.includes('Hardlink to remote'), 'main-only hardlink action missing');");
 driver.push("setCopyFilter('remote_only'); expect(!$('copyList').innerHTML.includes('Hugo (2011)'), 'remote-only filter includes main-only movie');");
 driver.push("showView('copies',false,'tv'); expect($('copyTitle').textContent === 'TV', 'TV view title wrong');");
@@ -163,6 +164,7 @@ copyItem.status='remote_only'; copyItem.remote_files=copyItem.existing_files; co
 driver.push("copyData = " + JSON.stringify({items:[copyItem]}) + "; openCopy='copy_1'; renderCopies();");
 driver.push("expect($('copyDetail').innerHTML.includes('Hardlink to main'), 'remote-only hardlink action missing');");
 driver.push("copyData.items[0].status='both'; renderCopies(); expect(!$('copyDetail').innerHTML.includes('onclick=\"hardlinkCopy'), 'both-copy title offers a new hardlink');");
+driver.push("copyData.items[0].existing_files=['episode1.mkv','episode2.mkv'];copyData.items[0].existing_file_sizes={'episode1.mkv':1073741824,'episode2.mkv':2147483648};copyData.items[0].remote_file_sizes={'Hugo.mkv':536870912};renderCopies();expect($('copyList').innerHTML.includes('main 3.00 GiB</span>')&&$('copyList').innerHTML.includes('remote 512.00 MiB</span>'),'TV preview must total episode sizes separately for main and remote');");
 const requestFixture=__REQUEST_SETTINGS_FIXTURE__;
 driver.push("currentAccount={name:'admin',role:'admin'};requestData="+JSON.stringify(requestFixture)+"; requestDraft=requestClone(requestData.settings);requestSavedJSON=JSON.stringify(requestDraft);renderRequests();checkHandlers($('requestsSettingsContent').innerHTML);");
 driver.push("expect($('requestsSettingsContent').innerHTML.includes('Permissions and approval'),'request defaults not rendered');expect(!$('requestsSettingsContent').innerHTML.includes('Catalog visibility'),'removed catalog visibility selector still rendered');");
