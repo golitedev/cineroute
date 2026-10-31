@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { onMount, onDestroy } from 'svelte';
-	import { Settings, Save, RefreshCw } from 'lucide-svelte';
+	import { Save, RefreshCw } from 'lucide-svelte';
 	import PageHeader from '../components/PageHeader.svelte';
 	import Notice from '../components/Notice.svelte';
 	import ProfileEditor from '../components/ProfileEditor.svelte';
@@ -121,7 +121,7 @@
 	}}
 />
 <form onsubmit={save}>
-	<PageHeader title="Request settings" description="Configure approval, destinations, trackers and release preferences." icon={Settings}
+	<PageHeader title="Request settings" description="Configure approval, destinations, trackers and release preferences."
 		><span class="muted text-xs" role="status">{saving ? 'Saving…' : isDirty ? 'Unsaved changes' : 'All changes saved'}</span><button
 			type="button"
 			disabled={saving || resource.loading}

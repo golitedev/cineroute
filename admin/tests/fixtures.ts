@@ -100,12 +100,31 @@ export const movie = {
 	remote_files: ['remote.mkv'],
 	remote_file_sizes: { 'remote.mkv': 6.07 * 1024 ** 3 },
 };
+const showRoot = '/disk1/media/tv/Example Show (2024)';
+const remoteShowRoot = '/disk1/media/tv-remote/Example Show (2024)';
 export const show = {
 	...movie,
 	id: 'show1',
 	folder_name: 'Example Show (2024)',
-	existing_files: ['episode1.mkv', 'episode2.mkv'],
-	existing_file_sizes: { 'episode1.mkv': 1024 ** 3, 'episode2.mkv': 2 * 1024 ** 3 },
+	path: showRoot,
+	remote_path: remoteShowRoot,
+	existing_files: [
+		`${showRoot}/Example.Show.S01.Pack/episode1.mkv`,
+		`${showRoot}/Example.Show.S01.Pack/episode2.mkv`,
+		`${showRoot}/Example.Show.S02.Pack/Disc1/episode3.mkv`,
+		`${showRoot}/Example.Show.S02.Pack/Disc2/episode4.mkv`,
+	],
+	existing_file_sizes: {
+		[`${showRoot}/Example.Show.S01.Pack/episode1.mkv`]: 1024 ** 3,
+		[`${showRoot}/Example.Show.S01.Pack/episode2.mkv`]: 2 * 1024 ** 3,
+		[`${showRoot}/Example.Show.S02.Pack/Disc1/episode3.mkv`]: 0.5 * 1024 ** 3,
+		[`${showRoot}/Example.Show.S02.Pack/Disc2/episode4.mkv`]: 1.5 * 1024 ** 3,
+	},
+	remote_files: [`${remoteShowRoot}/Example.Show.S01.Remote/episode1.mkv`, `${remoteShowRoot}/Example.Show.S01.Remote/episode2.mkv`],
+	remote_file_sizes: {
+		[`${remoteShowRoot}/Example.Show.S01.Remote/episode1.mkv`]: 256 * 1024 ** 2,
+		[`${remoteShowRoot}/Example.Show.S01.Remote/episode2.mkv`]: 256 * 1024 ** 2,
+	},
 };
 export const subtitle = {
 	id: 'sub1',
@@ -344,6 +363,11 @@ export const test = base.extend<{ requests: RequestRecord[] }>({
 });
 export { expect };
 export async function navigate(page: import('@playwright/test').Page, name: string) {
+	if (name === 'Request history') {
+		await navigate(page, 'Request queue');
+		await page.getByRole('button', { name, exact: true }).click();
+		return;
+	}
 	const mobile = await page.getByRole('button', { name: 'Expand sidebar', exact: true }).isVisible();
 	if (mobile && !(await page.getByRole('button', { name, exact: true }).isVisible()))
 		await page.getByRole('button', { name: 'Expand sidebar', exact: true }).click();

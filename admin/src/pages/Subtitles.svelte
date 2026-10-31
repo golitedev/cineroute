@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { onMount, onDestroy } from 'svelte';
-	import { Subtitles, RefreshCw, Play, Square } from 'lucide-svelte';
+	import { RefreshCw, Play, Square } from 'lucide-svelte';
 	import PageHeader from '../components/PageHeader.svelte';
 	import Notice from '../components/Notice.svelte';
 	import Pager from '../components/Pager.svelte';
@@ -87,7 +87,6 @@
 <PageHeader
 	title="Subtitles"
 	description={`Find and align ${(resource.data?.target_languages || []).join(', ')} subtitles for remote movies.`}
-	icon={Subtitles}
 	><button disabled={busy || running} onclick={() => action('/scan')}><RefreshCw class="size-4" />Scan remote movies</button><button
 		class="primary"
 		disabled={busy || running || !pending}

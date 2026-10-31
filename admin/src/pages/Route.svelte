@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { onMount, onDestroy } from 'svelte';
-	import { Upload, RefreshCw } from 'lucide-svelte';
+	import { RefreshCw } from 'lucide-svelte';
 	import PageHeader from '../components/PageHeader.svelte';
 	import IntakeCard from '../components/IntakeCard.svelte';
 	import Notice from '../components/Notice.svelte';
@@ -81,7 +81,7 @@
 	}
 </script>
 
-<PageHeader title="Route torrents" description="Match torrents and route them to the right library." icon={Upload}
+<PageHeader title="Route torrents" description="Match torrents and route them to the right library."
 	><button disabled={resource.loading} onclick={() => resource.load('/intakes')}><RefreshCw class="size-4" />Refresh</button></PageHeader
 >
 <Notice error={resource.error} />
@@ -102,7 +102,6 @@
 	}}
 	aria-label="Torrent upload"
 >
-	<span class="page-icon"><Upload class="size-5" /></span>
 	<h2>{uploading ? 'Uploading torrents…' : 'Drop your torrent files here'}</h2>
 	<p>Add one or several .torrent files to get started.</p>
 	<button class="primary" disabled={uploading} onclick={() => fileInput.click()}>Browse files</button>

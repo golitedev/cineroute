@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { onMount, onDestroy } from 'svelte';
-	import { Activity, RefreshCw } from 'lucide-svelte';
+	import { RefreshCw } from 'lucide-svelte';
 	import PageHeader from '../components/PageHeader.svelte';
 	import Notice from '../components/Notice.svelte';
 	import DownloadDetails from '../components/DownloadDetails.svelte';
@@ -29,7 +29,7 @@
 	const counts = $derived(resource.data?.counts || {});
 </script>
 
-<PageHeader title="Activity Center" description="Requests from every user and all recorded download attempts." icon={Activity}
+<PageHeader title="Request history" description="Requests from every user and all recorded download attempts."
 	><button disabled={resource.loading} onclick={() => resource.load(url())}><RefreshCw class="size-4" />Refresh history</button></PageHeader
 ><Notice error={resource.error} />
 <div class="stats">

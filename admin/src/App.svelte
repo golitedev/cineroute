@@ -2,7 +2,6 @@
 	import { onMount } from 'svelte';
 	import Sidebar from './components/Sidebar.svelte';
 	import Login from './components/Login.svelte';
-	import Services from './components/Services.svelte';
 	import Route from './pages/Route.svelte';
 	import Library from './pages/Library.svelte';
 	import Hardlinks from './pages/Hardlinks.svelte';
@@ -71,10 +70,11 @@
 		{navigate}
 		{logout}
 		><main class="main-content">
-			<Services />{#if error}<div class="notice error" role="alert">{error}</div>{/if}{#if view === 'route'}<Route
+			{#if error}<div class="notice error" role="alert">{error}</div>{/if}{#if view === 'route'}<Route
 				/>{:else if view === 'movies' || view === 'tv'}{#key view}<Library
 						kind={view === 'tv' ? 'tv' : 'movie'}
 					/>{/key}{:else if view === 'hardlinks'}<Hardlinks />{:else if view === 'subtitles'}<Subtitles />{:else if view === 'queue'}<Queue
+					onhistory={() => navigate('history')}
 				/>{:else if view === 'history'}<History />{/if}{#if settingsVisited}<div hidden={view !== 'settings'}>
 					<Settings bind:dirty={settingsDirty} />
 				</div>{/if}

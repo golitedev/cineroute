@@ -9,15 +9,32 @@ test('Svelte shell, library totals, filters, details, and account menu', async (
 	await navigate(page, 'Movies');
 	await expect(page.locator('.library-row')).toContainText('main 68.93 GiB');
 	await expect(page.locator('.library-row')).toContainText('remote 6.07 GiB');
-	await page.getByRole('button', { name: 'Open', exact: true }).click();
-	await expect(page.locator('.detail')).toContainText(movie.folder_name);
+	await expect(page.getByRole('button', { name: 'Open', exact: true })).toHaveCount(0);
+	const row = page.getByRole('button', { name: `${movie.folder_name} details`, exact: true });
+	await row.click();
+	await expect(page.locator('.library-entry[open] .library-details')).toContainText('movie.mkv');
+	await row.focus();
+	await page.keyboard.press('Space');
+	await expect(page.locator('.library-details')).toHaveCount(0);
+	await page.keyboard.press('Enter');
+	await expect(page.locator('.library-entry[open] .library-details')).toBeVisible();
 	await page.getByRole('searchbox', { name: 'Filter library titles' }).fill('absent');
 	await expect(page.locator('.library-row')).toHaveCount(0);
 	await page.getByRole('button', { name: 'Clear', exact: true }).click();
 	await page.getByRole('button', { name: 'Scan library', exact: true }).click();
 	await expect.poll(() => requests.some((r) => r.path === '/copies/scan' && r.csrf === 'test-csrf')).toBeTruthy();
 	await navigate(page, 'TV shows');
-	await expect(page.locator('.library-row')).toContainText('main 3.00 GiB');
+	await expect(page.locator('.library-row')).toContainText('main 5.00 GiB');
+	await page.getByRole('button', { name: 'Example Show (2024) details', exact: true }).click();
+	const main = page.getByRole('region', { name: 'Main copy', exact: true });
+	await expect(main.locator('.copy-file')).toHaveCount(2);
+	await expect(main.locator('.copy-file').first()).toContainText('Example.Show.S01.Pack');
+	await expect(main.locator('.copy-file').first()).toContainText('3.00 GiB');
+	await expect(main.locator('.copy-file').last()).toContainText('Example.Show.S02.Pack');
+	await expect(main.locator('.copy-file').last()).toContainText('2.00 GiB');
+	await expect(page.getByRole('region', { name: 'Remote copy', exact: true })).toContainText('512.00 MiB');
+	await expect(page.locator('.library-details')).not.toContainText('episode1.mkv');
+	await expect(page.locator('.library-details')).not.toContainText('Disc1');
 	const toggle = page.getByRole('button', { name: 'Expand sidebar', exact: true });
 	if (await toggle.isVisible()) await toggle.click();
 	await page.getByRole('button', { name: 'Account menu', exact: true }).click();
@@ -86,7 +103,7 @@ test('queue actions and safe download evidence render without HTML injection', a
 	await expect(page.getByRole('heading', { name: 'Example <Movie>', exact: true })).toBeVisible();
 	await page.getByRole('button', { name: 'Approve', exact: true }).click();
 	await expect.poll(() => requests.some((r) => r.path === '/requests/queue/request1/approve' && r.csrf === 'test-csrf')).toBeTruthy();
-	await navigate(page, 'Activity Center');
+	await navigate(page, 'Request history');
 	await expect(page.locator('.download-detail')).toContainText('Reported audio: Spanish');
 	await expect(page.locator('.download-detail')).toContainText('Reported full subtitles: Swedish');
 	await expect(page.locator('.download-detail')).toContainText('Reported video bitrate: 9.10 Mbps');
@@ -193,7 +210,7 @@ test('responsive sidebar, keyboard pinning and every admin page fit the viewport
 	const errors: string[] = [];
 	page.on('pageerror', (e) => errors.push(e.message));
 	await page.goto('http://admin.test/');
-	for (const name of ['Movies', 'TV shows', 'Hardlinks', 'Subtitles', 'Request settings', 'Request queue', 'Activity Center']) {
+	for (const name of ['Movies', 'TV shows', 'Hardlinks', 'Subtitles', 'Request settings', 'Request queue', 'Request history']) {
 		await navigate(page, name);
 		await expect(page.getByRole('heading', { name, exact: true })).toBeVisible();
 		await expect.poll(() => page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBeTruthy();
@@ -243,4 +260,33 @@ test('Arcane sidebar auto-collapses on tablets, expands on hover, and persists i
 	await page.getByRole('button', { name: 'Pin sidebar', exact: true }).click();
 	await page.locator('.workspace-bar').hover();
 	await expect(sidebar).not.toHaveAttribute('data-collapsible', 'icon');
+});
+
+test('content fills an ultrawide workspace and compact queue keeps services in the toolbar', async ({ page, requests }, info) => {
+	await page.setViewportSize({ width: 2560, height: 1440 });
+	await page.mouse.move(1200, 500);
+	await page.goto('http://admin.test/');
+	await expect(page.getByRole('heading', { name: 'Route torrents', exact: true })).toBeVisible();
+	await expect(page.getByRole('button', { name: 'Activity Center', exact: true })).toHaveCount(0);
+	await expect(page.locator('.page-icon')).toHaveCount(0);
+	await navigate(page, 'Request queue');
+	await expect(page.locator('.queue-row')).toHaveCount(1);
+	const bounds = await page.locator('.queue-table').boundingBox();
+	expect(bounds!.width).toBeGreaterThan(2250);
+	expect(bounds!.x + bounds!.width).toBeGreaterThan(2500);
+	const row = await page.locator('.queue-row').boundingBox();
+	expect(row!.height).toBeLessThan(85);
+	const radius = await page.locator('[data-sidebar="menu-button"][data-active="true"]').evaluate((el) => getComputedStyle(el).borderRadius);
+	expect(parseFloat(radius)).toBeCloseTo(9.8, 1);
+	const status = page.getByLabel('Service status', { exact: true });
+	await expect(status).toBeVisible();
+	const position = await status.boundingBox();
+	expect(position!.y).toBeLessThan(50);
+	expect(position!.x).toBeGreaterThan(2200);
+	await status.click();
+	await expect(page.locator('.service-popover')).toContainText('qBittorrent');
+	await expect(page.locator('.service-popover')).toContainText('TMDB');
+	await page.keyboard.press('Escape');
+	await expect(page.locator('.service-popover')).not.toBeVisible();
+	await page.screenshot({ path: info.outputPath('queue-ultrawide.png'), fullPage: true });
 });

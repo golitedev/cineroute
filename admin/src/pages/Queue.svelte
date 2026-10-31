@@ -1,12 +1,13 @@
 <script lang="ts">
 	import { onMount, onDestroy } from 'svelte';
-	import { ListChecks, RefreshCw } from 'lucide-svelte';
+	import { RefreshCw, History } from 'lucide-svelte';
 	import PageHeader from '../components/PageHeader.svelte';
 	import Notice from '../components/Notice.svelte';
 	import { Resource } from '../lib/resource.svelte';
 	import { post } from '../lib/client';
 	import { title, status, message } from '../lib/utils';
 	import type { RequestRow } from '../lib/types';
+	let { onhistory }: { onhistory: () => void } = $props();
 	const resource = new Resource<{ requests: RequestRow[] }>();
 	let busy = $state<string[]>([]);
 	onMount(() => {
@@ -31,32 +32,34 @@
 	}
 </script>
 
-<PageHeader title="Request queue" description="Review user requests and manage automated downloads." icon={ListChecks}
-	><button disabled={resource.loading} onclick={() => resource.load('/requests/queue')}><RefreshCw class="size-4" />Refresh queue</button
+<PageHeader title="Request queue" description="Review user requests and manage automated downloads."
+	><button onclick={onhistory}><History class="size-4" />Request history</button><button
+		disabled={resource.loading}
+		onclick={() => resource.load('/requests/queue')}><RefreshCw class="size-4" />Refresh queue</button
 	></PageHeader
 ><Notice error={resource.error} />
 <p class="muted">
 	{resource.data?.requests?.length || 0} requests · {(resource.data?.requests || []).filter((r) => r.request.status === 'pending').length} awaiting
 	approval
 </p>
-<div class="cards">
-	{#each resource.data?.requests || [] as row (row.request.id)}<article class="panel">
-			<div class="section-heading">
-				<div>
-					<h2>{title(row.request.media)}</h2>
-					<p>{row.owner} · {row.destination} · {status(row.request.status)}</p>
-				</div>
-				<div class="actions">
-					{#each row.request.status === 'pending' ? ['approve', 'decline'] : !['cancelled', 'declined'].includes(row.request.status) ? ['retry', 'cancel'] : [] as kind}<button
-							class:primary={kind === 'approve'}
-							class:danger={kind === 'decline' || kind === 'cancel'}
-							disabled={busy.includes(row.request.id)}
-							onclick={() => action(row.request.id, kind)}>{kind.charAt(0).toUpperCase() + kind.slice(1)}</button
-						>{/each}
-				</div>
+<div class="resource-table queue-table">
+	<div class="queue-heading"><span>Title</span><span>Requested by</span><span>Status</span><span></span></div>
+	{#each resource.data?.requests || [] as row (row.request.id)}<article class="queue-row">
+			<div class="queue-title">
+				<h2>{title(row.request.media)}</h2>
+				<p title={row.request.message}>{row.request.message}</p>
 			</div>
-			<p class="muted">{row.request.message}</p>
-			{#if row.diagnostic}<div class="notice">{row.diagnostic}</div>{/if}
+			<div class="queue-owner"><strong>{row.owner}</strong><span>{row.destination}</span></div>
+			<span class="badge" class:good={row.request.status === 'complete'}>{status(row.request.status)}</span>
+			<div class="actions">
+				{#each row.request.status === 'pending' ? ['approve', 'decline'] : !['cancelled', 'declined'].includes(row.request.status) ? ['retry', 'cancel'] : [] as kind}<button
+						class:primary={kind === 'approve'}
+						class:danger={kind === 'decline' || kind === 'cancel'}
+						disabled={busy.includes(row.request.id)}
+						onclick={() => action(row.request.id, kind)}>{kind.charAt(0).toUpperCase() + kind.slice(1)}</button
+					>{/each}
+			</div>
+			{#if row.diagnostic}<div class="queue-diagnostic notice">{row.diagnostic}</div>{/if}
 		</article>{:else}<p class="empty">
 			{resource.loading ? 'Loading queue…' : 'No requests yet. Requests submitted through the user portal will appear here.'}
 		</p>{/each}

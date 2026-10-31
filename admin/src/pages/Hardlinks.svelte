@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { onMount, onDestroy } from 'svelte';
-	import { Link, RefreshCw } from 'lucide-svelte';
+	import { RefreshCw } from 'lucide-svelte';
 	import PageHeader from '../components/PageHeader.svelte';
 	import Notice from '../components/Notice.svelte';
 	import Pager from '../components/Pager.svelte';
@@ -60,7 +60,7 @@
 	}
 </script>
 
-<PageHeader title="Hardlinks" description="Inspect existing links, keep names in sync, and maintain remote folders." icon={Link}
+<PageHeader title="Hardlinks" description="Inspect existing links, keep names in sync, and maintain remote folders."
 	><button disabled={!!busy} onclick={() => action('scan')}
 		><RefreshCw class="size-4" />{busy === 'scan' ? 'Scanning…' : 'Scan hardlinks'}</button
 	></PageHeader

@@ -5,7 +5,6 @@
 		Pin,
 		PinOff,
 		Server,
-		Activity,
 		ChevronsUpDown,
 		LogOut,
 		Clapperboard,
@@ -28,6 +27,7 @@
 	import Content from './sidebar/content.svelte';
 	import Header from './sidebar/header.svelte';
 	import Button from './sidebar/Button.svelte';
+	import Services from './Services.svelte';
 	import type { View, Account } from '../lib/types';
 	let {
 		view,
@@ -156,13 +156,6 @@
 						</div>
 						<ChevronsUpDown class="ml-auto size-4 shrink-0" />{/if}</Button
 				>
-				<div class="pt-1">
-					<Button label="Activity Center" active={view === 'history'} onclick={() => go('history')}
-						><span class="flex size-6 shrink-0 items-center justify-center rounded-full bg-sidebar-accent text-muted-foreground"
-							><Activity class="size-4" /></span
-						>{#if sidebar.isExpanded}<span class="text-xs">Activity Center</span>{/if}</Button
-					>
-				</div>
 			</Header>
 			<Content class={sidebar.isExpanded ? '-mt-2' : ''}>
 				{#each groups as group}<Group
@@ -208,8 +201,9 @@
 				aria-label={sidebar.isExpanded ? 'Collapse sidebar' : 'Expand sidebar'}
 				aria-expanded={sidebar.isExpanded}><PanelLeft class="size-4" /></button
 			><span>Administration</span><span class="text-muted-foreground">/</span><span
-				>{groups.flatMap((g) => g.items).find((i) => i.id === view)?.label || 'Activity Center'}</span
+				>{groups.flatMap((g) => g.items).find((i) => i.id === view)?.label || 'Request history'}</span
 			>
+			<Services />
 		</div>
 		{@render children()}
 	</div>
