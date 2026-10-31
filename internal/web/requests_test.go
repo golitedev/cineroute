@@ -94,8 +94,18 @@ func TestRequestSettingsAuthenticationValidationAndRestart(t *testing.T) {
 		t.Fatalf("missing remote root: %d %s", resp.Code, resp.Body.String())
 	}
 	page := requestCall(t, handler, http.MethodGet, "/", nil, false).Body.String()
-	if !(strings.Index(page, `id="tvTab"`) < strings.Index(page, `id="requestsTab"`) && strings.Index(page, `id="requestsTab"`) < strings.Index(page, `id="hardlinksTab"`)) {
-		t.Fatal("Requests tab is not immediately after TV")
+	sidebarStart, sidebarEnd := strings.Index(page, `<aside id="adminSidebar"`), strings.Index(page, `</aside>`)
+	if sidebarStart < 0 || sidebarEnd < sidebarStart {
+		t.Fatal("administration sidebar missing")
+	}
+	sidebar := page[sidebarStart:sidebarEnd]
+	workspace, library, tools := strings.Index(sidebar, `>Workspace</p>`), strings.Index(sidebar, `>Library</p>`), strings.Index(sidebar, `>Tools</p>`)
+	requestTab := strings.Index(sidebar, `id="requestsTab"`)
+	if !(workspace >= 0 && workspace < requestTab && requestTab < library && library < tools) {
+		t.Fatal("request management is not in the sidebar workspace group")
+	}
+	if strings.Contains(page, `id="openPortalButton"`) || strings.Contains(page, `Search &amp; request`) {
+		t.Fatal("user search entry is still exposed in the admin navigation")
 	}
 	asset := requestCall(t, handler, http.MethodGet, "/requests.js", nil, false)
 	if asset.Code != http.StatusOK || !strings.Contains(asset.Header().Get("Content-Type"), "javascript") || asset.Header().Get("Cache-Control") != "no-cache" {

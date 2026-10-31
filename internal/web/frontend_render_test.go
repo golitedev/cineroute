@@ -82,7 +82,7 @@ function makeEl() {
     style: {}, dataset: {}, value: "", textContent: "", innerHTML: "", disabled: false,
     isConnected: true, checked: false, files: [], placeholder: "", title: "",
     addEventListener() {}, removeEventListener() {}, appendChild() {}, removeChild() {},
-    scrollIntoView() {}, focus() {}, select() {}, click() {}, setAttribute() {},
+    scrollIntoView() {}, focus() {}, select() {}, click() {}, setAttribute() {}, removeAttribute() {},
     reportValidity() { return true; }, getAttribute() { return null; }, querySelectorAll() { return []; },
     querySelector() { return null; }, insertBefore() {}, closest() { return null; },
   };
@@ -151,9 +151,10 @@ driver.push("subtitleData.batch = { running: false, total: 0, done: 0 }; subtitl
 driver.push("renderSubtitles();");
 driver.push("expect($('subtitleRunButton').disabled, 'batch button should be disabled with nothing queued');");
 const copyItem = { id: "copy_1", drive_id: "disk1", folder_name: "Hugo (2011)", path: "/disk1/media/movies/Hugo (2011)", remote_path: "/disk1/media/movies-remote/Hugo (2011)", status: "main_only", existing_files: ["Hugo.mkv"], existing_file_sizes: {"Hugo.mkv": 123}, remote_files: [], remote_file_sizes: {} };
+driver.push("currentAccount={name:'admin',role:'admin'};portalMode=false;showApp();expect(document.body.classList.contains('admin-mode')&&$('adminAccountName').textContent==='admin','admin shell or sidebar account missing');toggleAdminSidebar();expect(document.body.classList.contains('sidebar-collapsed'),'desktop sidebar did not collapse');toggleAdminSidebar();expect(!document.body.classList.contains('sidebar-collapsed'),'desktop sidebar did not expand');");
 driver.push("showView('copies',false,'movie');");
 driver.push("copyData = " + JSON.stringify({items:[copyItem]}) + "; openCopy='copy_1'; renderCopies();");
-driver.push("expect($('copyTitle').textContent === 'Movies', 'movie view title wrong');");
+driver.push("expect($('copyTitle').textContent === 'Movies'&&$('adminPageTitle').textContent==='Movies'&&$('adminBreadcrumb').textContent==='Movies', 'movie view title wrong');");
 driver.push("expect($('copyList').innerHTML.includes('Hugo (2011)'), 'movie library row missing');");
 driver.push("expect($('copyList').innerHTML.includes('main 123 B</span>')&&$('copyList').innerHTML.includes('remote</span>'), 'movie preview size or absent copy label wrong');");
 driver.push("expect($('copyDetail').innerHTML.includes('Hardlink to remote'), 'main-only hardlink action missing');");
@@ -192,7 +193,7 @@ driver.push("expect($('requestsPanelTitle').textContent==='Request history'&&$('
 driver.push("historyDownload.tracker_url='javascript:alert(1)';expect(!renderRequestHistoryEntries().includes('href='),'unsafe tracker link rendered');historyDownload.tracker_url='https://user:secret@tracker.example/42';expect(!renderRequestHistoryEntries().includes('href='),'tracker credentials rendered');");
 driver.push("expect(renderRequestHistoryEntries().includes('Reported audio: Spanish')&&renderRequestHistoryEntries().includes('Reported full subtitles: Swedish'),'history language evidence missing');expect(renderRequestHistoryEntries().includes('Reported video bitrate: 9.10 Mbps'),'history video bitrate missing');");
 driver.push("let staleHistoryResolve;fetch=async()=>new Promise(resolve=>{staleHistoryResolve=()=>resolve({ok:true,status:200,json:async()=>historyFixture})});const staleHistory=loadAdminRequestHistory();resetRequestHistory();currentAccount={name:'another-admin',role:'admin'};staleHistoryResolve();await staleHistory;expect(requestHistoryData===null,'stale history crossed account boundary');currentAccount={name:'admin',role:'admin'};");
-driver.push("currentAccount={name:'alice',role:'user'};portalMode=true;showApp();expect($('appShell').classList.contains('hidden')&&!$('userShell').classList.contains('hidden'),'user can see administration shell');");
+driver.push("currentAccount={name:'alice',role:'user'};portalMode=true;showApp();expect($('appShell').classList.contains('hidden')&&!$('userShell').classList.contains('hidden'),'user can see administration shell');expect(!document.body.classList.contains('admin-mode'),'admin theme leaked into user portal');");
 driver.push("const movieResult={id:101,title:'Example Movie',media_type:'movie',poster_path:'/poster.jpg',release_date:'2024-01-01'};const showResult={id:202,name:'Example Show',media_type:'tv',poster_path:'/show.jpg'};let sentRequest=null;const pendingRequest={id:'own_request',media:showResult,status:'pending',message:'Waiting for administrator approval',progress:0,seasons:[1]};");
 driver.push("fetch=async(path,opts)=>({ok:true,status:200,json:async()=>path.startsWith('/api/catalog/search')?{results:[movieResult,showResult],page:1,total_pages:1}:path.startsWith('/api/catalog/')?{media:showResult,seasons:[{season_number:1,name:'Season 1',episode_count:2,air_date:'2024-01-01'}],monitor:'requested_seasons',auto_approve:false}:path==='/api/user/requests'&&opts?.method==='POST'?(sentRequest=JSON.parse(opts.body),{request:pendingRequest}):{requests:[pendingRequest]}});$('catalogQuery').value='Example';await searchCatalog();checkHandlers($('catalogResults').innerHTML);expect($('catalogResults').innerHTML.includes('catalog-poster')&&$('catalogResults').innerHTML.includes('Example Show'),'movie/show poster search did not render');");
 driver.push("await openCatalogTitle('tv',202);checkHandlers($('catalogDetail').innerHTML);expect($('catalogDetail').innerHTML.includes('Choose seasons')&&$('catalogDetail').innerHTML.includes('Request approval'),'TV season selection or approval state missing');");
