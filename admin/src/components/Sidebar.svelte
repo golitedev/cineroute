@@ -175,10 +175,7 @@
 						></DropdownMenu.Root
 					>
 				</div>
-				{#if sidebar.isExpanded}<div class="flex items-center justify-center px-4 text-xs font-medium text-muted-foreground/60">
-						CineRoute
-					</div>{/if}</Footer
-			>
+			</Footer>
 		</div>
 	</aside>
 	<div class="workspace" inert={sidebar.mobile && sidebar.drawer}>
