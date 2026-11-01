@@ -83,3 +83,51 @@ func TestLibraryCopiesScanAndHardlinkWithoutTrackerRequests(t *testing.T) {
 		}
 	}
 }
+
+func TestAnimeLibraryScanIsPrimaryOnlyAndRejectsHardlink(t *testing.T) {
+	base := t.TempDir()
+	cfg := config.Default()
+	cfg.Subtitles.Enabled = false
+	cfg.Drives = []config.Drive{{
+		ID:        "disk1",
+		MovieRoot: filepath.Join(base, "movies"),
+		TVRoot:    filepath.Join(base, "tv"),
+		AnimeRoot: filepath.Join(base, "anime"),
+	}}
+	for _, root := range []string{cfg.Drives[0].MovieRoot, cfg.Drives[0].TVRoot, cfg.Drives[0].AnimeRoot} {
+		if err := os.MkdirAll(root, 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	folder := filepath.Join(cfg.Drives[0].AnimeRoot, "Frieren (2023)", "Season 1")
+	if err := os.MkdirAll(folder, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(folder, "Frieren.S01E01.mkv"), []byte("video"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	handler := testAdminHandler(New(cfg, nil, nil))
+
+	scan := httptest.NewRecorder()
+	handler.ServeHTTP(scan, httptest.NewRequest(http.MethodPost, "/api/copies/scan?type=anime", nil))
+	var view copies.View
+	if err := json.Unmarshal(scan.Body.Bytes(), &view); err != nil || scan.Code != http.StatusOK || len(view.Items) != 1 || view.MediaType != "anime" {
+		t.Fatalf("scan = %d %s; error %v", scan.Code, scan.Body.String(), err)
+	}
+	item := view.Items[0]
+	if item.FolderName != "Frieren (2023)" || item.DriveID != "disk1" || item.RemotePath != "" || item.Status != "main_only" || len(item.ExistingFiles) != 1 {
+		t.Fatalf("anime item = %+v", item)
+	}
+
+	list := httptest.NewRecorder()
+	handler.ServeHTTP(list, httptest.NewRequest(http.MethodGet, "/api/copies?type=anime", nil))
+	if list.Code != http.StatusOK || !strings.Contains(list.Body.String(), `"media_type":"anime"`) {
+		t.Fatalf("list = %d %s", list.Code, list.Body.String())
+	}
+
+	link := httptest.NewRecorder()
+	handler.ServeHTTP(link, httptest.NewRequest(http.MethodPost, "/api/copies/"+item.ID+"/hardlink?type=anime", nil))
+	if link.Code != http.StatusConflict || !strings.Contains(link.Body.String(), "anime has no remote library") {
+		t.Fatalf("anime hardlink = %d %s", link.Code, link.Body.String())
+	}
+}

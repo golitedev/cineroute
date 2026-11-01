@@ -139,3 +139,23 @@ func TestDownloadCompletionRefreshesCatalogCache(t *testing.T) {
 		}
 	}
 }
+
+func TestCatalogAnimeBadgeUsesAnimeRoots(t *testing.T) {
+	s, _, _, roots := newTestServer(t)
+	media := tmdb.Result{ID: 4607, MediaType: "tv", Name: "Frieren", FirstAirDate: "2023-09-29"}
+	root := filepath.Join(roots["/a1"], "Frieren (2023)")
+	if err := os.MkdirAll(root, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	s.catalogLibrary.Refresh()
+	if s.catalogInLibrary(media) {
+		t.Fatal("empty anime folder marked in library")
+	}
+	if err := os.WriteFile(filepath.Join(root, "Frieren.S01E01.mkv"), []byte("video"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	s.catalogLibrary.Refresh()
+	if !s.catalogInLibrary(media) {
+		t.Fatal("anime episode absent from the request portfolio index")
+	}
+}

@@ -65,6 +65,46 @@ func TestFindAnimeUsesOnlyAnimeRoots(t *testing.T) {
 	}
 }
 
+func TestAnimeListsOnlyAnimeRoots(t *testing.T) {
+	base := t.TempDir()
+	movies := filepath.Join(base, "movies")
+	tv := filepath.Join(base, "tv")
+	anime := filepath.Join(base, "anime")
+	for _, root := range []string{filepath.Join(movies, "Movie (2024)"), filepath.Join(tv, "Show (2024)"), filepath.Join(anime, "Frieren (2023)"), filepath.Join(anime, "Bocchi (2022)")} {
+		if err := os.MkdirAll(root, 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	scan := NewScan([]Drive{
+		{ID: "hdd1", MovieRoot: movies, TVRoot: tv, AnimeRoot: anime},
+		{ID: "hdd2", MovieRoot: movies},
+	})
+
+	folders, err := scan.Anime()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(folders) != 2 || folders[0].Name != "Bocchi (2022)" || folders[1].Name != "Frieren (2023)" {
+		t.Fatalf("anime folders = %+v", folders)
+	}
+	if folders[0].DriveID != "hdd1" || folders[0].Path != filepath.Join(anime, "Bocchi (2022)") {
+		t.Fatalf("anime folder identity = %+v", folders[0])
+	}
+	if empty, err := NewScan([]Drive{{ID: "hdd3", MovieRoot: movies}}).Anime(); err != nil || len(empty) != 0 {
+		t.Fatalf("drive without anime root = %+v, %v", empty, err)
+	}
+}
+
+func TestAnimeFailsWhenConfiguredRootCannotBeRead(t *testing.T) {
+	root := filepath.Join(t.TempDir(), "anime-root")
+	if err := os.WriteFile(root, nil, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := NewScan([]Drive{{ID: "hdd4", AnimeRoot: root}}).Anime(); err == nil || !strings.Contains(err.Error(), "hdd4") {
+		t.Fatalf("expected root-read error, got %v", err)
+	}
+}
+
 func TestTVShowsScanOnlyPrimaryRoots(t *testing.T) {
 	base := t.TempDir()
 	primary := filepath.Join(base, "t1")

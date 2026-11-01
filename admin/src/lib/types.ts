@@ -1,4 +1,4 @@
-export type View = 'route' | 'movies' | 'tv' | 'hardlinks' | 'subtitles' | 'settings' | 'queue' | 'history';
+export type View = 'route' | 'movies' | 'tv' | 'anime' | 'hardlinks' | 'subtitles' | 'settings' | 'queue' | 'history';
 export interface Account {
 	name: string;
 	role: string;

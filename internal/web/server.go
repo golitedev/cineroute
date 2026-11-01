@@ -138,6 +138,7 @@ type Server struct {
 	lib       *library.Scan
 	movies    *copies.Manager
 	tv        *copies.Manager
+	anime     *copies.Manager
 	hardlinks *copies.HardlinkManager
 	subtitles *subtitles.Manager
 	requests  *requests.Store
@@ -178,6 +179,7 @@ func New(cfg *config.Config, qb *qbittorrent.Client, tmdbClient *tmdb.Client, pr
 		lib:       scan,
 		movies:    copies.NewManager(scan, "movie"),
 		tv:        copies.NewManager(scan, "tv"),
+		anime:     copies.NewManager(scan, "anime"),
 		hardlinks: copies.NewHardlinkManager(scan),
 		subtitles: subtitles.NewManager(subtitleRuntimeConfig(cfg), scan),
 		requests:  requests.NewStore(cfg.Requests.StatePath),

@@ -1,4 +1,5 @@
-// Package copies browses movie and TV library pairs and creates hardlinks.
+// Package copies browses movie, TV and anime libraries and creates hardlinks
+// between the main and remote movie/TV roots.
 package copies
 
 import (
@@ -79,9 +80,12 @@ func (m *Manager) Scan(ctx context.Context) error {
 func (m *Manager) scanLocked(ctx context.Context) error {
 	var folders []library.Folder
 	var err error
-	if m.mediaType == "tv" {
+	switch m.mediaType {
+	case "tv":
 		folders, err = m.lib.TVPairs()
-	} else {
+	case "anime":
+		folders, err = m.lib.Anime()
+	default:
 		folders, err = m.lib.MoviePairs()
 	}
 	if err != nil {
@@ -92,9 +96,13 @@ func (m *Manager) scanLocked(ctx context.Context) error {
 		if err := ctx.Err(); err != nil {
 			return err
 		}
-		remote, _ := m.lib.MovieRemotePath(folder.DriveID, folder.Name)
-		if m.mediaType == "tv" {
-			remote, _ = m.lib.TVRemotePath(folder.DriveID, folder.Name)
+		// Anime is one shared root: there is no remote copy to inspect.
+		remote := ""
+		if m.mediaType != "anime" {
+			remote, _ = m.lib.MovieRemotePath(folder.DriveID, folder.Name)
+			if m.mediaType == "tv" {
+				remote, _ = m.lib.TVRemotePath(folder.DriveID, folder.Name)
+			}
 		}
 		mainFiles, mainSizes, err := videoFiles(ctx, folder.Path)
 		if err != nil {
@@ -130,6 +138,9 @@ func (m *Manager) scanLocked(ctx context.Context) error {
 }
 
 func (m *Manager) Hardlink(ctx context.Context, id string) (HardlinkResult, error) {
+	if m.mediaType == "anime" {
+		return HardlinkResult{}, errors.New("anime has no remote library")
+	}
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	if err := m.scanLocked(ctx); err != nil {

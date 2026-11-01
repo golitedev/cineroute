@@ -71,8 +71,8 @@
 		{logout}
 		><main class="main-content">
 			{#if error}<div class="notice error" role="alert">{error}</div>{/if}{#if view === 'route'}<Route
-				/>{:else if view === 'movies' || view === 'tv'}{#key view}<Library
-						kind={view === 'tv' ? 'tv' : 'movie'}
+				/>{:else if view === 'movies' || view === 'tv' || view === 'anime'}{#key view}<Library
+						kind={view === 'tv' ? 'tv' : view === 'anime' ? 'anime' : 'movie'}
 					/>{/key}{:else if view === 'hardlinks'}<Hardlinks />{:else if view === 'subtitles'}<Subtitles />{:else if view === 'queue'}<Queue
 					onhistory={() => navigate('history')}
 				/>{:else if view === 'history'}<History />{/if}{#if settingsVisited}<div hidden={view !== 'settings'}>

@@ -16,7 +16,7 @@ starts it.
 
 The routing flow does not rename, move, or post-process downloaded content;
 original torrent filenames and internal folder structure are preserved
-verbatim. Hardlinks are managed from the Movies, TV and Hardlinks pages.
+verbatim. Hardlinks are managed from the Movies, TV, Anime and Hardlinks pages.
 
 ## Workflow
 
@@ -267,7 +267,8 @@ content path, file tree, empty category/tags, size, state).
 * **Anime is a separate shared library destination.** Select Anime during
   intake to route the title to the matching drive's `anime_root`. Existing
   anime stays on its current drive and new anime uses the drive with the most
-  free space. Anime has no remote copy, hardlink workflow.
+  free space. Anime has no remote copy or hardlink workflow; the **Anime**
+  page lists every title in the shared anime roots.
 * **Forgiving TMDB search:** if the year filter returns nothing (a year
   that is part of the title, like *Blade Runner 2049*, or a season pack
   carrying the season's air year instead of the show's first-air year), the
@@ -516,12 +517,18 @@ checkouts: [Seerr request defaults](https://github.com/seerr-team/seerr/blob/c57
 and [Sonarr release profiles](https://github.com/Sonarr/Sonarr/blob/465b519/src/NzbDrone.Core/Profiles/Releases/ReleaseProfile.cs).
 CineRoute stores its own policy and does not require these applications.
 
-## Movies, TV and hardlinks
+## Movies, TV, anime and hardlinks
 
 The **Movies** and **TV** pages scan the main and remote library roots across
 all configured drives. Each title shows its disk, video files and whether it
 exists in main, remote or both. Filter the inventory by title, disk or path,
 or select Main only, Remote only or Both copies.
+
+The **Anime** page scans the shared `anime_root` on every configured drive.
+Each title shows its disk, video files and total size; open a title to see its
+packs and loose files grouped the same way as TV shows. Anime has no remote
+side, so there are no copy filters and no hardlink actions. Titles found in an
+anime root also count as owned in the request portal's in-library badges.
 
 Open a title and use **Hardlink to remote** or **Hardlink to main** to fill
 whichever side has no video. The complete source tree, including subtitles,

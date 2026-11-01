@@ -126,6 +126,22 @@ export const show = {
 		[`${remoteShowRoot}/Example.Show.S01.Remote/episode2.mkv`]: 256 * 1024 ** 2,
 	},
 };
+const animeRoot = '/disk1/media/anime/Frieren (2023)';
+export const anime = {
+	...movie,
+	id: 'anime1',
+	folder_name: 'Frieren (2023)',
+	path: animeRoot,
+	remote_path: '',
+	status: 'main_only',
+	existing_files: [`${animeRoot}/Frieren.S01.Pack/Frieren.S01E01.mkv`, `${animeRoot}/Frieren.S01.Pack/Frieren.S01E02.mkv`],
+	existing_file_sizes: {
+		[`${animeRoot}/Frieren.S01.Pack/Frieren.S01E01.mkv`]: 1024 ** 3,
+		[`${animeRoot}/Frieren.S01.Pack/Frieren.S01E02.mkv`]: 3 * 1024 ** 3,
+	},
+	remote_files: [],
+	remote_file_sizes: {},
+};
 export const subtitle = {
 	id: 'sub1',
 	drive_id: 'disk1',
@@ -300,7 +316,10 @@ export const test = base.extend<{ requests: RequestRecord[] }>({
 						break;
 					case '/copies':
 					case '/copies/scan':
-						data = { items: url.searchParams.get('type') === 'tv' ? [show] : [movie], scanned_at: '2026-01-01T00:00:00Z' };
+						data = {
+							items: url.searchParams.get('type') === 'tv' ? [show] : url.searchParams.get('type') === 'anime' ? [anime] : [movie],
+							scanned_at: '2026-01-01T00:00:00Z',
+						};
 						break;
 					case '/hardlinks':
 					case '/hardlinks/scan':

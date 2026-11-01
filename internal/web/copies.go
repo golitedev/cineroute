@@ -7,10 +7,14 @@ import (
 )
 
 func (s *Server) copyManager(r *http.Request) *copies.Manager {
-	if r.URL.Query().Get("type") == "tv" {
+	switch r.URL.Query().Get("type") {
+	case "tv":
 		return s.tv
+	case "anime":
+		return s.anime
+	default:
+		return s.movies
 	}
-	return s.movies
 }
 
 func (s *Server) listCopies(w http.ResponseWriter, r *http.Request) {

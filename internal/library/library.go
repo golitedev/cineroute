@@ -199,6 +199,13 @@ func (s *Scan) TVPairs() ([]Folder, error) {
 	)
 }
 
+// Anime lists only immediate anime-root children in deterministic order. Anime
+// is a single shared root per drive with no remote pair, so this primary-only
+// listing is the complete inventory.
+func (s *Scan) Anime() ([]Folder, error) {
+	return s.folders(func(d Drive) string { return d.AnimeRoot }, "anime")
+}
+
 func (s *Scan) pairedFolders(primaryRootOf func(Drive) string, remoteRootOf func(Drive) (string, bool), label string) ([]Folder, error) {
 	var out []Folder
 	for _, d := range s.drives {

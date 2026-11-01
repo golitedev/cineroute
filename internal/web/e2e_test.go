@@ -303,6 +303,7 @@ func newTestServer(t *testing.T) (*Server, *fakeQB, *httptest.Server, map[string
 	cfg := config.Default()
 	cfg.Listen = "127.0.0.1:0"
 	cfg.QBittorrent.URL = qbSrv.URL
+	cfg.Requests.StatePath = filepath.Join(t.TempDir(), "requests.db")
 	cfg.Drives = []config.Drive{
 		{ID: "hdd1", MovieRoot: roots["/m1"], TVRoot: roots["/t1"], AnimeRoot: roots["/a1"]},
 		{ID: "hdd2", MovieRoot: roots["/m2"], TVRoot: roots["/t2"], AnimeRoot: roots["/a2"]},

@@ -35,6 +35,18 @@ test('Svelte shell, library totals, filters, details, and account menu', async (
 	await expect(page.getByRole('region', { name: 'Remote copy', exact: true })).toContainText('512.00 MiB');
 	await expect(page.locator('.library-details')).not.toContainText('episode1.mkv');
 	await expect(page.locator('.library-details')).not.toContainText('Disc1');
+	await navigate(page, 'Anime');
+	await expect(page.getByRole('heading', { name: 'Anime', exact: true })).toBeVisible();
+	await expect(page.locator('.stats')).toContainText('Titles');
+	await expect(page.locator('.library-row')).toContainText('disk1 · 4.00 GiB');
+	await expect(page.locator('.library-row')).toContainText('2 files');
+	await page.getByRole('button', { name: 'Frieren (2023) details', exact: true }).click();
+	const animeLibrary = page.getByRole('region', { name: 'Anime library', exact: true });
+	await expect(animeLibrary.locator('.copy-file')).toHaveCount(1);
+	await expect(animeLibrary.locator('.copy-file')).toContainText('Frieren.S01.Pack');
+	await expect(animeLibrary.locator('.copy-file')).toContainText('4.00 GiB');
+	await expect(page.getByRole('region', { name: 'Remote copy', exact: true })).toHaveCount(0);
+	await expect(page.getByRole('button', { name: /Hardlink to/ })).toHaveCount(0);
 	const toggle = page.getByRole('button', { name: 'Expand sidebar', exact: true });
 	if (await toggle.isVisible()) await toggle.click();
 	await page.getByRole('button', { name: 'Account menu', exact: true }).click();
@@ -210,7 +222,7 @@ test('responsive sidebar, keyboard pinning and every admin page fit the viewport
 	const errors: string[] = [];
 	page.on('pageerror', (e) => errors.push(e.message));
 	await page.goto('http://admin.test/');
-	for (const name of ['Movies', 'TV shows', 'Hardlinks', 'Subtitles', 'Request settings', 'Request queue', 'Request history']) {
+	for (const name of ['Movies', 'TV shows', 'Anime', 'Hardlinks', 'Subtitles', 'Request settings', 'Request queue', 'Request history']) {
 		await navigate(page, name);
 		await expect(page.getByRole('heading', { name, exact: true })).toBeVisible();
 		await expect.poll(() => page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBeTruthy();

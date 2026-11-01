@@ -27,7 +27,7 @@ func (s *Server) scanCatalogLibrary() catalogLibrary {
 		movieRemote, _ := s.lib.MovieRemotePath(drive.ID, "")
 		tvRemote, _ := s.lib.TVRemotePath(drive.ID, "")
 		for _, tree := range []struct{ kind, root string }{
-			{"movie", drive.MovieRoot}, {"movie", movieRemote}, {"tv", drive.TVRoot}, {"tv", tvRemote},
+			{"movie", drive.MovieRoot}, {"movie", movieRemote}, {"tv", drive.TVRoot}, {"tv", tvRemote}, {"anime", drive.AnimeRoot},
 		} {
 			if tree.root == "" || seen[tree.kind+"\x00"+tree.root] {
 				continue
@@ -69,8 +69,12 @@ func (s *Server) scanCatalogLibrary() catalogLibrary {
 func (s *Server) catalogInLibrary(media tmdb.Result) bool {
 	index := s.catalogLibrary.Get()
 	folder := library.FolderName(s.cfg.Library.FolderFormat, media.DisplayTitle(), media.Year())
-	if index[catalogLibraryKey(media.MediaType, folder)] {
+	if index[catalogLibraryKey(media.MediaType, folder)] || index[catalogLibraryKey("anime", folder)] {
 		return true
 	}
-	return media.MediaType == "tv" && index[catalogLibraryKey("tv", library.SanitizeTitle(media.DisplayTitle()))]
+	if media.MediaType != "tv" {
+		return false
+	}
+	sanitized := library.SanitizeTitle(media.DisplayTitle())
+	return index[catalogLibraryKey("tv", sanitized)] || index[catalogLibraryKey("anime", sanitized)]
 }

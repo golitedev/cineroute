@@ -10,6 +10,7 @@
 		Upload,
 		Film,
 		Tv,
+		Sparkles,
 		Link,
 		Subtitles,
 		Settings,
@@ -49,6 +50,7 @@
 			items: [
 				{ id: 'movies', label: 'Movies', icon: Film },
 				{ id: 'tv', label: 'TV shows', icon: Tv },
+				{ id: 'anime', label: 'Anime', icon: Sparkles },
 				{ id: 'hardlinks', label: 'Hardlinks', icon: Link },
 				{ id: 'subtitles', label: 'Subtitles', icon: Subtitles },
 			],

@@ -2,9 +2,9 @@ export interface LibraryEntry {
 	name: string;
 	size: number;
 }
-// TV inventory paths are grouped at the first folder under the show's root.
+// TV and anime inventory paths are grouped at the first folder under the title's root.
 export function libraryEntries(
-	kind: 'movie' | 'tv',
+	kind: 'movie' | 'tv' | 'anime',
 	files: string[],
 	sizes: Record<string, number>,
 	root: string,
