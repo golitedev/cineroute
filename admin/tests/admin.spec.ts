@@ -218,7 +218,7 @@ test('responsive sidebar, keyboard pinning and every admin page fit the viewport
 	if (info.project.name === 'desktop') {
 		await page.keyboard.press('Control+b');
 		await expect(page.locator('.sidebar-container')).toHaveAttribute('data-collapsible', 'icon');
-		await page.locator('.workspace-bar').hover();
+		await page.locator('.main-content').hover();
 		await page.keyboard.press('Control+b');
 		await expect(page.locator('.sidebar-container')).not.toHaveAttribute('data-collapsible', 'icon');
 	} else {
@@ -246,23 +246,23 @@ test('Arcane sidebar auto-collapses on tablets, expands on hover, and persists i
 	await expect(page.getByRole('button', { name: 'Unpin sidebar', exact: true })).toBeDisabled();
 	await page.getByRole('button', { name: 'Movies', exact: true }).click();
 	await expect(page.getByRole('heading', { name: 'Movies', exact: true })).toBeVisible();
-	await page.locator('.workspace-bar').hover();
+	await page.locator('.main-content').hover();
 	await expect(sidebar).toHaveAttribute('data-collapsible', 'icon');
 	await page.setViewportSize({ width: 1440, height: 1000 });
 	await expect(sidebar).not.toHaveAttribute('data-collapsible', 'icon');
 	await page.getByRole('button', { name: 'Unpin sidebar', exact: true }).click();
-	await page.locator('.workspace-bar').hover();
+	await page.locator('.main-content').hover();
 	await expect(sidebar).toHaveAttribute('data-collapsible', 'icon');
 	await page.reload();
 	await expect(sidebar).toHaveAttribute('data-collapsible', 'icon');
 	await sidebar.hover();
 	await expect(sidebar).not.toHaveAttribute('data-collapsible', 'icon');
 	await page.getByRole('button', { name: 'Pin sidebar', exact: true }).click();
-	await page.locator('.workspace-bar').hover();
+	await page.locator('.main-content').hover();
 	await expect(sidebar).not.toHaveAttribute('data-collapsible', 'icon');
 });
 
-test('content fills an ultrawide workspace and compact queue keeps services in the toolbar', async ({ page, requests }, info) => {
+test('content fills an ultrawide workspace and services live beneath the sidebar brand', async ({ page, requests }, info) => {
 	await page.setViewportSize({ width: 2560, height: 1440 });
 	await page.mouse.move(1200, 500);
 	await page.goto('http://admin.test/');
@@ -280,13 +280,27 @@ test('content fills an ultrawide workspace and compact queue keeps services in t
 	expect(parseFloat(radius)).toBeCloseTo(9.8, 1);
 	const status = page.getByLabel('Service status', { exact: true });
 	await expect(status).toBeVisible();
+	await expect(page.locator('.workspace-bar')).toHaveCount(0);
+	await expect(page.locator('.sidebar-services').getByLabel('Service status', { exact: true })).toBeVisible();
 	const position = await status.boundingBox();
-	expect(position!.y).toBeLessThan(50);
-	expect(position!.x).toBeGreaterThan(2200);
+	const brand = await page.locator('.brand-row').boundingBox();
+	expect(position!.y).toBeGreaterThanOrEqual(brand!.y + brand!.height);
+	expect(position!.x + position!.width).toBeLessThan(272);
 	await status.click();
 	await expect(page.locator('.service-popover')).toContainText('qBittorrent');
 	await expect(page.locator('.service-popover')).toContainText('TMDB');
 	await page.keyboard.press('Escape');
 	await expect(page.locator('.service-popover')).not.toBeVisible();
 	await page.screenshot({ path: info.outputPath('queue-ultrawide.png'), fullPage: true });
+	await page.setViewportSize({ width: 390, height: 844 });
+	await page.getByRole('button', { name: 'Expand sidebar', exact: true }).click();
+	await expect(status).toContainText('Services');
+	await expect(status).toContainText('free');
+	await status.click();
+	const details = page.locator('.service-popover');
+	await expect(details).toContainText('qBittorrent');
+	const detailsBounds = await details.boundingBox();
+	expect(detailsBounds!.x).toBeGreaterThan(0);
+	expect(detailsBounds!.x + detailsBounds!.width).toBeLessThan(272);
+	await expect.poll(() => page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBeTruthy();
 });

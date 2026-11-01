@@ -272,17 +272,17 @@
 		flex: 1;
 		transition: margin-left 0.2s ease-out;
 	}
-	.workspace-bar {
+	.mobile-navigation {
 		display: flex;
 		align-items: center;
-		gap: 14px;
-		height: 49px;
-		padding: 0 21px;
-		border-bottom: 1px solid #ffffff0a;
-		font-size: 12px;
-	}
-	.workspace-bar > span:first-of-type {
-		color: var(--muted-foreground);
+		justify-content: center;
+		width: 32px;
+		height: 32px;
+		margin: 16px 16px 0;
+		padding: 0;
+		border: 0;
+		background: transparent;
+		color: var(--foreground);
 	}
 	.brand-row {
 		height: 3.5rem;
@@ -963,15 +963,17 @@
 	}
 	.service-status {
 		position: relative;
-		margin-left: auto;
-		flex-shrink: 0;
 		color: var(--muted-foreground);
+	}
+	.sidebar-services {
+		padding: 0 4px 8px;
+		border-bottom: 1px solid var(--border);
 	}
 	.service-status > summary {
 		display: flex;
 		align-items: center;
 		gap: 7px;
-		padding: 5px 0 5px 8px;
+		padding: 5px 0;
 		list-style: none;
 		cursor: pointer;
 		font-size: 10px;
@@ -984,23 +986,17 @@
 		color: var(--foreground);
 	}
 	.service-storage {
-		padding-left: 10px;
-		margin-left: 3px;
+		padding-left: 7px;
+		margin-left: auto;
 		border-left: 1px solid var(--border);
 		font-variant-numeric: tabular-nums;
 	}
 	.service-popover {
-		position: absolute;
-		top: calc(100% + 10px);
-		right: 0;
-		z-index: 45;
-		width: 320px;
-		max-width: calc(100vw - 32px);
-		padding: 14px;
+		margin-top: 8px;
+		padding: 10px;
 		border: 1px solid var(--border);
 		border-radius: var(--radius-lg);
 		background: #141414;
-		box-shadow: 0 10px 28px #0006;
 	}
 	.service-popover h2 {
 		margin: 0 0 10px;
@@ -1030,6 +1026,15 @@
 	.service-line > span:first-child {
 		flex-shrink: 0;
 		color: var(--foreground);
+	}
+	.sidebar-container[data-collapsible='icon'] .service-summary-label,
+	.sidebar-container[data-collapsible='icon'] .service-storage,
+	.sidebar-container[data-collapsible='icon'] .service-status > summary > .size-3,
+	.sidebar-container[data-collapsible='icon'] .service-popover {
+		display: none;
+	}
+	.sidebar-container[data-collapsible='icon'] .service-status > summary {
+		justify-content: center;
 	}
 	.library-entry + .library-entry {
 		border-top: 1px solid #ffffff0a;
@@ -1212,13 +1217,6 @@
 	.page-header > .actions {
 		width: 100%;
 	}
-	.workspace-bar {
-		padding: 0 16px;
-	}
-	.workspace-bar > span:first-of-type,
-	.workspace-bar > span:nth-of-type(2) {
-		display: none;
-	}
 	.form-grid,
 	.path-grid {
 		grid-template-columns: 1fr;
@@ -1332,19 +1330,6 @@ progress::-moz-progress-bar {
 }
 
 @media (max-width: 767px) {
-	.workspace-bar {
-		gap: 10px;
-	}
-	.service-summary-label,
-	.service-storage {
-		display: none;
-	}
-	.service-status > summary {
-		padding-left: 0;
-	}
-	.service-status > summary > .size-3 {
-		display: none;
-	}
 	.copy-sides {
 		grid-template-columns: 1fr;
 		gap: 8px;

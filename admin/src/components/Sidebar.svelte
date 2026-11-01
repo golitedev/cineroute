@@ -58,7 +58,7 @@
 			items: [{ id: 'settings', label: 'Request settings', icon: Settings }],
 		},
 	];
-	let toggleButton: HTMLButtonElement;
+	let toggleButton = $state<HTMLButtonElement>();
 	function close() {
 		sidebar.close();
 		toggleButton?.focus();
@@ -144,6 +144,7 @@
 							><X class="size-4" /></button
 						>{/if}
 				</div>
+				<div class="sidebar-services"><Services /></div>
 			</Header>
 			<Content class={sidebar.isExpanded ? '-mt-2' : ''}>
 				{#each groups as group}<Group
@@ -181,18 +182,13 @@
 		</div>
 	</aside>
 	<div class="workspace" inert={sidebar.mobile && sidebar.drawer}>
-		<div class="workspace-bar">
-			<button
+		{#if sidebar.mobile}<button
 				bind:this={toggleButton}
-				class="icon-button ghost"
+				class="mobile-navigation icon-button ghost"
 				onclick={() => sidebar.toggle()}
 				aria-label={sidebar.isExpanded ? 'Collapse sidebar' : 'Expand sidebar'}
 				aria-expanded={sidebar.isExpanded}><PanelLeft class="size-4" /></button
-			><span>Administration</span><span class="text-muted-foreground">/</span><span
-				>{groups.flatMap((g) => g.items).find((i) => i.id === view)?.label || 'Request history'}</span
-			>
-			<Services />
-		</div>
+			>{/if}
 		{@render children()}
 	</div>
 </div>
