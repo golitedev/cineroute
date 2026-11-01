@@ -128,7 +128,7 @@
 							go('route');
 						}}
 						aria-label="CineRoute administration"
-						class="brand-row flex items-center justify-center border-b border-border/30 px-4"
+						class="brand-row flex items-center justify-center px-4"
 						class:collapsed={!sidebar.isExpanded}
 						><Clapperboard class="size-8 shrink-0" />{#if sidebar.isExpanded}<span>CINEROUTE</span>{/if}</a
 					>
