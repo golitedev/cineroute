@@ -11,7 +11,7 @@
 	const resource = new Resource<{ intakes: Intake[] }>();
 	const history = new Resource<{ history: Intake[] }>();
 	let fileInput: HTMLInputElement;
-	let busy = $state<string[]>([]),
+	let busy = $state<Record<string, string>>({}),
 		uploading = $state(false),
 		dragging = $state(false);
 	const groups = $derived.by(() => {
@@ -27,7 +27,7 @@
 		void resource.load('/intakes');
 		void history.load('/history');
 		const timer = setInterval(() => {
-			if (!resource.loading) void resource.load('/intakes');
+			if (!resource.loading && Object.values(busy).every((kind) => kind === 'submit')) void resource.load('/intakes');
 		}, 2500);
 		return () => clearInterval(timer);
 	});
@@ -53,8 +53,9 @@
 	}
 	async function action(id: string, kind: string, body: unknown = {}) {
 		const group = resource.data?.intakes.find((i) => i.id === id)?.group || id;
-		if (busy.includes(group)) return;
-		busy.push(group);
+		if (busy[group]) return;
+		resource.cancelLoad();
+		busy[group] = kind;
 		resource.error = '';
 		try {
 			await post(`/intakes/${encodeURIComponent(id)}/${kind}`, body);
@@ -65,24 +66,28 @@
 			await resource.load('/intakes');
 			if (error) resource.error = error;
 			void history.load('/history');
-			busy = busy.filter((i) => i !== group);
+			delete busy[group];
 		}
 	}
 	async function remove(group: Intake[]) {
 		const key = group[0].group || group[0].id;
-		busy.push(key);
+		if (busy[key]) return;
+		resource.cancelLoad();
+		busy[key] = 'remove';
 		const results = await Promise.allSettled(
 			group.map((i) => api(`/intakes/${encodeURIComponent(i.id)}`, { method: 'DELETE', signal: resource.signal })),
 		);
 		await resource.load('/intakes');
 		const failed = results.find((r) => r.status === 'rejected');
 		if (failed?.status === 'rejected') resource.error = message(failed.reason);
-		busy = busy.filter((i) => i !== key);
+		delete busy[key];
 	}
 </script>
 
 <PageHeader title="Route torrents" description="Match torrents and route them to the right library."
-	><button disabled={resource.loading} onclick={() => resource.load('/intakes')}><RefreshCw class="size-4" />Refresh</button></PageHeader
+	><button disabled={resource.loading || Object.keys(busy).length > 0} onclick={() => resource.load('/intakes')}
+		><RefreshCw class="size-4" />Refresh</button
+	></PageHeader
 >
 <Notice error={resource.error} />
 <input bind:this={fileInput} type="file" accept=".torrent" multiple hidden onchange={() => upload(fileInput.files)} />
@@ -109,7 +114,7 @@
 <div class="cards">
 	{#each groups as group (group[0].group || group[0].id)}<IntakeCard
 			{group}
-			busy={busy.includes(group[0].group || group[0].id)}
+			busy={busy[group[0].group || group[0].id] || ''}
 			{action}
 			{remove}
 		/>{/each}

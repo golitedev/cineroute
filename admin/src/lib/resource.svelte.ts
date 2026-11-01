@@ -25,9 +25,13 @@ export class Resource<T> {
 			if (token === this.token) this.loading = false;
 		}
 	}
-	destroy() {
+	cancelLoad() {
 		this.token++;
 		this.request?.abort();
+		this.loading = false;
+	}
+	destroy() {
+		this.cancelLoad();
 		this.lifetime.abort();
 	}
 }

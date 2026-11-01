@@ -10,7 +10,7 @@
 		remove,
 	}: {
 		group: Intake[];
-		busy: boolean;
+		busy: string;
 		action: (id: string, kind: string, body?: unknown) => Promise<void>;
 		remove: (group: Intake[]) => Promise<void>;
 	} = $props();
@@ -18,14 +18,15 @@
 	let query = $state(untrack(() => group[0].title || '')),
 		year = $state<number | undefined>(untrack(() => group[0].year || undefined));
 	const done = $derived(group.every((i) => i.status === 'submitted'));
-	const locked = $derived(busy || group.some((i) => i.status === 'submitting'));
+	const submitting = $derived(busy === 'submit' || group.some((i) => i.status === 'submitting'));
+	const locked = $derived(!!busy || submitting);
 	const destination = $derived(item.dest);
 	const mode = $derived(
 		(destination?.library || item.library) === 'anime' ? 'anime' : (destination?.remote ?? item.remote) ? 'remote' : 'main',
 	);
 </script>
 
-<article class="panel intake">
+<article class="panel intake" aria-busy={locked}>
 	<div class="section-heading">
 		<div>
 			<h2>{group.length > 1 ? title(item.match) || item.title : item.torrent_name}</h2>
@@ -58,7 +59,7 @@
 				<dd>{item.year || '—'} / {item.season || '—'}</dd>
 			</dl>
 		</details>{/if}
-	{#if !done && !locked}<form
+	{#if !done}<form
 			class="search-row wrap"
 			onsubmit={(e) => {
 				e.preventDefault();
@@ -69,24 +70,27 @@
 				{#each ['movie', 'tv'] as type}<button
 						type="button"
 						class:active={item.media_type === type}
+						disabled={locked}
 						onclick={() => action(item.id, 'type', { media_type: type })}>{type === 'movie' ? 'Movie' : 'TV show'}</button
 					>{/each}
 			</div>
-			<input aria-label="Search title" required bind:value={query} /><input
+			<input aria-label="Search title" disabled={locked} required bind:value={query} /><input
 				aria-label="Year"
+				disabled={locked}
 				type="number"
 				min="0"
 				max="9999"
 				placeholder="Year"
 				bind:value={year}
 				class="year"
-			/><button><Search class="size-4" />Search TMDB</button>
+			/><button disabled={locked}><Search class="size-4" />Search TMDB</button>
 		</form>
 		{#if item.tmdb_error}<div class="notice error">{item.tmdb_error}</div>{/if}
 		<div class="poster-row">
 			{#each (item.tmdb || []).slice(0, 10) as media}<button
 					type="button"
 					class="poster-option"
+					disabled={locked}
 					class:selected={media.id === item.match?.id}
 					onclick={() => action(item.id, 'match', { tmdb_id: media.id })}
 					title={title(media)}
@@ -142,9 +146,9 @@
 						<strong>Torrent added and started</strong>
 						<p class="mono">{member.result.save_path} · {member.result.hash}</p>
 					</div>{/if}{/each}
-			{#if locked}<div class="notice">Adding stopped, verifying, starting…</div>{:else if !done}<button
+			{#if submitting}<div class="notice">Adding stopped, verifying, starting…</div>{:else if !done}<button
 					class="primary"
-					disabled={!destination || destination.existing_conflict}
+					disabled={locked || !destination || destination.existing_conflict}
 					onclick={() => action(item.id, 'submit')}
 					>{group.length > 1 ? `Add all ${group.length} to qBittorrent` : 'Add to qBittorrent'} (stopped, verify, start)</button
 				>{/if}
