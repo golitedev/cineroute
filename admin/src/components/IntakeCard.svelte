@@ -26,7 +26,7 @@
 	);
 </script>
 
-<article class="panel intake" aria-busy={locked}>
+<article class="panel intake" class:updating={!!busy && !submitting} aria-busy={locked}>
 	<div class="section-heading">
 		<div>
 			<h2>{group.length > 1 ? title(item.match) || item.title : item.torrent_name}</h2>
@@ -146,11 +146,13 @@
 						<strong>Torrent added and started</strong>
 						<p class="mono">{member.result.save_path} · {member.result.hash}</p>
 					</div>{/if}{/each}
-			{#if submitting}<div class="notice">Adding stopped, verifying, starting…</div>{:else if !done}<button
-					class="primary"
-					disabled={locked || !destination || destination.existing_conflict}
-					onclick={() => action(item.id, 'submit')}
-					>{group.length > 1 ? `Add all ${group.length} to qBittorrent` : 'Add to qBittorrent'} (stopped, verify, start)</button
-				>{/if}
+			<div class="intake-actions">
+				{#if submitting}<div class="notice">Adding stopped, verifying, starting…</div>{:else if !done}<button
+						class="primary"
+						disabled={locked || !destination || destination.existing_conflict}
+						onclick={() => action(item.id, 'submit')}
+						>{group.length > 1 ? `Add all ${group.length} to qBittorrent` : 'Add to qBittorrent'} (stopped, verify, start)</button
+					>{/if}
+			</div>
 		</section>{/if}
 </article>

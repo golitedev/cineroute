@@ -38,6 +38,12 @@ test('route edits keep the card stable during slow requests and reserve submissi
 	const originalPoster = await card.locator('.poster-option').elementHandle();
 	const adding = card.getByText('Adding stopped, verifying, starting…', { exact: true });
 	const submit = card.getByRole('button', { name: /Add to qBittorrent/ });
+	const rows = await card.locator('.intake-destination .kv').boundingBox();
+	expect((await submit.boundingBox())!.y - (rows!.y + rows!.height)).toBeGreaterThanOrEqual(16);
+	await submit.hover();
+	await page.clock.runFor(200);
+	const submitHoverColor = await submit.evaluate((node) => getComputedStyle(node).backgroundColor);
+	await input.hover();
 	for (const operation of [
 		{ kind: 'destination', button: 'Remote' },
 		{ kind: 'destination', button: 'Anime' },
@@ -57,6 +63,13 @@ test('route edits keep the card stable during slow requests and reserve submissi
 		await expect(submit).toBeDisabled();
 		await expect(card.locator('.poster-option')).toBeVisible();
 		await expect(card.locator('.poster-option')).toBeDisabled();
+		for (const control of [submit, card.locator('.poster-option'), card.getByRole('button', { name: 'Movie', exact: true })]) {
+			await expect(control).toHaveCSS('opacity', '1');
+		}
+		await submit.hover();
+		await page.clock.runFor(200);
+		await expect(submit).toHaveCSS('background-color', submitHoverColor);
+		await input.hover();
 		await expect(adding).toHaveCount(0);
 		expect(await originalInput!.evaluate((node) => node.isConnected)).toBe(true);
 		expect(await originalPoster!.evaluate((node) => node.isConnected)).toBe(true);

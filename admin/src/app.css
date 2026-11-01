@@ -775,6 +775,20 @@
 		padding-top: 18px;
 		margin-top: 18px;
 	}
+	.intake-actions {
+		margin-top: 16px;
+	}
+	/* Keep short edits from flashing the whole card's controls into a dimmed state. */
+	.intake.updating button:disabled {
+		opacity: 1;
+		cursor: progress;
+	}
+	.main-content .intake.updating button:hover:disabled {
+		background: #262626;
+	}
+	.main-content .intake.updating button.primary:hover:disabled {
+		background: #9a45ff;
+	}
 	.form-grid {
 		display: grid;
 		grid-template-columns: repeat(2, minmax(0, 1fr));
