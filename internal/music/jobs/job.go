@@ -6,6 +6,8 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"time"
+
+	"cineroute/internal/music/lyrics"
 )
 
 type Status string
@@ -51,18 +53,25 @@ type Job struct {
 	MessageArgs map[string]any `json:"message_args"`
 	Problems    []string       `json:"problems"`
 	// ProblemItems are the problems in a form the UI can translate.
-	ProblemItems []ProblemItem `json:"problem_items"`
-	Attempt      int           `json:"attempt"`
-	MaxAttempts  int           `json:"max_attempts"`
-	LibraryPath  string        `json:"library_path"`
-	RequestedBy  string        `json:"requested_by"`
-	CreatedAt    time.Time     `json:"created_at"`
-	StartedAt    *time.Time    `json:"started_at"`
-	FinishedAt   *time.Time    `json:"finished_at"`
+	ProblemItems    []ProblemItem `json:"problem_items"`
+	Attempt         int           `json:"attempt"`
+	MaxAttempts     int           `json:"max_attempts"`
+	LyricsEnqueued  bool          `json:"lyrics_enqueued,omitempty"`
+	LyricsRequested bool          `json:"lyrics_requested,omitempty"`
+	Lyrics          *lyrics.State `json:"lyrics,omitempty"`
+	LibraryPath     string        `json:"library_path"`
+	RequestedBy     string        `json:"requested_by"`
+	CreatedAt       time.Time     `json:"created_at"`
+	StartedAt       *time.Time    `json:"started_at"`
+	FinishedAt      *time.Time    `json:"finished_at"`
 }
 
 func (j *Job) clone() Job {
 	c := *j
+	if j.Lyrics != nil {
+		state := *j.Lyrics
+		c.Lyrics = &state
+	}
 	c.Problems = append([]string{}, j.Problems...)
 	c.ProblemItems = append([]ProblemItem{}, j.ProblemItems...)
 	c.MessageArgs = make(map[string]any, len(j.MessageArgs))

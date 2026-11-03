@@ -17,6 +17,7 @@ type Config struct {
 	Download  Download       `yaml:"download"`
 	Artwork   Artwork        `yaml:"artwork"`
 	Metadata  Metadata       `yaml:"metadata"`
+	Lyrics    Lyrics         `yaml:"lyrics"`
 	Navidrome Navidrome      `yaml:"navidrome"`
 	Streamrip map[string]any `yaml:"streamrip"`
 }
@@ -71,6 +72,19 @@ type Metadata struct {
 	GenreTranslations map[string]string `yaml:"genre_translations"`
 }
 
+// Lyrics controls automatic sidecars for newly imported releases.
+type Lyrics struct {
+	Enabled           bool   `yaml:"enabled"`
+	Script            string `yaml:"script"`
+	Engine            string `yaml:"engine"`
+	VerifiedOnly      bool   `yaml:"verified_only"`
+	SyncedOnly        bool   `yaml:"synced_only"`
+	RequireAlbumMatch bool   `yaml:"require_album_match"`
+	MaxAttempts       int    `yaml:"max_attempts"`
+	RetryMinutes      int    `yaml:"retry_minutes"`
+	TimeoutMinutes    int    `yaml:"timeout_minutes"`
+}
+
 type Navidrome struct {
 	URL      string `yaml:"url"`
 	Username string `yaml:"username"`
@@ -99,6 +113,7 @@ func Default() Config {
 			HistoryLimit:      200,
 			RipCommand:        "rip",
 		},
+		Lyrics:   Lyrics{Enabled: true, Script: "/opt/lrcscript/lrcscript.py", Engine: "/usr/local/bin/lyrics-fetch", VerifiedOnly: true, MaxAttempts: 4, RetryMinutes: 15, TimeoutMinutes: 60},
 		Metadata: Metadata{TranslateGenres: true, CleanDescriptions: true},
 		Artwork: Artwork{
 			Embed:         true,
@@ -205,6 +220,20 @@ func (c *Config) Validate() error {
 		add("artwork.embed_size must be thumbnail, small, large or original")
 	}
 
+	if c.Lyrics.Enabled {
+		if strings.TrimSpace(c.Lyrics.Script) == "" || strings.TrimSpace(c.Lyrics.Engine) == "" {
+			add("lyrics.script and lyrics.engine must be set")
+		}
+		if c.Lyrics.MaxAttempts < 1 || c.Lyrics.MaxAttempts > 10 {
+			add("lyrics.max_attempts must be between 1 and 10")
+		}
+		if c.Lyrics.RetryMinutes < 1 || c.Lyrics.RetryMinutes > 1440 {
+			add("lyrics.retry_minutes must be between 1 and 1440")
+		}
+		if c.Lyrics.TimeoutMinutes < 1 || c.Lyrics.TimeoutMinutes > 1440 {
+			add("lyrics.timeout_minutes must be between 1 and 1440")
+		}
+	}
 	c.Navidrome.URL = strings.TrimRight(strings.TrimSpace(c.Navidrome.URL), "/")
 
 	if len(errs) > 0 {

@@ -15,7 +15,9 @@ import (
 	musicconfig "cineroute/internal/music/config"
 	"cineroute/internal/music/jobs"
 	musiclibrary "cineroute/internal/music/library"
+	"cineroute/internal/music/lyrics"
 	"cineroute/internal/music/qobuz"
+	"time"
 )
 
 type musicFixture struct{}
@@ -183,5 +185,58 @@ func TestMusicCatalogBadgesUseLibraryFolders(t *testing.T) {
 	m.RefreshLibrary()
 	if strings.Contains(string(s.musicLibraryBadges(raw)), `"in_library":true`) {
 		t.Fatal("removed release still in library")
+	}
+}
+
+func TestLyricsStatusAndRetryAreOwnedAndDoNotExposePrivatePaths(t *testing.T) {
+	s := musicServer(t)
+	job := decodeMusicJob(t, musicCall(s, "alice", "POST", "/api/music/jobs", `{"album_id":"album1"}`))
+	root := t.TempDir()
+	rel := "Private Artist/Private Album"
+	os.MkdirAll(filepath.Join(root, "music", rel), 0755)
+	q, err := lyrics.New(lyrics.Options{Library: filepath.Join(root, "music"), Data: filepath.Join(root, "private-data"), MaxAttempts: 1, RetryDelay: time.Minute, Timeout: time.Minute}, func(context.Context, lyrics.Task) (lyrics.Summary, error) { return lyrics.Summary{Deferred: 1}, nil }, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer q.Close()
+	s.music.Lyrics = q
+	if err := q.Enqueue(job.ID, rel); err != nil {
+		t.Fatal(err)
+	}
+	out := musicCall(s, "alice", "GET", "/api/music/jobs", "")
+	if out.Code != 200 || !strings.Contains(out.Body.String(), `"lyrics":{"status":"queued"`) {
+		t.Fatal(out.Body.String())
+	}
+	for _, secret := range []string{root, "Private Artist", "queue.db", "lyrics_requested", "lyrics_enqueued"} {
+		if strings.Contains(out.Body.String(), secret) {
+			t.Fatalf("private lyrics data exposed: %s", out.Body.String())
+		}
+	}
+	if out := musicCall(s, "bob", "POST", "/api/music/jobs/"+job.ID+"/retry-lyrics", ""); out.Code != 404 {
+		t.Fatal("other user can retry lyrics", out.Code)
+	}
+	// A queued task cannot be duplicated by repeated clicks.
+	if out := musicCall(s, "alice", "POST", "/api/music/jobs/"+job.ID+"/retry-lyrics", ""); out.Code != 409 {
+		t.Fatal("queued task duplicated", out.Code)
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan struct{})
+	go func() { defer close(done); q.Run(ctx) }()
+	deadline := time.Now().Add(5 * time.Second)
+	for time.Now().Before(deadline) {
+		state := q.Get(job.ID)
+		if state != nil && state.Status == "partial" {
+			break
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	cancel()
+	<-done
+	if q.Get(job.ID).Status != "partial" {
+		t.Fatal("lyrics did not finish with retryable partial result")
+	}
+	retried := decodeMusicJob(t, musicCall(s, "alice", "POST", "/api/music/jobs/"+job.ID+"/retry-lyrics", ""))
+	if retried.Lyrics == nil || retried.Lyrics.Status != "queued" {
+		t.Fatal("owner retry did not queue only lyrics")
 	}
 }

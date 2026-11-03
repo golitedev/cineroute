@@ -44,6 +44,8 @@ type Deps struct {
 	Albums AlbumSource
 	Rip    func(context.Context, streamrip.RunOptions) (streamrip.Result, error)
 	Verify func(context.Context, string, []verify.Track, verify.Options) (verify.Result, error)
+	// EnqueueLyrics durably hands off the exact release before trimming history.
+	EnqueueLyrics func(jobID, libraryPath string) error
 	// AfterImport runs after an album was added (e.g. a Navidrome scan).
 	AfterImport func(ctx context.Context, libraryPath string)
 	Files       streamrip.Files
@@ -326,6 +328,9 @@ func (m *Manager) Retry(id string, limits ...int) (Job, error) {
 	j.Problems, j.ProblemItems = []string{}, []ProblemItem{}
 	j.Attempt, j.TracksDone = 0, 0
 	j.LibraryPath = ""
+	j.LyricsRequested = false
+	j.LyricsEnqueued = false
+	j.Lyrics = nil
 	j.StartedAt, j.FinishedAt = nil, nil
 	j.MaxAttempts = m.cfg.Download.Attempts
 	m.queued[j.ID] = time.Now()
@@ -342,7 +347,7 @@ func (m *Manager) Remove(id string) error {
 		if j.ID != id {
 			continue
 		}
-		if !j.Status.Finished() {
+		if !j.Status.Finished() || (j.LyricsRequested && !j.LyricsEnqueued) {
 			return ErrNotFinished
 		}
 		m.jobs = append(m.jobs[:i], m.jobs[i+1:]...)
@@ -358,7 +363,7 @@ func (m *Manager) ClearFinished() error {
 	defer m.mu.Unlock()
 	kept := m.jobs[:0]
 	for _, j := range m.jobs {
-		if j.Status.Finished() {
+		if j.Status.Finished() && (!j.LyricsRequested || j.LyricsEnqueued) {
 			os.Remove(m.LogPath(j.ID))
 			continue
 		}
@@ -409,7 +414,7 @@ func (m *Manager) trimLocked() {
 	limit := m.cfg.Download.HistoryLimit
 	var finished []*Job
 	for _, j := range m.jobs {
-		if j.Status.Finished() {
+		if j.Status.Finished() && (!j.LyricsRequested || j.LyricsEnqueued) {
 			finished = append(finished, j)
 		}
 	}
@@ -527,4 +532,18 @@ func (m *Manager) queueFullLocked(owner string, limits []int) bool {
 		}
 	}
 	return count >= limits[0]
+}
+
+// ConfirmLyricsEnqueued releases the import receipt only after the independent
+// lyrics outbox has acknowledged a durable insert. History cannot lose a handoff.
+func (m *Manager) ConfirmLyricsEnqueued(id string) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if j := m.find(id); j != nil {
+		j.LyricsEnqueued = true
+	}
+	m.trimLocked()
+	if err := m.saveLocked(); err != nil {
+		m.log.Error("saving lyrics handoff", "err", err)
+	}
 }

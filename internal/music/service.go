@@ -12,6 +12,7 @@ import (
 
 	"cineroute/internal/music/config"
 	"cineroute/internal/music/jobs"
+	"cineroute/internal/music/lyrics"
 	"cineroute/internal/music/navidrome"
 	"cineroute/internal/music/qobuz"
 	"cineroute/internal/music/streamrip"
@@ -29,6 +30,7 @@ type Catalog interface {
 type Service struct {
 	Catalog Catalog
 	Jobs    *jobs.Manager
+	Lyrics  *lyrics.Manager
 	cancel  context.CancelFunc
 	done    chan struct{}
 }
@@ -65,8 +67,10 @@ func Start(parent context.Context, cfg *config.Config) (*Service, error) {
 		return streamrip.CachedAppID(files)
 	})
 	var afterImport func(context.Context, string)
+	var scan func(context.Context) error
 	if cfg.Navidrome.URL != "" {
 		nd := navidrome.New(cfg.Navidrome.URL, cfg.Navidrome.Username, cfg.Navidrome.Password)
+		scan = nd.StartScan
 		afterImport = func(ctx context.Context, _ string) {
 			ctx, cancel := context.WithTimeout(ctx, time.Minute)
 			defer cancel()
@@ -75,13 +79,74 @@ func Start(parent context.Context, cfg *config.Config) (*Service, error) {
 			}
 		}
 	}
-	manager, err := jobs.New(cfg, jobs.Deps{Albums: catalog, Files: files, Logger: slog.Default(), AfterImport: afterImport})
+	var lyricQueue *lyrics.Manager
+	var enqueue func(string, string) error
+	if cfg.Lyrics.Enabled {
+		// Packaging failures should be diagnosed at startup, before accepting work.
+		for _, path := range []string{cfg.Lyrics.Script, cfg.Lyrics.Engine} {
+			info, err := os.Stat(path)
+			if err != nil || !info.Mode().IsRegular() {
+				return nil, fmt.Errorf("lyrics tool %q is unavailable (install bundled tools or disable music.lyrics.enabled)", path)
+			}
+		}
+		lyricQueue, err = lyrics.New(lyrics.Options{Library: cfg.Paths.Library, Data: cfg.Paths.Data,
+			Script: cfg.Lyrics.Script, Engine: cfg.Lyrics.Engine, MaxAttempts: cfg.Lyrics.MaxAttempts,
+			RetryDelay: time.Duration(cfg.Lyrics.RetryMinutes) * time.Minute, Timeout: time.Duration(cfg.Lyrics.TimeoutMinutes) * time.Minute,
+			VerifiedOnly: cfg.Lyrics.VerifiedOnly, SyncedOnly: cfg.Lyrics.SyncedOnly, RequireAlbumMatch: cfg.Lyrics.RequireAlbumMatch}, nil, scan)
+		if err != nil {
+			return nil, fmt.Errorf("lyrics queue: %w", err)
+		}
+		enqueue = lyricQueue.Enqueue
+	}
+	manager, err := jobs.New(cfg, jobs.Deps{Albums: catalog, Files: files, Logger: slog.Default(), AfterImport: afterImport, EnqueueLyrics: enqueue})
 	if err != nil {
+		if lyricQueue != nil {
+			lyricQueue.Close()
+		}
 		return nil, err
 	}
 	ctx, cancel := context.WithCancel(parent)
-	s := &Service{Catalog: catalog, Jobs: manager, cancel: cancel, done: make(chan struct{})}
-	go func() { defer close(s.done); manager.Run(ctx) }()
+	s := &Service{Catalog: catalog, Jobs: manager, Lyrics: lyricQueue, cancel: cancel, done: make(chan struct{})}
+	go func() {
+		defer close(s.done)
+		lyricsDone := make(chan struct{})
+		reconcileDone := make(chan struct{})
+		if lyricQueue != nil {
+			go func() { defer close(lyricsDone); lyricQueue.Run(ctx) }()
+			// Repair durable handoffs after an interrupted import. Only jobs marked
+			// for lyrics when imported are eligible; this never scans the old library.
+			go func() {
+				defer close(reconcileDone)
+				ticker := time.NewTicker(30 * time.Second)
+				defer ticker.Stop()
+				for {
+					for _, job := range manager.List() {
+						if job.LyricsRequested && !job.LyricsEnqueued && job.LibraryPath != "" {
+							if err := lyricQueue.Enqueue(job.ID, job.LibraryPath); err != nil {
+								slog.Warn("reconciling lyrics", "job", job.ID, "err", err)
+							} else {
+								manager.ConfirmLyricsEnqueued(job.ID)
+							}
+						}
+					}
+					select {
+					case <-ctx.Done():
+						return
+					case <-ticker.C:
+					}
+				}
+			}()
+		} else {
+			close(lyricsDone)
+			close(reconcileDone)
+		}
+		manager.Run(ctx)
+		<-lyricsDone
+		<-reconcileDone
+		if lyricQueue != nil {
+			lyricQueue.Close()
+		}
+	}()
 	return s, nil
 }
 

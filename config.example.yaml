@@ -227,3 +227,14 @@ music:
   metadata:
     translate_genres: true
     clean_descriptions: true
+  lyrics:
+    enabled: true # runs only for releases imported by CineRoute
+    verified_only: true # restrict sources to those validating returned artist/title
+    synced_only: false
+    require_album_match: false
+    max_attempts: 4
+    retry_minutes: 15 # exponential backoff between partial passes
+    timeout_minutes: 60
+    # Bundled Docker paths; set these for a native installation.
+    script: "/opt/lrcscript/lrcscript.py"
+    engine: "/usr/local/bin/lyrics-fetch"

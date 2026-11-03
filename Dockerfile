@@ -56,6 +56,18 @@ RUN --mount=type=cache,target=/alass/target \
     cargo build --release --locked --bin alass-cli && \
     cp /alass/target/release/alass-cli /usr/local/bin/alass
 
+# Build the standalone lyrics helper for the target architecture and musl.
+FROM --platform=$TARGETPLATFORM rust:1-alpine AS lyrics
+ENV CARGO_PROFILE_RELEASE_LTO=false \
+    CARGO_PROFILE_RELEASE_CODEGEN_UNITS=16
+RUN apk add --no-cache build-base
+WORKDIR /lyrics
+COPY third_party/lrcscript/engine/ ./
+RUN --mount=type=cache,target=/lyrics/target \
+    --mount=type=cache,target=/usr/local/cargo/registry \
+    --mount=type=cache,target=/usr/local/cargo/git \
+    cargo build --release --locked && cp target/release/lrcscript-engine /usr/local/bin/lyrics-fetch
+
 # The music downloader is an in-process worker calling this bundled CLI.
 # Pin the same tested streamrip revision used by the original music engine.
 FROM --platform=$TARGETPLATFORM alpine:3.22 AS streamrip
@@ -71,6 +83,10 @@ COPY --from=streamrip /opt/streamrip /opt/streamrip
 RUN ln -s /opt/streamrip/bin/rip /usr/local/bin/rip
 COPY --from=build /cineroute /cineroute
 COPY --from=alass /usr/local/bin/alass /usr/local/bin/alass
+COPY --from=lyrics /usr/local/bin/lyrics-fetch /usr/local/bin/lyrics-fetch
+COPY third_party/lrcscript/lrcscript.py /opt/lrcscript/lrcscript.py
+COPY third_party/lrcscript/LICENSE third_party/lrcscript/NOTICE third_party/lrcscript/REVISION /usr/share/licenses/lrcscript/
+COPY third_party/lrcscript/licenses/ /usr/share/licenses/lrcscript/licenses/
 ENV HOME=/tmp PYTHONDONTWRITEBYTECODE=1
 USER 1000:1000
 EXPOSE 8787 8788

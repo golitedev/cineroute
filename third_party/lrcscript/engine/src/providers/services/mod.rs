@@ -1,0 +1,21 @@
+mod binilyrics;
+mod genie;
+mod kugou;
+mod lrclib;
+mod lrcmux;
+mod lyricsovh;
+mod musixmatch;
+mod netease;
+mod qqmusic;
+mod stixoi;
+
+pub use binilyrics::*;
+pub use genie::*;
+pub use kugou::*;
+pub use lrclib::*;
+pub use lrcmux::*;
+pub use lyricsovh::*;
+pub use musixmatch::*;
+pub use netease::*;
+pub use qqmusic::*;
+pub use stixoi::*;

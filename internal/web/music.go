@@ -97,12 +97,20 @@ func (s *Server) musicCatalog(w http.ResponseWriter, r *http.Request) {
 	}
 	musicOK(w, s.musicLibraryBadges(result))
 }
-func publicMusicJob(job jobs.Job) jobs.Job { job.LibraryPath = ""; return job }
+func publicMusicJob(job jobs.Job) jobs.Job {
+	job.LibraryPath = ""
+	job.LyricsRequested = false
+	job.LyricsEnqueued = false
+	return job
+}
 func (s *Server) musicJobs(w http.ResponseWriter, r *http.Request) {
 	result := []jobs.Job{}
 	if s.music != nil {
 		for _, job := range s.music.Jobs.List() {
 			if job.RequestedBy == actor(r).Name {
+				if s.music.Lyrics != nil {
+					job.Lyrics = s.music.Lyrics.Get(job.ID)
+				}
 				result = append(result, publicMusicJob(job))
 			}
 		}
@@ -161,6 +169,13 @@ func (s *Server) musicAction(w http.ResponseWriter, r *http.Request) {
 	switch r.PathValue("action") {
 	case "cancel":
 		job, err = s.music.Jobs.Cancel(id)
+	case "retry-lyrics":
+		if s.music.Lyrics == nil {
+			writeErr(w, 409, "Automatic lyrics are disabled.")
+			return
+		}
+		err = s.music.Lyrics.Retry(id)
+		job.Lyrics = s.music.Lyrics.Get(id)
 	case "retry":
 		job, err = s.music.Jobs.Retry(id, 50)
 	default:

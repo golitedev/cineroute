@@ -71,6 +71,16 @@ export type Job = {
     problems: string[];
     attempt: number;
     max_attempts: number;
+    lyrics?: {
+        status: 'queued' | 'running' | 'deferred' | 'completed' | 'partial';
+        attempts: number;
+        next_attempt?: number;
+        saved: number;
+        missing: number;
+        deferred: number;
+        errors: number;
+        skipped: number;
+    };
     library_path: string;
     created_at: string;
     started_at: string | null;
@@ -159,6 +169,7 @@ export const getJobs = async () => {
 };
 export const queueAlbum = (album_id: string) => request<Job>('jobs', 'POST', { album_id });
 export const cancelJob = (id: string) => request<Job>(`jobs/${encodeURIComponent(id)}/cancel`, 'POST');
+export const retryLyrics = (id: string) => request<Job>(`jobs/${encodeURIComponent(id)}/retry-lyrics`, 'POST');
 export const retryJob = (id: string) => request<Job>(`jobs/${encodeURIComponent(id)}/retry`, 'POST');
 export const cancelRequest = (job: Job) =>
     job.kind === 'music' ? cancelJob(job.id) : portalRequest(`/api/user/requests/${encodeURIComponent(job.id)}/cancel`, 'POST', {});

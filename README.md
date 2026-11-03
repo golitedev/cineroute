@@ -809,6 +809,40 @@ Qobuz account credentials, downloader settings and raw logs stay on the server.
 An optional `music.navidrome` section accepts `url`, `username` and `password`
 to trigger a scan after importing.
 
+Automatic lyrics are enabled by default for newly imported music releases.
+`music.lyrics.enabled: false` disables them. A separate, single-worker SQLite queue
+under `music.paths.data/lyrics/queue.db` writes sidecars only inside that release's
+final folder, including all discs. Downloads remain completed and playable while
+lyrics run; missing lyrics and provider failures never trigger another audio
+download. Existing sidecars and audio files are preserved. Dismissing or trimming
+music history does not discard queued lyrics. Interrupted work resumes after
+restart; partial/provider failures retry up to four times with 15/30/60-minute
+backoff by default. Exhausted work is shown as partial in the music history and
+has a **Retry lyrics** action. Normal missing results finish without a retry.
+
+The music history shows lyrics status and saved/missing/pending totals. Private
+per-release `.jsonl` reports record track paths, selected providers, formats and
+all lookup attempts; `.log` files contain process output in the same lyrics data
+directory. The queue retains receipts independently of download history to avoid
+re-running finished work. Navidrome is scanned after import and again after
+sidecars are saved; failed lyrics scan notifications are persisted and retried.
+
+`music.lyrics.verified_only` defaults to true: LRCLIB, KuGou, NetEase, QQ Music and
+Musixmatch validate returned artist/title metadata. It excludes sources that do
+not provide enough identity information, including lrcmux, to reduce version
+mix-ups. This is metadata validation, not acoustic or language recognition; bad
+provider data can still produce incorrect lyrics. All ten account-free providers
+remain available when `verified_only` is false. `synced_only` and
+`require_album_match` are optional. No provider credentials, cookies, desktop
+Musixmatch route, analytics, or persistent lyrics cache are added.
+
+Docker bundles the vendored lrcscript runner and builds its Rust helper for
+Alpine/musl on each supported architecture. Native installations must install
+those tools and set `music.lyrics.script` and `music.lyrics.engine`, or disable
+automatic lyrics. `third_party/lrcscript/README.cineroute.md` documents provenance
+and the update procedure. This is independent of any standalone library-wide
+lrcscript run; no whole-library scan is started by CineRoute.
+
 Docker builds the frontend and bundles Python/streamrip, FLAC, FFmpeg and alass
 in the same runtime image. No Node.js server runs in production. For a native
 build, install Node.js 24 and run `make build`; this exports the frontend before

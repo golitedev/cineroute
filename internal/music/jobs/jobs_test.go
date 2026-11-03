@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"cineroute/internal/music/config"
+	"cineroute/internal/music/lyrics"
 	"cineroute/internal/music/qobuz"
 	"cineroute/internal/music/streamrip"
 )
@@ -645,5 +646,103 @@ func TestInLibraryChecksConfiguredNamingAndRecordedPaths(t *testing.T) {
 	e.m.RefreshLibrary()
 	if e.m.InLibrary(album) {
 		t.Fatal("deleted import still in library")
+	}
+}
+
+func TestImportedLyricsSurviveDownloadHistoryTrimming(t *testing.T) {
+	e := newEnv(t, fakeAlbums{"a1": testAlbum("a1", 1), "a2": testAlbum("a2", 1)}, func(ctx context.Context, o streamrip.RunOptions, _ int) (streamrip.Result, error) {
+		albumRip("release", []int{1}, 2, t)(ctx, o)
+		return streamrip.Result{}, nil
+	}, func(c *config.Config) { c.Naming.Folder = "{id}"; c.Download.HistoryLimit = 1 })
+	q, err := lyrics.New(lyrics.Options{Library: e.cfg.Paths.Library, Data: e.cfg.Paths.Data, MaxAttempts: 2, RetryDelay: time.Minute, Timeout: time.Minute}, func(context.Context, lyrics.Task) (lyrics.Summary, error) {
+		t.Fatal("lyrics must not run in the download worker")
+		return lyrics.Summary{}, nil
+	}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer q.Close()
+	e.m.deps.EnqueueLyrics = q.Enqueue
+	e.start()
+	first, err := e.m.Enqueue(context.Background(), "a1", "alice")
+	if err != nil {
+		t.Fatal(err)
+	}
+	e.wait(first.ID, StatusCompleted)
+	second, err := e.m.Enqueue(context.Background(), "a2", "alice")
+	if err != nil {
+		t.Fatal(err)
+	}
+	e.wait(second.ID, StatusCompleted)
+	select {
+	case <-e.imported:
+	case <-time.After(5 * time.Second):
+		t.Fatal("import callback missing")
+	}
+	select {
+	case <-e.imported:
+	case <-time.After(5 * time.Second):
+		t.Fatal("second import callback missing")
+	}
+	if _, err := e.m.Get(first.ID); err != ErrNotFound {
+		t.Fatal("old download history was not trimmed")
+	}
+	for _, id := range []string{first.ID, second.ID} {
+		if state := q.Get(id); state == nil || state.Status != "queued" {
+			t.Fatalf("lyrics task lost with download history: %s %+v", id, state)
+		}
+	}
+}
+
+func TestDisabledLyricsDoNotEnqueue(t *testing.T) {
+	e := newEnv(t, fakeAlbums{"a1": testAlbum("a1", 1)}, func(ctx context.Context, o streamrip.RunOptions, _ int) (streamrip.Result, error) {
+		albumRip("release", []int{1}, 2, t)(ctx, o)
+		return streamrip.Result{}, nil
+	}, func(c *config.Config) { c.Lyrics.Enabled = false })
+	var calls atomic.Int32
+	e.m.deps.EnqueueLyrics = func(string, string) error { calls.Add(1); return nil }
+	e.start()
+	job, err := e.m.Enqueue(context.Background(), "a1", "alice")
+	if err != nil {
+		t.Fatal(err)
+	}
+	completed := e.wait(job.ID, StatusCompleted)
+	if completed.LyricsRequested || calls.Load() != 0 {
+		t.Fatal("disabled lyrics were queued")
+	}
+}
+
+func TestFailedLyricsHandoffCannotBeLostWithHistory(t *testing.T) {
+	e := newEnv(t, fakeAlbums{"a1": testAlbum("a1", 1)}, func(ctx context.Context, o streamrip.RunOptions, _ int) (streamrip.Result, error) {
+		albumRip("release", []int{1}, 2, t)(ctx, o)
+		return streamrip.Result{}, nil
+	}, func(c *config.Config) { c.Download.HistoryLimit = 0 })
+	e.m.deps.EnqueueLyrics = func(string, string) error { return fmt.Errorf("temporary queue disk failure") }
+	e.start()
+	job, err := e.m.Enqueue(context.Background(), "a1", "alice")
+	if err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case <-e.imported:
+	case <-time.After(5 * time.Second):
+		t.Fatal("audio import was blocked")
+	}
+	completed, err := e.m.Get(job.ID)
+	if err != nil || completed.Status != StatusCompleted || !completed.LyricsRequested || completed.LyricsEnqueued {
+		t.Fatal("handoff receipt lost", completed, err)
+	}
+	if e.m.Remove(job.ID) != ErrNotFinished {
+		t.Fatal("undelivered handoff dismissed")
+	}
+	if err := e.m.ClearFinished(); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := e.m.Get(job.ID); err != nil {
+		t.Fatal("undelivered handoff cleared")
+	}
+	e.m.ConfirmLyricsEnqueued(job.ID)
+	if _, err := e.m.Get(job.ID); err != ErrNotFound {
+		t.Fatal("delivered handoff not trimmed")
 	}
 }

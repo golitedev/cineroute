@@ -19,3 +19,6 @@ admin/node_modules
 admin/test-results
 admin/playwright-report
 internal/adminui/dist
+
+third_party/lrcscript/engine/target
+**/__pycache__

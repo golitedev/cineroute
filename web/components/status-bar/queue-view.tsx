@@ -4,7 +4,7 @@ import { useState } from 'react';
 import { LoaderCircle, X } from 'lucide-react';
 import { useT } from '@/lib/i18n';
 import { useStatusBar } from '@/lib/status-bar/context';
-import { type Job, type Media, isPending, cancelRequest, retryJob, dismissJob, formatJobMessage, formatProblem } from '@/lib/cineroute-api';
+import { type Job, type Media, isPending, cancelRequest, retryJob, retryLyrics, dismissJob, formatJobMessage, formatProblem } from '@/lib/cineroute-api';
 import { Button } from '../ui/button';
 import { Input } from '../ui/input';
 import { Card, CardHeader } from '../ui/card';
@@ -82,7 +82,12 @@ export default function QueueView() {
                         </div>
                     )}
                     {job.message && <p className='text-sm break-words text-muted-foreground'>{formatJobMessage(job, t)}</p>}
-                    {music && job.status === 'failed' && (job.problem_items?.length || job.problems?.length) > 0 && (
+                    {music && job.lyrics && (
+                        <p className='text-xs text-muted-foreground'>
+                            {t(`lyrics.${job.lyrics.status}`)} · {t('lyrics.counts', { saved: job.lyrics.saved, missing: job.lyrics.missing, deferred: job.lyrics.deferred + job.lyrics.errors })}
+                        </p>
+                    )}
+                    {music && job.status === 'failed'  && (job.problem_items?.length || job.problems?.length) > 0 && (
                         <details className='text-sm'>
                             <summary className='cursor-pointer text-destructive'>
                                 {t('problems', { count: job.problem_items?.length || job.problems.length })}
@@ -98,6 +103,11 @@ export default function QueueView() {
                     )}
                     {music && !isPending(job) && (
                         <div className='flex gap-2'>
+                            {job.lyrics?.status === 'partial' && (
+                                <Button size='sm' variant='outline' disabled={busy === job.id} onClick={() => void action(job, () => retryLyrics(job.id))}>
+                                    {t('lyrics.retry')}
+                                </Button>
+                            )}
                             {['failed', 'cancelled'].includes(job.status) && (
                                 <Button size='sm' variant='outline' disabled={busy === job.id} onClick={() => void action(job, () => retryJob(job.id))}>
                                     {t('retry')}

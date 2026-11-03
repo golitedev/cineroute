@@ -95,9 +95,19 @@ func (m *Manager) process(root, ctx context.Context, job Job) {
 		j.LibraryPath = out.rel
 		j.FinishedAt = ptr(time.Now())
 		if out.status == StatusCompleted {
+			j.LyricsRequested = m.cfg.Lyrics.Enabled && m.deps.EnqueueLyrics != nil
 			j.TracksDone = j.TracksTotal
 		}
 	})
+	// Enqueue after the completed-job receipt is durable, before history can be
+	// trimmed. A startup reconciler repairs a crash between these two stores.
+	if out.status == StatusCompleted && m.cfg.Lyrics.Enabled && m.deps.EnqueueLyrics != nil {
+		if err := m.deps.EnqueueLyrics(job.ID, out.rel); err != nil {
+			log.Error("enqueueing lyrics", "err", err)
+		} else {
+			m.ConfirmLyricsEnqueued(job.ID)
+		}
+	}
 	m.mu.Lock()
 	m.trimLocked()
 	_ = m.saveLocked()

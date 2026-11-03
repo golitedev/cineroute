@@ -1,0 +1,23 @@
+Provider implementations, lyric decoding, matching and cleanup in engine/src/
+are adapted from navidrome-lyrics-plugin by Jorge Pardo, licensed under MIT.
+Upstream: https://github.com/J0R6IT0/navidrome-lyrics-plugin
+Reference revision: ef45f959c93a6ef188f2579d4a20ae699ecb7116 (v8.1.0).
+The upstream copyright and permission notice are reproduced in LICENSE.
+
+The standalone adapter replaces Navidrome/Extism types and HTTP host calls,
+removes Apple Music, adds a JSON-line interface and direct metadata reader,
+and deduplicates identical LRCLIB fallback queries. Provider and format code,
+including KRC/YRC/QRC decoders and their upstream tests, is retained.
+The Python batch runner, SSH transport, and build script are new.
+
+Musixmatch mobile API lookup, normalization, LRC conversion and known pseudo-lyrics
+rejection are adapted from navidrome-musixmatch-plugin by Myzel394 (MIT).
+Upstream: https://github.com/Myzel394/navidrome-musixmatch-plugin
+Reference revision: 22dc7c1e9c12ba7c900dd8abbd52c74efd9d4310.
+The upstream license is reproduced in licenses/musixmatch-plugin-MIT.txt.
+This adapter obtains anonymous tokens per lookup and includes no analytics,
+website authentication, desktop API fallback, or token/lyrics caching.
+
+The standalone batch tool additionally verifies identity/version metadata where
+available, handles service outages separately from track rejections, and writes
+optional durable JSON Lines audit reports without caching lookup results.

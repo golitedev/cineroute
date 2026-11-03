@@ -47,12 +47,13 @@ const albumJob = {
     problems: []
 };
 
-async function fixtures(page: Page, authenticated = true) {
+async function fixtures(page: Page, authenticated = true, lyrics?: { status: string; attempts: number; saved: number; missing: number; deferred: number; errors: number; skipped: number }) {
     let loggedIn = authenticated;
     const created: any[] = [];
     const cancelled: string[] = [];
     const queuedAlbums: string[] = [];
-    let currentMusicJob = { ...albumJob };
+    let currentMusicJob = { ...albumJob, lyrics };
+    const retriedLyrics: string[] = [];
     const jobs: any[] = [
         {
             id: 'old-request',
@@ -90,7 +91,12 @@ async function fixtures(page: Page, authenticated = true) {
         if (url.pathname === '/api/music/info') return respond({ success: true, data: { enabled: true, qobuz_ok: true } });
         if (url.pathname === '/api/music/jobs' && req.method() === 'POST') {
             queuedAlbums.push(req.postDataJSON().album_id);
-            currentMusicJob = { ...albumJob, status: 'downloading', tracks_done: 3, message: 'Downloading album' };
+            currentMusicJob = { ...albumJob, lyrics, status: 'downloading', tracks_done: 3, message: 'Downloading album' };
+            return respond({ success: true, data: currentMusicJob });
+        }
+        if (url.pathname.endsWith('/retry-lyrics')) {
+            retriedLyrics.push(url.pathname);
+            currentMusicJob = { ...currentMusicJob, lyrics: currentMusicJob.lyrics ? { ...currentMusicJob.lyrics, status: 'queued' } : undefined };
             return respond({ success: true, data: currentMusicJob });
         }
         if (url.pathname === '/api/music/jobs') return respond({ success: true, data: { jobs: [currentMusicJob] } });
@@ -148,7 +154,7 @@ async function fixtures(page: Page, authenticated = true) {
         }
         throw new Error(`Unexpected API ${req.method()} ${url.pathname}`);
     });
-    return { created, cancelled, queuedAlbums, jobs };
+    return { created, cancelled, queuedAlbums, jobs, retriedLyrics };
 }
 
 test('clean home with centered media controls and one shared history popup', async ({ page }) => {
@@ -514,4 +520,17 @@ test('completed requests do not create artwork badges without library presence',
         await expect(card.getByText('Completed', { exact: true })).toHaveCount(0);
         await expect(card.getByText('In library', { exact: true })).toHaveCount(0);
     }
+});
+
+test('lyrics failures can be retried without downloading the album again', async ({ page }) => {
+    const f = await fixtures(page, true, { status: 'partial', attempts: 4, saved: 8, missing: 1, deferred: 1, errors: 0, skipped: 0 });
+    await page.goto('/');
+    await page.getByRole('button', { name: 'Open my requests', exact: true }).click();
+    const requests = page.getByRole('dialog');
+    await expect(requests.getByText('Some lyrics still unavailable', { exact: false })).toBeVisible();
+    await expect(requests.getByText('8 saved, 1 missing, 1 pending', { exact: false })).toBeVisible();
+    await requests.getByRole('button', { name: 'Retry lyrics', exact: true }).click();
+    await expect.poll(() => f.retriedLyrics.length).toBe(1);
+    expect(f.queuedAlbums).toEqual([]);
+    await expect(requests.getByText('Lyrics queued', { exact: false })).toBeVisible();
 });
