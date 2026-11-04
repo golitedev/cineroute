@@ -649,6 +649,56 @@ func TestInLibraryChecksConfiguredNamingAndRecordedPaths(t *testing.T) {
 	}
 }
 
+func TestRemixIsNotOriginalRelease(t *testing.T) {
+	original := testAlbum("original", 1)
+	original.Title, original.Artist, original.ReleaseDate = "PARADIXE", "Feid", "2026-01-01"
+	original.MaxBitDepth, original.MaxSamplingRate = 24, 48
+	remix := original
+	remix.ID, remix.Version = "remix", "REMIX"
+	e := newEnv(t, fakeAlbums{"original": original, "remix": remix}, func(ctx context.Context, o streamrip.RunOptions, _ int) (streamrip.Result, error) {
+		albumRip("release", []int{1}, 2, t)(ctx, o)
+		return streamrip.Result{}, nil
+	}, func(c *config.Config) {
+		c.Qobuz.Quality = 3
+		c.Naming.Folder = "{albumartist} — {album} ({year}) [WEB] [{format}] [{bit_depth}B-{sampling_rate}kHz]"
+	})
+	rel := "Feid — PARADIXE (2026) [WEB] [FLAC] [24B-48kHz]"
+	path := filepath.Join(e.cfg.Paths.Library, rel)
+	if err := os.MkdirAll(path, 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(path, "01 - PARADIXE.flac"), []byte("original audio"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	// Reproduce the history left behind by the old duplicate check.
+	e.m.jobs = append(e.m.jobs, &Job{AlbumID: "remix", LibraryPath: rel, Status: StatusSkipped})
+	e.m.RefreshLibrary()
+	if !e.m.InLibrary(original) || e.m.InLibrary(remix) {
+		t.Fatal("original and remix library presence conflated")
+	}
+	j, err := e.m.Enqueue(context.Background(), "original", "alice")
+	if err != nil || j.Status != StatusSkipped {
+		t.Fatalf("original duplicate check: %+v, %v", j, err)
+	}
+	j, err = e.m.Enqueue(context.Background(), "remix", "alice")
+	if err != nil || j.Status != StatusQueued {
+		t.Fatalf("remix blocked from downloading: %+v, %v", j, err)
+	}
+	e.start()
+	completed := e.wait(j.ID, StatusCompleted)
+	if !strings.Contains(completed.LibraryPath, "PARADIXE (REMIX)") || completed.LibraryPath == rel {
+		t.Fatalf("remix imported to wrong path: %q", completed.LibraryPath)
+	}
+	data, err := os.ReadFile(filepath.Join(path, "01 - PARADIXE.flac"))
+	if err != nil || string(data) != "original audio" {
+		t.Fatalf("original modified: %q, %v", data, err)
+	}
+	e.m.RefreshLibrary()
+	if !e.m.InLibrary(original) || !e.m.InLibrary(remix) {
+		t.Fatal("imported releases not both in library")
+	}
+}
+
 func TestImportedLyricsSurviveDownloadHistoryTrimming(t *testing.T) {
 	e := newEnv(t, fakeAlbums{"a1": testAlbum("a1", 1), "a2": testAlbum("a2", 1)}, func(ctx context.Context, o streamrip.RunOptions, _ int) (streamrip.Result, error) {
 		albumRip("release", []int{1}, 2, t)(ctx, o)

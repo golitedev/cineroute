@@ -783,6 +783,12 @@ refresh. Movie/TV badges exclude known unfinished downloads, and music badges
 require a nonempty audio file. Download-time duplicate and overwrite checks
 continue to read current library data directly.
 
+Music folder templates using `{album}` automatically include the release version
+(for example, `PARADIXE (REMIX)`) unless `{title}` or `{version}` already includes
+it elsewhere in the template. This keeps remixes and other editions separate
+from the original release. Only completed imports establish library presence
+from download history; skipped folder collisions do not.
+
 The public listener serves a static React interface embedded in CineRoute's Go
 binary. Albums, Movies and TV share the centered search controls. The existing
 bottom queue button opens **My requests**, with active work and recent history

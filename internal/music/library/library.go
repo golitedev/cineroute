@@ -84,7 +84,14 @@ func expectedQuality(a qobuz.Album, maxQuality int) (format string, bitDepth int
 
 // FolderFor renders the album folder (relative to the library).
 func FolderFor(tmpl string, a qobuz.Album, q Quality, maxQuality int, restrict bool) (string, error) {
-	return naming.Render(tmpl, Values(a, q, maxQuality), restrict)
+	values := Values(a, q, maxQuality)
+	// A base album title alone is not a release identity: remixes and other
+	// editions often share it. Preserve the version for templates using {album}
+	// unless they already place it explicitly with {version} or {title}.
+	if naming.Uses(tmpl, "album") && !naming.Uses(tmpl, "version") && !naming.Uses(tmpl, "title") {
+		values["album"] = a.FullTitle()
+	}
+	return naming.Render(tmpl, values, restrict)
 }
 
 // Exists reports whether rel exists inside the library.

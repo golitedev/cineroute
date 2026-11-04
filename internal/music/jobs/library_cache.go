@@ -52,7 +52,9 @@ func (m *Manager) InLibrary(album qobuz.Album) bool {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	for _, job := range m.jobs {
-		if job.AlbumID == album.ID && job.LibraryPath != "" && index[filepath.Join(m.cfg.Paths.Library, job.LibraryPath)] {
+		// Skipped jobs only record a folder collision, not a verified import.
+		// Older naming templates could send different editions to that folder.
+		if job.Status == StatusCompleted && job.AlbumID == album.ID && job.LibraryPath != "" && index[filepath.Join(m.cfg.Paths.Library, job.LibraryPath)] {
 			return true
 		}
 	}
