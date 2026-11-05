@@ -2,17 +2,21 @@ package web
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"net/http"
 	"net/url"
 	"os"
+	"path/filepath"
 	"strings"
 	"time"
 
 	"cineroute/internal/config"
 	"cineroute/internal/library"
 	"cineroute/internal/qbittorrent"
+	"cineroute/internal/requests"
 	"cineroute/internal/tmdb"
 	"cineroute/internal/torrentmeta"
 )
@@ -56,6 +60,13 @@ func (s *Server) pendingReservations() map[string]int64 {
 // rescan, drive selection, folder creation, stopped add, exact verification,
 // explicit start. A failure in one member does not block the others.
 func (s *Server) submit(w http.ResponseWriter, r *http.Request) {
+	options := struct {
+		AutoSubtitles bool `json:"auto_subtitles"`
+	}{AutoSubtitles: true}
+	if err := json.NewDecoder(r.Body).Decode(&options); err != nil && !errors.Is(err, io.EOF) {
+		writeErr(w, http.StatusBadRequest, "invalid submission options")
+		return
+	}
 	in, ok := s.getIntake(r.PathValue("id"))
 	if !ok {
 		writeErr(w, http.StatusNotFound, "intake not found")
@@ -98,7 +109,7 @@ func (s *Server) submit(w http.ResponseWriter, r *http.Request) {
 		m.Error = ""
 		m.Dest = nil
 		s.mu.Unlock()
-		if err := s.submitLocked(r.Context(), m); err != nil {
+		if err := s.submitLocked(r.Context(), m, options.AutoSubtitles); err != nil {
 			s.mu.Lock()
 			m.Status = "failed"
 			m.Error = err.Error()
@@ -128,7 +139,7 @@ func (s *Server) submit(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, status, out)
 }
 
-func (s *Server) submitLocked(ctx context.Context, in *Intake) error {
+func (s *Server) submitLocked(ctx context.Context, in *Intake, autoSubtitles bool) error {
 	// Snapshot everything the transaction needs so a concurrent listing or
 	// other request can never race with the long-running submit.
 	s.mu.RLock()
@@ -161,6 +172,32 @@ func (s *Server) submitLocked(ctx context.Context, in *Intake) error {
 			in.Bytes = nil
 		}
 		s.mu.Unlock()
+	}
+	if err == nil && autoSubtitles && class.MediaType == "movie" && libraryName != "anime" {
+		// Persist a completion receipt independently of the short-lived intake.
+		// The request worker only observes admin torrents; it must never pause
+		// them using the user-request stalled-download policy.
+		now := time.Now().UTC()
+		target := "main"
+		if remote {
+			target = "remote"
+		}
+		d := requests.Download{AdminRouted: true, AutoSubtitles: true,
+			Hash: outcome.Result.Hash, MediaType: "movie", TMDBID: match.ID,
+			Target: target, DriveID: outcome.Dest.DriveID, SavePath: outcome.Dest.SavePath,
+			ContentPath: outcome.Dest.ContentPath, Title: meta.Name, Size: meta.Size,
+			Status: "downloading", AddedAt: now, LastProgress: now, FileSizes: map[string]int64{}}
+		for i, path := range meta.FullPaths() {
+			full := filepath.Join(d.SavePath, path)
+			d.Files = append(d.Files, full)
+			if !meta.Files[i].Padding {
+				d.FileSizes[full] = meta.Files[i].Length
+			}
+		}
+		if err := s.requests.SaveDownload(d); err != nil {
+			return fmt.Errorf("torrent added, but saving automatic subtitle work failed: %w", err)
+		}
+		s.engine.Wake()
 	}
 	return err
 }

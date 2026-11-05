@@ -39,6 +39,8 @@ type Job struct {
 }
 
 type Download struct {
+	// AdminRouted receipts observe manually routed movies without applying request retry policies.
+	AdminRouted         bool                    `json:"admin_routed,omitempty"`
 	AutoSubtitles       bool                    `json:"auto_subtitles,omitempty"`
 	SubtitlesQueued     bool                    `json:"subtitles_queued,omitempty"`
 	Languages           medialanguages.Metadata `json:"languages"`

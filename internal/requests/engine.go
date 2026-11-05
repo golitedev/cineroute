@@ -156,7 +156,7 @@ func (e *Engine) Tick(ctx context.Context) error {
 		} else if observed.Status != "failed" {
 			observed.Error = ""
 		}
-		if err == nil && settings.RetryFailedDownloads && !observed.Paused && observed.Status == "downloading" && settings.StalledMinutes > 0 && time.Since(observed.LastProgress) > time.Duration(settings.StalledMinutes)*time.Minute {
+		if err == nil && !observed.AdminRouted && settings.RetryFailedDownloads && !observed.Paused && observed.Status == "downloading" && settings.StalledMinutes > 0 && time.Since(observed.LastProgress) > time.Duration(settings.StalledMinutes)*time.Minute {
 			if pauseErr := e.Backend.Pause(ctx, observed.Hash); pauseErr == nil {
 				observed.Status = "failed"
 				observed.Error = "Stalled request torrent paused; partial files retained"

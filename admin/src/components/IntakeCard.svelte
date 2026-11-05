@@ -15,6 +15,7 @@
 		remove: (group: Intake[]) => Promise<void>;
 	} = $props();
 	const item = $derived(group[0]);
+	let autoSubtitles = $state(true);
 	let query = $state(untrack(() => group[0].title || '')),
 		year = $state<number | undefined>(untrack(() => group[0].year || undefined));
 	const done = $derived(group.every((i) => i.status === 'submitted'));
@@ -146,11 +147,20 @@
 						<strong>Torrent added and started</strong>
 						<p class="mono">{member.result.save_path} · {member.result.hash}</p>
 					</div>{/if}{/each}
+			{#if !done && item.media_type === 'movie' && mode !== 'anime'}
+				<label class="check"
+					><input type="checkbox" bind:checked={autoSubtitles} disabled={locked} />Automatically fetch missing subtitles</label
+				>
+				<p class="muted">
+					After download, find missing Swedish, English and Spanish subtitles and align them automatically. Subtitle processing must be
+					enabled in Settings.
+				</p>
+			{/if}
 			<div class="intake-actions">
 				{#if submitting}<div class="notice">Adding stopped, verifying, starting…</div>{:else if !done}<button
 						class="primary"
 						disabled={locked || !destination || destination.existing_conflict}
-						onclick={() => action(item.id, 'submit')}
+						onclick={() => action(item.id, 'submit', { auto_subtitles: autoSubtitles })}
 						>{group.length > 1 ? `Add all ${group.length} to qBittorrent` : 'Add to qBittorrent'} (stopped, verify, start)</button
 					>{/if}
 			</div>

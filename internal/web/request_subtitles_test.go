@@ -1,10 +1,13 @@
 package web
 
 import (
+	"cineroute/internal/tmdb"
+	"cineroute/internal/torrentmeta"
 	"context"
 	"encoding/json"
 	"path/filepath"
 	"testing"
+	"time"
 
 	"cineroute/internal/requests"
 	"cineroute/internal/subtitles"
@@ -96,5 +99,88 @@ func TestAutomaticMovieSubtitleOptionIsAdminOnlyAndDoesNotRequeueDownloads(t *te
 	response = userWorkflowCall(t, f.s, "alice", "POST", "/api/user/requests", `{"media_type":"movie","tmdb_id":101,"movie_auto_subtitles":true}`)
 	if response.Code != 400 {
 		t.Fatalf("user could override the admin subtitle policy: %d", response.Code)
+	}
+}
+
+func TestAdminRoutedMovieSubtitleCompletion(t *testing.T) {
+	for _, mode := range []string{"main", "remote", "off", "tv", "disabled"} {
+		t.Run(mode, func(t *testing.T) {
+			f := newWorkflowFixture(t, mode == "tv")
+			cfg := subtitleRuntimeConfig(f.cfg)
+			cfg.Enabled = mode != "disabled"
+			cfg.StatePath = filepath.Join(t.TempDir(), "subtitles.db")
+			cfg.WorkDir = t.TempDir()
+			f.s.subtitles = subtitles.NewManager(cfg, f.s.lib)
+			meta, err := torrentmeta.Parse(f.torrent)
+			if err != nil {
+				t.Fatal(err)
+			}
+			kind := "movie"
+			if mode == "tv" {
+				kind = "tv"
+			}
+			f.s.intakes["routed"] = &Intake{ID: "routed", CreatedAt: time.Now(), Filename: "admin.torrent", Bytes: f.torrent, Meta: meta, Class: classifierResult{MediaType: kind}, Match: &tmdb.Result{ID: 101, Title: "Example Movie", ReleaseDate: "2024-01-01"}, Remote: mode == "remote"}
+			body := `{}`
+			if mode == "off" {
+				body = `{"auto_subtitles":false}`
+			}
+			response := userWorkflowCall(t, f.s, "admin", "POST", "/api/intakes/routed/submit", body)
+			if response.Code != 200 {
+				t.Fatalf("submit: %d %s", response.Code, response.Body.String())
+			}
+			downloads, err := f.s.requests.Downloads()
+			if err != nil {
+				t.Fatal(err)
+			}
+			if mode == "off" || mode == "tv" {
+				if len(downloads) != 0 {
+					t.Fatalf("unexpected automatic receipt: %+v", downloads)
+				}
+				return
+			}
+			if len(downloads) != 1 || !downloads[0].AutoSubtitles || !downloads[0].AdminRouted {
+				t.Fatalf("missing admin completion receipt: %+v", downloads)
+			}
+			// Reopen persisted receipts and discard the intake, as after a restart.
+			f.s.requests = requests.NewStore(f.cfg.Requests.StatePath)
+			delete(f.s.intakes, "routed")
+			settings, _ := f.s.requests.Load()
+			settings.MovieAutoSubtitles = false
+			settings.RetryFailedDownloads = true
+			settings.StalledMinutes = 1
+			if err := f.s.requests.Save(settings); err != nil {
+				t.Fatal(err)
+			}
+			d := downloads[0]
+			d.LastProgress = time.Now().Add(-time.Hour)
+			if err := f.s.requests.SaveDownload(d); err != nil {
+				t.Fatal(err)
+			}
+			if err := f.s.engine.Tick(context.Background()); err != nil {
+				t.Fatal(err)
+			}
+			downloads, _ = f.s.requests.Downloads()
+			if downloads[0].Status != "downloading" {
+				t.Fatalf("admin download was changed by request retry policy: %+v", downloads[0])
+			}
+			if len(f.s.subtitles.View("").Items) != 0 {
+				t.Fatal("queued before completion")
+			}
+			finishWorkflowDownload(t, f)
+			for i := 0; i < 2; i++ {
+				if err := f.s.engine.Tick(context.Background()); err != nil {
+					t.Fatal(err)
+				}
+			}
+			downloads, _ = f.s.requests.Downloads()
+			want := mode != "disabled"
+			if downloads[0].Status != "complete" || downloads[0].SubtitlesQueued != want {
+				t.Fatalf("incorrect completion: %+v", downloads[0])
+			}
+			items := f.s.subtitles.View("").Items
+			if want && (len(items) != 1 || !items[0].AutomaticPending || items[0].LibraryTarget != mode) || !want && len(items) != 0 {
+				t.Fatalf("incorrect subtitle handoff: %+v", items)
+			}
+		})
 	}
 }

@@ -180,8 +180,11 @@ test('torrent routing and hardlink operations retain API semantics', async ({ pa
 			requests.some((r) => r.path === '/intakes/intake1/destination' && JSON.stringify(r.body) === '{"remote":true,"library":"movie"}'),
 		)
 		.toBeTruthy();
+	await expect(page.getByLabel('Automatically fetch missing subtitles')).toBeChecked();
 	await page.getByRole('button', { name: /Add to qBittorrent/ }).click();
-	await expect.poll(() => requests.some((r) => r.path === '/intakes/intake1/submit')).toBeTruthy();
+	await expect
+		.poll(() => requests.some((r) => r.path === '/intakes/intake1/submit' && JSON.stringify(r.body) === '{"auto_subtitles":true}'))
+		.toBeTruthy();
 	await navigate(page, 'Hardlinks');
 	await page.getByRole('combobox').selectOption('remote_to_main');
 	await page.getByRole('button', { name: 'Relink', exact: true }).click();
@@ -190,6 +193,16 @@ test('torrent routing and hardlink operations retain API semantics', async ({ pa
 		.toBeTruthy();
 	await page.getByRole('button', { name: 'Remove', exact: true }).click();
 	await expect.poll(() => requests.some((r) => r.path === '/hardlinks/link1' && r.method === 'DELETE')).toBeTruthy();
+});
+
+test('torrent routing can opt out of automatic subtitles', async ({ page, requests }) => {
+	await page.goto('http://admin.test/');
+	await expect(page.getByLabel('Automatically fetch missing subtitles')).toBeChecked();
+	await page.getByLabel('Automatically fetch missing subtitles').uncheck();
+	await page.getByRole('button', { name: /Add to qBittorrent/ }).click();
+	await expect
+		.poll(() => requests.some((r) => r.path === '/intakes/intake1/submit' && JSON.stringify(r.body) === '{"auto_subtitles":false}'))
+		.toBeTruthy();
 });
 
 test('login, logout, session expiry, and mobile drawer keep admin data isolated', async ({ page, requests }) => {
