@@ -354,6 +354,13 @@ func (b requestBackend) Observe(ctx context.Context, d requests.Download) (reque
 	d.TorrentState = tor.State
 	d.ObservedAt = time.Now().UTC()
 	d.Paused = tor.Stopped()
+	if filepath.Clean(tor.SavePath) != filepath.Clean(d.SavePath) || filepath.Clean(tor.ContentPath) != filepath.Clean(d.ContentPath) {
+		// This torrent is no longer managed at the request's destination. Keep
+		// its receipt for review without reserving a request download slot.
+		d.Status = "detached"
+		d.Error = "request torrent was moved outside its verified destination"
+		return d, nil
+	}
 	if d.Status == "planned" {
 		meta, err := torrentmeta.Parse(d.TorrentData)
 		if err != nil {
@@ -377,9 +384,6 @@ func (b requestBackend) Observe(ctx context.Context, d requests.Download) (reque
 		d.Paused = false
 		d.Status = "downloading"
 		d.TorrentData = nil
-	}
-	if filepath.Clean(tor.SavePath) != filepath.Clean(d.SavePath) || filepath.Clean(tor.ContentPath) != filepath.Clean(d.ContentPath) {
-		return d, errors.New("request torrent was moved outside its verified destination")
 	}
 	if tor.State == "error" || tor.State == "missingFiles" {
 		d.Status = "failed"

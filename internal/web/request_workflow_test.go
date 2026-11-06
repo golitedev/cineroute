@@ -383,6 +383,60 @@ func TestRequestRecoveryDoesNotDuplicateAndRejectsMovedDestination(t *testing.T)
 	}
 }
 
+func TestMovedRequestTorrentReleasesDownloadSlot(t *testing.T) {
+	for _, status := range []string{"planned", "downloading"} {
+		for _, movedPath := range []string{"save", "content"} {
+			t.Run(status+"/"+movedPath, func(t *testing.T) {
+				f := newWorkflowFixture(t, false)
+				settings, err := f.s.requests.Load()
+				if err != nil {
+					t.Fatal(err)
+				}
+				settings.MaxConcurrentDownloads = 1
+				if err := f.s.requests.Save(settings); err != nil {
+					t.Fatal(err)
+				}
+				stale := requests.Download{Hash: strings.Repeat("a", 40), MediaType: "movie", TMDBID: 999, Target: "remote", Status: status, SavePath: "/original", ContentPath: "/original/movie.mkv"}
+				// Planned receipts need an approved owner to enter observation.
+				if _, err := f.s.requests.Create(requests.Job{Owner: "bob", Media: tmdb.Details{Result: tmdb.Result{ID: 999, MediaType: "movie"}}, Target: "remote", Status: "error"}, settings, true); err != nil {
+					t.Fatal(err)
+				}
+				if err := f.s.requests.SaveDownload(stale); err != nil {
+					t.Fatal(err)
+				}
+				tor := &qbTorrent{hash: stale.Hash, savePath: stale.SavePath, contentPath: stale.ContentPath, state: "stoppedDL"}
+				if movedPath == "save" {
+					tor.savePath = "/moved"
+				} else {
+					tor.contentPath = "/moved/movie.mkv"
+				}
+				f.qb.mu.Lock()
+				f.qb.torrents[stale.Hash] = tor
+				f.qb.mu.Unlock()
+				job := createWorkflowJob(t, f, "alice", false)
+				if err := f.s.engine.Tick(context.Background()); err != nil {
+					t.Fatal(err)
+				}
+				downloads, err := f.s.requests.Downloads()
+				if err != nil || len(downloads) != 2 {
+					current, _ := f.s.requests.Job(job.ID)
+					t.Fatalf("new request blocked by moved torrent: %+v downloads=%+v err=%v", current, downloads, err)
+				}
+				for _, d := range downloads {
+					if d.Hash == stale.Hash && (d.Status != "detached" || !strings.Contains(d.Error, "moved outside")) {
+						t.Fatalf("moved receipt lost review state: %+v", d)
+					}
+				}
+				f.qb.mu.Lock()
+				defer f.qb.mu.Unlock()
+				if f.qb.started[stale.Hash] || tor.state != "stoppedDL" || len(f.qb.added) != 1 {
+					t.Fatal("moved torrent was restarted or duplicated")
+				}
+			})
+		}
+	}
+}
+
 func TestMainDestinationAndFixedNewTitleDiskAreApplied(t *testing.T) {
 	f := newWorkflowFixture(t, false)
 	settings, _ := f.s.requests.Load()

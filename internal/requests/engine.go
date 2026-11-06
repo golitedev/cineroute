@@ -153,7 +153,7 @@ func (e *Engine) Tick(ctx context.Context) error {
 		if err != nil {
 			observed = d
 			observed.Error = err.Error()
-		} else if observed.Status != "failed" {
+		} else if observed.Status != "failed" && observed.Status != "detached" {
 			observed.Error = ""
 		}
 		if err == nil && !observed.AdminRouted && settings.RetryFailedDownloads && !observed.Paused && observed.Status == "downloading" && settings.StalledMinutes > 0 && time.Since(observed.LastProgress) > time.Duration(settings.StalledMinutes)*time.Minute {
@@ -291,7 +291,7 @@ func (e *Engine) process(ctx context.Context, job *Job, settings Settings, downl
 				return nil
 			}
 		}
-		if active(d) && d.Error != "" {
+		if d.Status == "detached" || (active(d) && d.Error != "") {
 			job.Status = "error"
 			job.Message = "A download is awaiting verification"
 			job.AdminError = d.Error
