@@ -288,11 +288,9 @@ image-based subtitles (PGS/DVD) and audio/voice-activity reference mode.
 
 ## Accounts and user requests
 
-The movie and TV request dialog includes **Spanish audio**. In the admin
-panel, **Requests → General → Spanish trackers** selects enabled torrent
-trackers from Prowlarr. For Spanish-only requests these trackers join the normal
-tracker selection and their eligible releases rank first. Unticked requests use
-the normal selection and ranking.
+The movie and TV request dialog includes **Spanish audio**. These requests use
+the same trackers, priorities, and release ranking configured for normal requests,
+while requiring confirmed Spanish audio.
 
 Spanish-only requests require tracker-reported Spanish audio (Spain or Latin
 America), using the existing MediaInfo/BDInfo integration for compatible UNIT3D

@@ -4,7 +4,10 @@ import (
 	"cineroute/internal/medialanguages"
 	"cineroute/internal/prowlarr"
 	"cineroute/internal/tmdb"
+	"encoding/json"
 	"path/filepath"
+	"reflect"
+	"strings"
 	"testing"
 )
 
@@ -34,26 +37,42 @@ func TestSpanishAudioRequiresReportedAudioForMoviesAndTV(t *testing.T) {
 	}
 }
 
-func TestSpanishTrackerSettingsPersistAndOnlyExpandSpanishRequests(t *testing.T) {
+func TestLegacySpanishTrackersAreIgnored(t *testing.T) {
 	s := Defaults()
 	s.Trackers = []Tracker{{ID: 1, Name: "normal", Priority: 10}}
-	s.SpanishTrackers = []Tracker{{ID: 2, Name: "Spanish", Priority: 1}}
 	store := NewStore(filepath.Join(t.TempDir(), "requests.db"))
 	if err := store.Save(s); err != nil {
 		t.Fatal(err)
 	}
-	s, err := store.Load()
+	payload, err := json.Marshal(s)
 	if err != nil {
 		t.Fatal(err)
 	}
-	normal := s.TrackersForJob(Job{})
-	spanish := s.TrackersForJob(Job{SpanishAudio: true})
-	if len(normal) != 1 || normal[0].ID != 1 || len(spanish) != 2 || spanish[0].ID != 2 {
-		t.Fatalf("wrong tracker selection: %v %v", normal, spanish)
+	legacy := strings.TrimSuffix(string(payload), "}") + `,"spanish_trackers":[{"id":2,"name":"Spanish","priority":1}]}`
+	db, err := store.open()
+	if err != nil {
+		t.Fatal(err)
 	}
-	s.SpanishTrackers = append(s.SpanishTrackers, s.SpanishTrackers[0])
-	if s.Validate() == nil {
-		t.Fatal("duplicate Spanish tracker accepted")
+	defer db.Close()
+	if _, err := db.Exec("UPDATE request_settings SET payload = ? WHERE id = 1", legacy); err != nil {
+		t.Fatal(err)
+	}
+	loaded, err := store.Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(loaded.Trackers, s.Trackers) {
+		t.Fatalf("normal trackers changed: %+v", loaded.Trackers)
+	}
+	if err := store.Save(loaded); err != nil {
+		t.Fatal(err)
+	}
+	var saved string
+	if err := db.QueryRow("SELECT payload FROM request_settings WHERE id = 1").Scan(&saved); err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(saved, "spanish_trackers") {
+		t.Fatal("obsolete Spanish tracker selection persisted")
 	}
 }
 

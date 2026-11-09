@@ -41,7 +41,6 @@ export const settings = {
 	include_specials: false,
 	prefer_season_packs: true,
 	selection_order: ['quality', 'language', 'text_subtitles', 'keywords', 'pack', 'priority', 'video_bitrate', 'seeders'],
-	spanish_trackers: [],
 	trackers: [],
 	movie: profile(),
 	tv: profile(),

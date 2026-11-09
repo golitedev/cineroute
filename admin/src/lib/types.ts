@@ -116,7 +116,6 @@ export interface Settings {
 	include_specials: boolean;
 	prefer_season_packs: boolean;
 	selection_order: string[];
-	spanish_trackers: Tracker[];
 	trackers: Tracker[];
 	movie: Profile;
 	tv: Profile;

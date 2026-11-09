@@ -15,8 +15,8 @@ import (
 	"cineroute/internal/requests"
 )
 
-func TestSpanishRequestsPrioritizeTrackersAndNeverFallBackAutomatically(t *testing.T) {
-	for _, mode := range []string{"movie", "tv", "missing"} {
+func TestSpanishRequestsUseNormalTrackerOrderAndNeverFallBackAutomatically(t *testing.T) {
+	for _, mode := range []string{"movie", "tv", "mixed", "missing"} {
 		t.Run(mode, func(t *testing.T) {
 			f := newWorkflowFixture(t, mode == "tv")
 			var preferred, ordinary atomic.Int32
@@ -29,8 +29,8 @@ func TestSpanishRequestsPrioritizeTrackersAndNeverFallBackAutomatically(t *testi
 					json.NewEncoder(w).Encode(map[string]any{"id": int(r.URL.Path[len(r.URL.Path)-1] - '0'), "enable": true, "protocol": "torrent", "fields": []map[string]string{{"name": "baseUrl", "value": provider.URL}, {"name": "apikey", "value": "test-key"}}})
 				case "/api/v1/search":
 					ids := r.URL.Query()["indexerIds"]
-					if len(ids) == 2 && ids[0] != "9" {
-						t.Errorf("Spanish tracker not first: %v", ids)
+					if len(ids) != 2 || ids[0] != "7" || ids[1] != "9" {
+						t.Errorf("normal tracker order changed: %v", ids)
 					}
 					seeds := 10
 					releases := []prowlarr.Release{{Guid: "normal", IndexerID: 7, Title: f.title + ".PreferredGroup", InfoURL: provider.URL + "/torrents/7", Seeders: &seeds, Size: 512, DownloadURL: provider.URL + "/normal"}}
@@ -45,7 +45,11 @@ func TestSpanishRequestsPrioritizeTrackersAndNeverFallBackAutomatically(t *testi
 					}
 					data := []any{}
 					for _, id := range []int{7, 9} {
-						data = append(data, map[string]any{"attributes": map[string]string{"details_link": fmt.Sprintf("%s/torrents/%d", provider.URL, id), "media_info": "Audio\nLanguage : " + audio + "\nText\nLanguage : Spanish"}})
+						reportedAudio := audio
+						if mode == "mixed" && id == 7 {
+							reportedAudio = "English"
+						}
+						data = append(data, map[string]any{"attributes": map[string]string{"details_link": fmt.Sprintf("%s/torrents/%d", provider.URL, id), "media_info": "Audio\nLanguage : " + reportedAudio + "\nText\nLanguage : Spanish"}})
 					}
 					json.NewEncoder(w).Encode(map[string]any{"data": data})
 				case "/normal":
@@ -62,7 +66,7 @@ func TestSpanishRequestsPrioritizeTrackersAndNeverFallBackAutomatically(t *testi
 			f.s.prowlarr = prowlarr.New(provider.URL, "test", time.Second)
 			f.s.engine = requests.NewEngine(f.s.requests, f.s.tmdb, f.s.prowlarr, requestBackend{f.s})
 			settings, _ := f.s.requests.Load()
-			settings.SpanishTrackers = []requests.Tracker{{ID: 9, Name: "Spanish"}}
+			settings.Trackers = []requests.Tracker{{ID: 7, Name: "Normal", Priority: 1}, {ID: 9, Name: "Spanish", Priority: 25}}
 			settings.Movie.Keywords = []requests.Keyword{{Pattern: "PreferredGroup", Match: "contains", Mode: "preferred", Score: 100}}
 			settings.TV.Keywords = settings.Movie.Keywords
 			if err := f.s.requests.Save(settings); err != nil {
@@ -80,9 +84,13 @@ func TestSpanishRequestsPrioritizeTrackersAndNeverFallBackAutomatically(t *testi
 				t.Fatal(err)
 			}
 			downloads, _ := f.s.requests.Downloads()
-			if mode != "missing" {
+			if mode == "mixed" {
 				if len(downloads) != 1 || downloads[0].IndexerID != 9 || preferred.Load() != 1 || ordinary.Load() != 0 {
-					t.Fatalf("preferred tracker lost: %+v", downloads)
+					t.Fatalf("release without Spanish audio selected: %+v", downloads)
+				}
+			} else if mode != "missing" {
+				if len(downloads) != 1 || downloads[0].IndexerID != 7 || preferred.Load() != 0 || ordinary.Load() != 1 {
+					t.Fatalf("normal ranking changed: %+v", downloads)
 				}
 			} else {
 				jobs, _ := f.s.requests.Jobs("alice")

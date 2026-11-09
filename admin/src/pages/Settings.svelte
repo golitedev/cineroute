@@ -43,7 +43,6 @@
 	] as const;
 	function normalize(data: SettingsView) {
 		const value = structuredClone(data.settings);
-		value.spanish_trackers ||= [];
 		value.selection_order ||= (data.selection_criteria || []).map((c) => c.id);
 		for (const kind of ['movie', 'tv'] as const) {
 			value[kind].audio_languages ||= [];
@@ -155,17 +154,6 @@
 					<p class="muted text-xs">
 						A release delay of 0 disables waiting. A stalled time of 0 disables automatic stalled-download recovery.
 					</p>
-				</section>
-				<section class="form-section">
-					<div class="section-heading">
-						<div>
-							<h2>Spanish trackers</h2>
-							<p>Prioritized when Spanish audio is required. Metadata must still confirm Spanish audio.</p>
-						</div>
-						<button type="button" disabled={!data.prowlarr_configured || indexersLoading} onclick={refreshIndexers}>Refresh trackers</button
-						>
-					</div>
-					<Notice error={indexerError} /><Trackers bind:selected={draft.spanish_trackers} {indexers} spanish />
 				</section>
 				<section class="form-section">
 					<h2>Release ranking</h2>

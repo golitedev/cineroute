@@ -246,7 +246,7 @@ func DownloadFileIndex(downloads []Download) (excluded map[string]bool, sizes ma
 
 func (e *Engine) process(ctx context.Context, job *Job, settings Settings, downloads *[]Download) error {
 	p := ProfileForJob(settings, *job)
-	trackers := settings.TrackersForJob(*job)
+	trackers := settings.Trackers
 	if job.Media.MediaType == "tv" && len(job.Seasons) == 0 {
 		job.Status = "waiting"
 		job.Message = "Select a season to continue this request"
@@ -575,9 +575,6 @@ func (e *Engine) process(ctx context.Context, job *Job, settings Settings, downl
 	}
 	prepareBitrateRanking(candidates, settings.SelectionOrder, settings.PreferSeasonPacks)
 	sort.SliceStable(candidates, func(i, j int) bool {
-		if job.SpanishAudio && settings.IsSpanishTracker(candidates[i].Release.IndexerID) != settings.IsSpanishTracker(candidates[j].Release.IndexerID) {
-			return settings.IsSpanishTracker(candidates[i].Release.IndexerID)
-		}
 		return Better(candidates[i], candidates[j], settings.SelectionOrder, settings.PreferSeasonPacks)
 	})
 	for i, candidate := range candidates {

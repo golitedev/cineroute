@@ -1,6 +1,6 @@
 <script lang="ts">
 	import type { Tracker, Indexer } from '../lib/types';
-	let { selected = $bindable(), indexers, spanish = false }: { selected: Tracker[]; indexers: Indexer[]; spanish?: boolean } = $props();
+	let { selected = $bindable(), indexers }: { selected: Tracker[]; indexers: Indexer[] } = $props();
 	const rows = $derived.by(() => {
 		const map = new Map<number, Indexer>();
 		for (const i of indexers) map.set(i.id, i);
@@ -10,7 +10,7 @@
 	function toggle(row: Indexer, checked: boolean) {
 		if (checked) {
 			if (!row.enable || row.protocol !== 'torrent' || selected.some((t) => t.id === row.id)) return;
-			selected.push({ id: row.id, name: row.name, priority: spanish ? 1 : 25 });
+			selected.push({ id: row.id, name: row.name, priority: 25 });
 		} else selected = selected.filter((t) => t.id !== row.id);
 	}
 </script>
@@ -28,6 +28,6 @@
 					>{!row.enable || row.protocol !== 'torrent' ? 'Saved selection; unavailable or disabled' : 'Torrent tracker'}</small
 				></span
 			></label
-		>{#if tracker && !spanish}<label>Priority<input type="number" required min="1" max="100" bind:value={tracker.priority} /></label>{/if}
+		>{#if tracker}<label>Priority<input type="number" required min="1" max="100" bind:value={tracker.priority} /></label>{/if}
 	</div>{:else}<p class="muted">No trackers loaded. Refresh to choose from your Prowlarr configuration.</p>{/each}
 <p class="muted text-xs">{selected.length} trackers selected.</p>
