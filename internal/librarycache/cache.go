@@ -28,6 +28,13 @@ func New[T any](load func() T) *Cache[T] {
 	return &Cache[T]{load: load, wake: make(chan struct{}, 1)}
 }
 
+// Peek returns the current snapshot without starting or waiting for a scan.
+func (c *Cache[T]) Peek() (T, bool) {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	return c.value, c.ready
+}
+
 func (c *Cache[T]) Get() T {
 	c.mu.RLock()
 	value, ready := c.value, c.ready

@@ -13,6 +13,7 @@ import (
 	"testing"
 	"time"
 
+	"cineroute/internal/librarycache"
 	"cineroute/internal/music/config"
 	"cineroute/internal/music/flacfix"
 	"cineroute/internal/music/library"
@@ -863,5 +864,39 @@ func TestImportPreservesDownloaderFolder(t *testing.T) {
 	done := e.wait(j.ID, StatusCompleted)
 	if done.LibraryPath != "Exact Streamrip Album Name" {
 		t.Fatal(done.LibraryPath)
+	}
+}
+
+func TestDownloadAdmissionNeverScansLibrary(t *testing.T) {
+	e := newEnv(t, fakeAlbums{"a1": testAlbum("a1", 1)}, func(context.Context, streamrip.RunOptions, int) (streamrip.Result, error) {
+		return streamrip.Result{}, nil
+	})
+	e.m.libraryCache = librarycache.New(func() librarySnapshot { t.Fatal("request started a library scan"); return librarySnapshot{} })
+	job, err := e.m.Enqueue(context.Background(), "a1", "")
+	if err != nil || job.Status != StatusQueued {
+		t.Fatalf("enqueue: %+v %v", job, err)
+	}
+	if e.m.InLibrary(testAlbum("other", 1)) {
+		t.Fatal("unknown release in library")
+	}
+}
+
+func TestCachedAlbumIDDoesNotSkipDeletedFile(t *testing.T) {
+	e := newEnv(t, fakeAlbums{"a1": testAlbum("a1", 1)}, func(context.Context, streamrip.RunOptions, int) (streamrip.Result, error) {
+		return streamrip.Result{}, nil
+	})
+	dir := filepath.Join(e.cfg.Paths.Library, "Renamed Album")
+	makeFLAC(t, dir, 1, 2)
+	file := filepath.Join(dir, "01. Song 1.flac")
+	if err := exec.Command("metaflac", "--set-tag=QOBUZ_ALBUM_ID=a1", file).Run(); err != nil {
+		t.Fatal(err)
+	}
+	e.m.RefreshLibrary()
+	if e.m.albumIDPath("a1") == "" {
+		t.Fatal("cached ID missing")
+	}
+	os.RemoveAll(dir)
+	if e.m.albumIDPath("a1") != "" {
+		t.Fatal("deleted file treated as present")
 	}
 }

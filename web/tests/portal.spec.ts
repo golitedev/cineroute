@@ -47,7 +47,11 @@ const albumJob = {
     problems: []
 };
 
-async function fixtures(page: Page, authenticated = true, lyrics?: { status: string; attempts: number; saved: number; missing: number; deferred: number; errors: number; skipped: number }) {
+async function fixtures(
+    page: Page,
+    authenticated = true,
+    lyrics?: { status: string; attempts: number; saved: number; missing: number; deferred: number; errors: number; skipped: number }
+) {
     let loggedIn = authenticated;
     const created: any[] = [];
     const cancelled: string[] = [];
@@ -460,10 +464,18 @@ test('mobile media tabs stay centered with icons and the music filter sits cente
     }
 });
 
-
 test('waiting Spanish request shows its warning and can return to normal routing', async ({ page }) => {
     const f = await fixtures(page);
-    f.jobs.push({ id: 'new-request', media: movie, status: 'waiting', message: 'No Spanish audio release found. Untick Spanish audio and submit again.', spanish_audio: true, seasons: [], progress: 0, created_at: '2024-01-03T00:00:00Z' });
+    f.jobs.push({
+        id: 'new-request',
+        media: movie,
+        status: 'waiting',
+        message: 'No Spanish audio release found. Untick Spanish audio and submit again.',
+        spanish_audio: true,
+        seasons: [],
+        progress: 0,
+        created_at: '2024-01-03T00:00:00Z'
+    });
     await page.goto('/');
     await page.getByRole('button', { name: 'Movies', exact: true }).click();
     await page.getByRole('textbox', { name: 'Search', exact: true }).fill('A good');
@@ -485,12 +497,20 @@ test('posters show library presence independently of personal requests', async (
         const media = new URL(route.request().url()).searchParams.get('type') === 'tv' ? tv : movie;
         return route.fulfill({ json: { results: [{ ...media, in_library: true }], page: 1, total_pages: 1 } });
     });
-    await page.route('**/api/music/get-music?**', (route) => route.fulfill({ json: {
-        success: true,
-        data: { query: 'Library', switchTo: null,
-            albums: { items: [{ ...album, in_library: true }], total: 1 },
-            tracks: { items: [], total: 0 }, artists: { items: [], total: 0 } }
-    } }));
+    await page.route('**/api/music/get-music?**', (route) =>
+        route.fulfill({
+            json: {
+                success: true,
+                data: {
+                    query: 'Library',
+                    switchTo: null,
+                    albums: { items: [{ ...album, in_library: true }], total: 1 },
+                    tracks: { items: [], total: 0 },
+                    artists: { items: [], total: 0 }
+                }
+            }
+        })
+    );
     await page.goto('/');
     for (const kind of ['Movies', 'TV', 'Music']) {
         await page.getByRole('navigation').getByRole('button', { name: kind, exact: true }).click();
@@ -504,12 +524,21 @@ test('posters show library presence independently of personal requests', async (
 
 test('completed requests do not create artwork badges without library presence', async ({ page }) => {
     await fixtures(page);
-    await page.route('**/api/user/requests', (route) => route.fulfill({ json: {
-        requests: [movie, tv].map((media) => ({
-            id: `completed-${media.id}`, media, status: 'complete', message: 'Ready in the library',
-            progress: 1, seasons: [], created_at: '2024-01-01T00:00:00Z'
-        }))
-    } }));
+    await page.route('**/api/user/requests', (route) =>
+        route.fulfill({
+            json: {
+                requests: [movie, tv].map((media) => ({
+                    id: `completed-${media.id}`,
+                    media,
+                    status: 'complete',
+                    message: 'Ready in the library',
+                    progress: 1,
+                    seasons: [],
+                    created_at: '2024-01-01T00:00:00Z'
+                }))
+            }
+        })
+    );
     await page.goto('/');
     for (const kind of ['Movies', 'TV', 'Music']) {
         await page.getByRole('navigation').getByRole('button', { name: kind, exact: true }).click();
@@ -533,4 +562,36 @@ test('lyrics failures can be retried without downloading the album again', async
     await expect.poll(() => f.retriedLyrics.length).toBe(1);
     expect(f.queuedAlbums).toEqual([]);
     await expect(requests.getByText('Lyrics queued', { exact: false })).toBeVisible();
+});
+
+test('album button immediately shows pending and prevents repeated submissions', async ({ page }) => {
+    const f = await fixtures(page);
+    let release!: () => void;
+    const held = new Promise<void>((resolve) => {
+        release = resolve;
+    });
+    let submissions = 0;
+    await page.route('**/api/music/jobs', async (route) => {
+        if (route.request().method() !== 'POST') return route.fallback();
+        submissions++;
+        await held;
+        return route.fallback();
+    });
+    await page.goto('/');
+    await page.getByRole('navigation').getByRole('button', { name: 'Music', exact: true }).click();
+    await page.getByRole('textbox', { name: 'Search', exact: true }).fill('An artist');
+    await page.getByRole('button', { name: 'Search', exact: true }).click();
+    const card = page.locator('.release-card').first();
+    if (test.info().project.name === 'mobile') await card.locator('.release-overlay').tap();
+    else await card.hover();
+    const button = page.getByRole('button', { name: 'Download full release: A good album', exact: true });
+    await button.click();
+    await expect(button).toBeDisabled();
+    await expect(button).toHaveAttribute('aria-busy', 'true');
+    await expect.poll(() => submissions).toBe(1);
+    release();
+    await expect.poll(() => f.queuedAlbums).toEqual(['album1']);
+    await expect(button).toBeEnabled();
+    await expect(page.locator('.status-bar-container').getByText('30%', { exact: true })).toBeVisible();
+    await expect(page.getByRole('progressbar', { name: 'Download progress' })).toBeInViewport();
 });

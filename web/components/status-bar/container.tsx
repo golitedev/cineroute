@@ -39,7 +39,7 @@ const StatusBarContainer = () => {
                 'status-bar-container px-4 pb-4 pt-6 overflow-hidden mx-auto w-full fixed bottom-0 flex min-h-[156px] z-[20] justify-center pointer-events-none'
             )}
         >
-            <div className='container relative flex'>
+            <div className='container relative flex min-h-[132px]'>
                 <StatusBar />
             </div>
         </div>

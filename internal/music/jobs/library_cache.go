@@ -11,13 +11,23 @@ import (
 	"cineroute/internal/music/verify"
 )
 
-// Mark every parent containing a nonempty audio file, supporting folder
-// templates with disc subdirectories without recording every track in memory.
-func (m *Manager) scanLibrary() map[string]bool {
-	out := map[string]bool{}
+// librarySnapshot is built in the background; requests only read it.
+type librarySnapshot struct {
+	paths  map[string]bool
+	albums map[string]string // release ID -> representative FLAC path
+}
+
+func (m *Manager) scanLibrary() librarySnapshot {
+	out := librarySnapshot{paths: map[string]bool{}, albums: map[string]string{}}
 	root := filepath.Clean(m.cfg.Paths.Library)
 	_ = filepath.WalkDir(root, func(path string, d fs.DirEntry, err error) error {
-		if err != nil || d.IsDir() {
+		if err != nil {
+			return nil
+		}
+		if d.IsDir() && path != root && strings.HasPrefix(d.Name(), ".") {
+			return filepath.SkipDir
+		}
+		if d.IsDir() || d.Type()&os.ModeSymlink != 0 {
 			return nil
 		}
 		if !audioExt[strings.ToLower(filepath.Ext(path))] {
@@ -29,11 +39,13 @@ func (m *Manager) scanLibrary() map[string]bool {
 		}
 		if strings.EqualFold(filepath.Ext(path), ".flac") {
 			if id := verify.AlbumID(path); id != "" {
-				out["qobuz:"+id] = true
+				if out.albums[id] == "" {
+					out.albums[id] = path
+				}
 			}
 		}
 		for dir := filepath.Dir(path); dir != root && withinLibrary(root, dir); dir = filepath.Dir(dir) {
-			out[dir] = true
+			out.paths[dir] = true
 		}
 		return nil
 	})
@@ -46,16 +58,19 @@ func withinLibrary(root, path string) bool {
 }
 
 // InLibrary uses cached audio presence and the same naming rules as the
-// enqueue-time duplicate check, which intentionally remains uncached.
+// enqueue-time duplicate check. Cached ID hits are checked against one file.
 func (m *Manager) InLibrary(album qobuz.Album) bool {
 	if album.ID == "" || album.Title == "" || album.Artist == "" {
 		return false
 	}
-	index := m.libraryCache.Get()
-	if index["qobuz:"+album.ID] {
+	index, ready := m.libraryCache.Peek()
+	if !ready {
+		return m.albumNamePath(album) != ""
+	}
+	if m.albumIDPath(album.ID) != "" {
 		return true
 	}
-	if rel, err := m.folderFor(album, library.Quality{}); err == nil && index[filepath.Join(m.cfg.Paths.Library, rel)] {
+	if rel, err := m.folderFor(album, library.Quality{}); err == nil && index.paths[filepath.Join(m.cfg.Paths.Library, rel)] {
 		return true
 	}
 	m.mu.Lock()
@@ -63,7 +78,7 @@ func (m *Manager) InLibrary(album qobuz.Album) bool {
 	for _, job := range m.jobs {
 		// Skipped jobs only record a folder collision, not a verified import.
 		// Older naming templates could send different editions to that folder.
-		if job.Status == StatusCompleted && job.AlbumID == album.ID && job.LibraryPath != "" && index[filepath.Join(m.cfg.Paths.Library, job.LibraryPath)] {
+		if job.Status == StatusCompleted && job.AlbumID == album.ID && job.LibraryPath != "" && index.paths[filepath.Join(m.cfg.Paths.Library, job.LibraryPath)] {
 			return true
 		}
 	}
@@ -74,33 +89,32 @@ func (m *Manager) InLibrary(album qobuz.Album) bool {
 // Normal imports notify the background cache worker instead.
 func (m *Manager) RefreshLibrary() { m.libraryCache.Refresh() }
 
-// albumIDPath is intentionally uncached for admission/import decisions.
-// Embedded release IDs take precedence over names and quality labels.
+// albumIDPath never walks the library. Validate only the cached candidate,
+// so deleted/replaced files cannot cause a stale duplicate result.
 func (m *Manager) albumIDPath(id string) string {
-	if id == "" {
+	index, ready := m.libraryCache.Peek()
+	if !ready || id == "" {
 		return ""
 	}
-	var found string
-	root := filepath.Clean(m.cfg.Paths.Library)
-	_ = filepath.WalkDir(root, func(path string, d fs.DirEntry, err error) error {
-		if err != nil {
-			return nil
-		}
-		if d.IsDir() && path != root && strings.HasPrefix(d.Name(), ".") {
-			return filepath.SkipDir
-		}
-		if d.IsDir() || d.Type()&os.ModeSymlink != 0 || !strings.EqualFold(filepath.Ext(path), ".flac") {
-			return nil
-		}
-		if verify.AlbumID(path) == id {
-			dir := filepath.Dir(path)
-			if strings.HasPrefix(strings.ToLower(filepath.Base(dir)), "disc ") {
-				dir = filepath.Dir(dir)
-			}
-			found, _ = filepath.Rel(root, dir)
-			return fs.SkipAll
-		}
-		return nil
-	})
-	return found
+	path := index.albums[id]
+	if path == "" || !withinLibrary(m.cfg.Paths.Library, path) {
+		return ""
+	}
+	info, err := os.Lstat(path)
+	if err != nil || !info.Mode().IsRegular() || info.Size() == 0 || verify.AlbumID(path) != id {
+		return ""
+	}
+	dir := filepath.Dir(path)
+	if strings.HasPrefix(strings.ToLower(filepath.Base(dir)), "disc ") {
+		dir = filepath.Dir(dir)
+	}
+	rel, _ := filepath.Rel(m.cfg.Paths.Library, dir)
+	return rel
+}
+
+func (m *Manager) albumNamePath(album qobuz.Album) string {
+	if rel, err := m.folderFor(album, library.Quality{}); err == nil && library.Exists(m.cfg.Paths.Library, rel) {
+		return rel
+	}
+	return ""
 }

@@ -66,8 +66,12 @@ export const StatusBarProvider = ({ children }: { children: ReactNode }) => {
             void refresh().catch(() => {});
         };
         update();
-        window.addEventListener('cineroute:jobs', update);
-        return () => window.removeEventListener('cineroute:jobs', update);
+        const submitted = () => {
+            setStatusBar((prev) => ({ ...prev, openPreference: true }));
+            update();
+        };
+        window.addEventListener('cineroute:jobs', submitted);
+        return () => window.removeEventListener('cineroute:jobs', submitted);
     }, [refresh]);
     const pending = jobs.some(isPending);
     useEffect(() => {

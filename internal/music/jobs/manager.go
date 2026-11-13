@@ -63,7 +63,7 @@ type Manager struct {
 	log    *slog.Logger
 	genres *genres.Translator // nil when genre translation is off
 
-	libraryCache *librarycache.Cache[map[string]bool]
+	libraryCache *librarycache.Cache[librarySnapshot]
 
 	mu      sync.Mutex
 	jobs    []*Job
