@@ -14,9 +14,12 @@ import (
 	"time"
 
 	"cineroute/internal/music/config"
+	"cineroute/internal/music/flacfix"
+	"cineroute/internal/music/library"
 	"cineroute/internal/music/lyrics"
 	"cineroute/internal/music/qobuz"
 	"cineroute/internal/music/streamrip"
+	"cineroute/internal/music/verify"
 )
 
 // --- fixtures ---------------------------------------------------------------
@@ -111,6 +114,8 @@ func newEnv(t *testing.T, albums fakeAlbums, rip ripFunc, mutate ...func(*config
 	cfg.Paths.Staging = filepath.Join(dir, "staging")
 	cfg.Paths.Data = filepath.Join(dir, "data")
 	cfg.Qobuz.Quality = 2
+	cfg.Lyrics.Enabled = true
+	cfg.Naming.Folder = "{albumartist}/{title} ({year})"
 	cfg.Download.RetryDelay = 0
 	for _, f := range mutate {
 		f(&cfg)
@@ -121,7 +126,29 @@ func newEnv(t *testing.T, albums fakeAlbums, rip ripFunc, mutate ...func(*config
 		Albums: albums,
 		Rip: func(ctx context.Context, o streamrip.RunOptions) (streamrip.Result, error) {
 			n := int(e.attempts.Add(1))
-			return rip(ctx, o, n)
+			res, err := rip(ctx, o, n)
+			// Model the pinned Streamrip contract: final naming and MD5
+			// repair happen in the downloader, before CineRoute checks it.
+			if dir, e := verify.FindAlbumDir(o.Folder); e == nil {
+				id := strings.TrimPrefix(o.URL, "https://play.qobuz.com/album/")
+				if album, ok := albums[id]; ok {
+					rel, e := library.FolderFor(cfg.Naming.Folder, album, library.Quality{}, cfg.Qobuz.Quality, cfg.Naming.RestrictCharacters)
+					if e != nil {
+						t.Fatal(e)
+					}
+					dst := filepath.Join(o.Folder, rel)
+					if dst != dir {
+						os.MkdirAll(filepath.Dir(dst), 0755)
+						if e := os.Rename(dir, dst); e != nil {
+							t.Fatal(e)
+						}
+					}
+					if _, e := flacfix.Dir(ctx, dst, flacfix.Options{FixMD5: true, FlacBin: "flac"}); e != nil {
+						t.Fatal(e)
+					}
+				}
+			}
+			return res, err
 		},
 		AfterImport: func(_ context.Context, rel string) { e.imported <- rel },
 		Files:       streamrip.FilesIn(cfg.Paths.Data),
@@ -545,10 +572,7 @@ func TestQobuzStyleFilesAreFixedBeforeImport(t *testing.T) {
 			t.Fatalf("flac -t: %v %s", err, b)
 		}
 	}
-	logged, _ := os.ReadFile(e.m.LogPath(j.ID))
-	if !strings.Contains(string(logged), "MD5 signature written to 2 of 2") {
-		t.Fatalf("job log: %s", logged)
-	}
+
 }
 
 // audioOnly returns a FLAC file's bytes after its metadata blocks.
@@ -794,5 +818,50 @@ func TestFailedLyricsHandoffCannotBeLostWithHistory(t *testing.T) {
 	e.m.ConfirmLyricsEnqueued(job.ID)
 	if _, err := e.m.Get(job.ID); err != ErrNotFound {
 		t.Fatal("delivered handoff not trimmed")
+	}
+}
+
+func TestAlbumIDDuplicateIgnoresFolderNameAndQuality(t *testing.T) {
+	e := newEnv(t, fakeAlbums{"a1": testAlbum("a1", 1)}, func(context.Context, streamrip.RunOptions, int) (streamrip.Result, error) {
+		t.Fatal("duplicate must not download")
+		return streamrip.Result{}, nil
+	})
+	dir := filepath.Join(e.cfg.Paths.Library, "Renamed Artist - Different name [24B-192kHz]")
+	makeFLAC(t, dir, 1, 2)
+	file := filepath.Join(dir, "01. Song 1.flac")
+	if out, err := exec.Command("metaflac", "--set-tag=QOBUZ_ALBUM_ID=a1", file).CombinedOutput(); err != nil {
+		t.Fatalf("%v %s", err, out)
+	}
+	e.m.RefreshLibrary()
+	if !e.m.InLibrary(testAlbum("a1", 1)) {
+		t.Fatal("ID not found by discovery")
+	}
+	job, err := e.m.Enqueue(context.Background(), "a1", "")
+	if err != nil || job.Status != StatusSkipped || job.LibraryPath != filepath.Base(dir) {
+		t.Fatalf("duplicate: %+v %v", job, err)
+	}
+	if e.m.InLibrary(testAlbum("other", 1)) {
+		t.Fatal("different Qobuz release matched")
+	}
+}
+
+func TestImportPreservesDownloaderFolder(t *testing.T) {
+	e := newEnv(t, fakeAlbums{"a1": testAlbum("a1", 1)}, func(ctx context.Context, o streamrip.RunOptions, _ int) (streamrip.Result, error) {
+		albumRip("unused", []int{1}, 2, t)(ctx, o)
+		return streamrip.Result{}, nil
+	}, func(c *config.Config) { c.Naming.Folder = "{id}" })
+	// Bypass the naming emulation to assert the import does no renaming itself.
+	e.m.deps.Rip = func(ctx context.Context, o streamrip.RunOptions) (streamrip.Result, error) {
+		albumRip("Exact Streamrip Album Name", []int{1}, 2, t)(ctx, o)
+		return streamrip.Result{}, nil
+	}
+	e.start()
+	j, err := e.m.Enqueue(context.Background(), "a1", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	done := e.wait(j.ID, StatusCompleted)
+	if done.LibraryPath != "Exact Streamrip Album Name" {
+		t.Fatal(done.LibraryPath)
 	}
 }

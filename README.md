@@ -804,17 +804,22 @@ staging outside the library so media servers never discover partial albums.
 
 The bundled streamrip CLI downloads complete Qobuz releases. Choosing a track
 requests its containing album, EP or single. CineRoute verifies completeness,
-FLAC decoding and MD5, cleans metadata, and imports only complete releases.
+FLAC decoding and MD5, translates genres, and imports only complete releases.
+The pinned Streamrip fork writes full Qobuz tags, plain-text descriptions, and
+missing audio MD5 signatures. Album names are created by Streamrip in staging
+and preserved on import. Embedded Qobuz album IDs are checked before folder
+names to recognize existing releases even when their names or quality differ.
 Already imported albums are skipped. Music requests queue immediately and do
 not use the movie/TV approval or quota policy; each user can have up to 50
 outstanding music requests. The public API shows only the signed-in user's jobs
 and only lets that user cancel, retry or dismiss their own music requests.
 Qobuz account credentials, downloader settings and raw logs stay on the server.
 An optional `music.navidrome` section accepts `url`, `username` and `password`
-to trigger a scan after importing.
+to trigger a scan after importing. Qobuz quality `3` caps requests at 96 kHz;
+quality `4` requests the highest tier including 192 kHz.
 
-Automatic lyrics are enabled by default for newly imported music releases.
-`music.lyrics.enabled: false` disables them. A separate, single-worker SQLite queue
+Automatic lyrics are disabled by default for newly imported music releases.
+`music.lyrics.enabled: true` enables them. A separate, single-worker SQLite queue
 under `music.paths.data/lyrics/queue.db` writes sidecars only inside that release's
 final folder, including all discs. Downloads remain completed and playable while
 lyrics run; missing lyrics and provider failures never trigger another audio

@@ -37,6 +37,7 @@ type File struct {
 	Size                 int64
 	Disc, Number         int
 	Title                string
+	QobuzAlbumID         string
 	DurationSec          float64
 	BitDepth, SampleRate int
 }
@@ -133,11 +134,15 @@ func findAlbumDir(ctx context.Context, root string) (string, error) {
 		if e != nil {
 			return e
 		}
-		parts := strings.Split(rel, string(filepath.Separator))
-		if len(parts) == 1 {
+		_ = rel
+		dir := filepath.Dir(path)
+		if discName.MatchString(filepath.Base(dir)) {
+			dir = filepath.Dir(dir)
+		}
+		if dir == root {
 			direct = true
 		} else {
-			candidates[filepath.Join(root, parts[0])] = true
+			candidates[dir] = true
 		}
 		return nil
 	})
@@ -449,6 +454,8 @@ func readComments(data []byte, out *File) error {
 			continue
 		}
 		switch strings.ToUpper(k) {
+		case "QOBUZALBUMID", "QOBUZ_ALBUM_ID":
+			out.QobuzAlbumID = strings.TrimSpace(v)
 		case "TITLE":
 			out.Title = v
 		case "TRACKNUMBER":
@@ -523,4 +530,13 @@ func decode(ctx context.Context, bin string, files []File) []Problem {
 	close(jobs)
 	wg.Wait()
 	return problems
+}
+
+// AlbumID reads only FLAC metadata; it never decodes or modifies audio.
+func AlbumID(path string) string {
+	f := File{Path: path}
+	if err := readFLAC(context.Background(), &f); err != nil {
+		return ""
+	}
+	return f.QobuzAlbumID
 }

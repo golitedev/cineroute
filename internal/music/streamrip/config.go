@@ -126,9 +126,10 @@ func WriteConfig(ctx context.Context, cfg *config.Config, files Files) (ignored 
 	}
 	set("metadata.exclude", exclude)
 
-	// CineRoute names the album folder itself after verification; inside the
-	// staging folder streamrip just uses the album id.
-	set("filepaths.folder_format", "{id}")
+	// Streamrip creates the final relative album path inside isolated staging.
+	// Import preserves that path without renaming the release.
+	set("filepaths.folder_format", cfg.Naming.Folder)
+	set("qobuz.verify_flac", cfg.Download.VerifyFLAC || cfg.Download.FixMD5)
 	set("filepaths.track_format", cfg.Naming.Track)
 	set("filepaths.restrict_characters", cfg.Naming.RestrictCharacters)
 

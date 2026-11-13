@@ -254,7 +254,13 @@ func (m *Manager) Enqueue(ctx context.Context, albumID, requestedBy string, limi
 
 	// Skip right away when the album is already in the library.
 	if m.cfg.Naming.IfExists == config.IfExistsSkip {
-		if rel, err := m.folderFor(album, library.Quality{}); err == nil && library.Exists(m.cfg.Paths.Library, rel) {
+		rel := m.albumIDPath(album.ID)
+		if rel == "" {
+			if candidate, err := m.folderFor(album, library.Quality{}); err == nil && library.Exists(m.cfg.Paths.Library, candidate) {
+				rel = candidate
+			}
+		}
+		if rel != "" {
 			job.Status = StatusSkipped
 			job.set(M("already_in_library"))
 			job.LibraryPath = rel

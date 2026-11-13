@@ -207,7 +207,7 @@ func TestWriteConfig(t *testing.T) {
 		"database.downloads_enabled": false,
 		"conversion.enabled":         true,
 		"conversion.codec":           "FLAC",
-		"filepaths.folder_format":    "{id}",
+		"filepaths.folder_format":    cfg.Naming.Folder,
 		"cli.progress_bars":          false,
 		"misc.check_for_updates":     false,
 	}

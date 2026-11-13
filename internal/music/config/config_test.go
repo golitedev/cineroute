@@ -46,11 +46,12 @@ func TestMusicConfigRejectsUnsafePathsAndInvalidSettings(t *testing.T) {
 
 func TestLyricsDefaultsAndValidation(t *testing.T) {
 	c := Default()
-	if !c.Lyrics.Enabled || !c.Lyrics.VerifiedOnly {
+	if c.Lyrics.Enabled || !c.Lyrics.VerifiedOnly {
 		t.Fatal("conservative lyrics defaults missing")
 	}
 	for _, mutate := range []func(*Config){func(c *Config) { c.Lyrics.Script = "" }, func(c *Config) { c.Lyrics.MaxAttempts = 0 }, func(c *Config) { c.Lyrics.RetryMinutes = 0 }, func(c *Config) { c.Lyrics.TimeoutMinutes = 0 }} {
 		c := Default()
+		c.Lyrics.Enabled = true
 		mutate(&c)
 		if c.Validate() == nil {
 			t.Fatal("invalid lyrics configuration accepted")

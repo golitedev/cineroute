@@ -97,7 +97,7 @@ func Default() Config {
 		Qobuz: Qobuz{Quality: 3},
 		Paths: Paths{Library: "/music", Staging: "/staging", Data: "/data/music"},
 		Naming: Naming{
-			Folder:         "{albumartist}/{title} ({year})",
+			Folder:         "{albumartist} — {title} ({year}) [WEB] [{format}] [{bit_depth}B-{sampling_rate}kHz]",
 			Track:          "{tracknumber:02}. {title}",
 			DiscSubfolders: true,
 			IfExists:       IfExistsSkip,
@@ -113,7 +113,7 @@ func Default() Config {
 			HistoryLimit:      200,
 			RipCommand:        "rip",
 		},
-		Lyrics:   Lyrics{Enabled: true, Script: "/opt/lrcscript/lrcscript.py", Engine: "/usr/local/bin/lyrics-fetch", VerifiedOnly: true, MaxAttempts: 4, RetryMinutes: 15, TimeoutMinutes: 60},
+		Lyrics:   Lyrics{Enabled: false, Script: "/opt/lrcscript/lrcscript.py", Engine: "/usr/local/bin/lyrics-fetch", VerifiedOnly: true, MaxAttempts: 4, RetryMinutes: 15, TimeoutMinutes: 60},
 		Metadata: Metadata{TranslateGenres: true, CleanDescriptions: true},
 		Artwork: Artwork{
 			Embed:         true,

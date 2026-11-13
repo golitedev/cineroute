@@ -217,7 +217,7 @@ music:
     staging: "/staging" # separate from the library; same filesystem is faster
     data: "/data/music"
   naming:
-    folder: "{albumartist}/{title} ({year})"
+    folder: "{albumartist} — {title} ({year}) [WEB] [{format}] [{bit_depth}B-{sampling_rate}kHz]"
     track: "{tracknumber:02}. {title}"
     if_exists: "skip"
   download:
@@ -228,7 +228,7 @@ music:
     translate_genres: true
     clean_descriptions: true
   lyrics:
-    enabled: true # runs only for releases imported by CineRoute
+    enabled: false # opt in for releases imported by CineRoute
     verified_only: true # restrict sources to those validating returned artist/title
     synced_only: false
     require_album_match: false

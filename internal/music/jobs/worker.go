@@ -307,17 +307,17 @@ func (m *Manager) check(ctx context.Context, job Job, album qobuz.Album, expecte
 	return m.importAlbum(job, album, albumDir, vr)
 }
 
-// fixFLAC writes missing MD5 signatures and translates genres. Files it
+// fixFLAC translates genres after Streamrip has validated and tagged audio. Files it
 // can't process (e.g. they fail to decode) are returned as problems, which
 // fail the album after verification has listed everything else.
 func (m *Manager) fixFLAC(ctx context.Context, job Job, albumDir string) ([]ProblemItem, outcome, bool) {
-	if !m.cfg.Download.FixMD5 && m.genres == nil && !m.cfg.Metadata.CleanDescriptions {
+	if m.genres == nil {
 		return nil, outcome{}, true
 	}
 	m.update(job.ID, false, func(j *Job) { j.set(M("fixing_flac")) })
 	opts := flacfix.Options{
-		FixMD5:            m.cfg.Download.FixMD5,
-		CleanDescriptions: m.cfg.Metadata.CleanDescriptions,
+		FixMD5:            false,                      // Streamrip validates and fills missing signatures.
+		CleanDescriptions: false,                      // Streamrip writes plain-text descriptions.
 		Confirm:           !m.cfg.Download.VerifyFLAC, // otherwise verify runs flac -t next
 		FlacBin:           "flac",
 		MetaflacBin:       "metaflac",
@@ -385,11 +385,16 @@ func (m *Manager) importAlbum(job Job, album qobuz.Album, albumDir string, vr ve
 		j.TracksDone = j.TracksTotal
 		j.set(M("importing"))
 	})
-	rel, err := m.folderFor(album, library.Quality{Format: vr.Format, BitDepth: vr.BitDepth, SampleRate: vr.SampleRate})
+	rel, err := filepath.Rel(filepath.Join(m.downloadsDir(), job.ID), albumDir)
 	if err != nil {
 		return outcome{status: StatusFailed, msg: M("error_naming", "error", err.Error())}
 	}
 	lib := m.cfg.Paths.Library
+	// Check identity again immediately before import, including albums added
+	// by another downloader while this job was running.
+	if existing := m.albumIDPath(album.ID); existing != "" && m.cfg.Naming.IfExists == config.IfExistsSkip {
+		return outcome{status: StatusSkipped, msg: M("already_in_library"), rel: existing}
+	}
 	if library.Exists(lib, rel) {
 		if m.cfg.Naming.IfExists != config.IfExistsReplace {
 			return outcome{status: StatusSkipped, msg: M("already_in_library"), rel: rel}

@@ -8,6 +8,7 @@ import (
 
 	"cineroute/internal/music/library"
 	"cineroute/internal/music/qobuz"
+	"cineroute/internal/music/verify"
 )
 
 // Mark every parent containing a nonempty audio file, supporting folder
@@ -25,6 +26,11 @@ func (m *Manager) scanLibrary() map[string]bool {
 		info, err := os.Stat(path)
 		if err != nil || !info.Mode().IsRegular() || info.Size() <= 0 {
 			return nil
+		}
+		if strings.EqualFold(filepath.Ext(path), ".flac") {
+			if id := verify.AlbumID(path); id != "" {
+				out["qobuz:"+id] = true
+			}
 		}
 		for dir := filepath.Dir(path); dir != root && withinLibrary(root, dir); dir = filepath.Dir(dir) {
 			out[dir] = true
@@ -46,6 +52,9 @@ func (m *Manager) InLibrary(album qobuz.Album) bool {
 		return false
 	}
 	index := m.libraryCache.Get()
+	if index["qobuz:"+album.ID] {
+		return true
+	}
 	if rel, err := m.folderFor(album, library.Quality{}); err == nil && index[filepath.Join(m.cfg.Paths.Library, rel)] {
 		return true
 	}
@@ -64,3 +73,34 @@ func (m *Manager) InLibrary(album qobuz.Album) bool {
 // RefreshLibrary rebuilds discovery presence, for explicit library rescans.
 // Normal imports notify the background cache worker instead.
 func (m *Manager) RefreshLibrary() { m.libraryCache.Refresh() }
+
+// albumIDPath is intentionally uncached for admission/import decisions.
+// Embedded release IDs take precedence over names and quality labels.
+func (m *Manager) albumIDPath(id string) string {
+	if id == "" {
+		return ""
+	}
+	var found string
+	root := filepath.Clean(m.cfg.Paths.Library)
+	_ = filepath.WalkDir(root, func(path string, d fs.DirEntry, err error) error {
+		if err != nil {
+			return nil
+		}
+		if d.IsDir() && path != root && strings.HasPrefix(d.Name(), ".") {
+			return filepath.SkipDir
+		}
+		if d.IsDir() || d.Type()&os.ModeSymlink != 0 || !strings.EqualFold(filepath.Ext(path), ".flac") {
+			return nil
+		}
+		if verify.AlbumID(path) == id {
+			dir := filepath.Dir(path)
+			if strings.HasPrefix(strings.ToLower(filepath.Base(dir)), "disc ") {
+				dir = filepath.Dir(dir)
+			}
+			found, _ = filepath.Rel(root, dir)
+			return fs.SkipAll
+		}
+		return nil
+	})
+	return found
+}

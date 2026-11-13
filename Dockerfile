@@ -69,12 +69,12 @@ RUN --mount=type=cache,target=/lyrics/target \
     cargo build --release --locked && cp target/release/lrcscript-engine /usr/local/bin/lyrics-fetch
 
 # The music downloader is an in-process worker calling this bundled CLI.
-# Pin the same tested streamrip revision used by the original music engine.
+# Pin our tested fork with Qobuz metadata and FLAC integrity support.
 FROM --platform=$TARGETPLATFORM alpine:3.22 AS streamrip
-ARG STREAMRIP_REF=e3291615ba6be34aa76df19da8aeb6f41673c6a0
+ARG STREAMRIP_REF=cdd42f5bb6d559404eaa2e9bebdccbb718dd886a
 RUN apk add --no-cache python3 py3-pip git build-base python3-dev libffi-dev openssl-dev
 RUN python3 -m venv /opt/streamrip && /opt/streamrip/bin/pip install --no-cache-dir \
-    "streamrip @ git+https://github.com/nathom/streamrip.git@${STREAMRIP_REF}"
+    "streamrip @ git+https://github.com/golitedev/streamrip.git@${STREAMRIP_REF}"
 
 # One runtime container includes the movie/TV and music workers and their tools.
 FROM alpine:3.22
