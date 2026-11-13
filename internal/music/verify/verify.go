@@ -361,6 +361,10 @@ func readFLAC(ctx context.Context, out *File) error {
 		return err
 	}
 	defer f.Close()
+	stat, err := f.Stat()
+	if err != nil {
+		return err
+	}
 	magic := make([]byte, 4)
 	if _, err = io.ReadFull(f, magic); err != nil {
 		return err
@@ -412,7 +416,16 @@ func readFLAC(ctx context.Context, out *File) error {
 				return err
 			}
 		} else {
-			if _, err := io.CopyN(io.Discard, f, int64(n)); err != nil {
+			// Pictures can be several MB. Indexing release IDs must not read
+			// every embedded cover on each duplicate check.
+			offset, err := f.Seek(0, io.SeekCurrent)
+			if err != nil {
+				return err
+			}
+			if int64(n) > stat.Size()-offset {
+				return io.ErrUnexpectedEOF
+			}
+			if _, err := f.Seek(int64(n), io.SeekCurrent); err != nil {
 				return err
 			}
 		}
