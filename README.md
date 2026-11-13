@@ -804,7 +804,11 @@ staging outside the library so media servers never discover partial albums.
 
 The bundled streamrip CLI downloads complete Qobuz releases. Choosing a track
 requests its containing album, EP or single. CineRoute verifies completeness,
-FLAC decoding and MD5, translates genres, and imports only complete releases.
+FLAC decoding and MD5, translates genres, and imports verified tracks. After retries, releases with missing or rejected
+tracks are imported with ` - INCOMPLETE` appended to the album folder. Corrupt,
+truncated, preview and otherwise rejected tracks are removed before import;
+releases with no verified tracks are never imported. Missing tracks remain
+listed in the request history.
 The pinned Streamrip fork writes full Qobuz tags, plain-text descriptions, and
 missing audio MD5 signatures. Album names are created by Streamrip in staging
 and preserved on import. Embedded Qobuz album IDs are checked before folder

@@ -595,3 +595,34 @@ test('album button immediately shows pending and prevents repeated submissions',
     await expect(page.locator('.status-bar-container').getByText('30%', { exact: true })).toBeVisible();
     await expect(page.getByRole('progressbar', { name: 'Download progress' })).toBeInViewport();
 });
+
+test('incomplete imports show saved counts and missing tracks in history', async ({ page }) => {
+    await fixtures(page);
+    await page.route('**/api/music/jobs', (route) =>
+        route.fulfill({
+            json: {
+                success: true,
+                data: {
+                    jobs: [
+                        {
+                            ...albumJob,
+                            status: 'completed',
+                            tracks_done: 8,
+                            tracks_total: 10,
+                            message: 'Added INCOMPLETE album to your library: 8 of 10 tracks verified.',
+                            message_code: 'added_incomplete',
+                            message_args: { saved: 8, total: 10 },
+                            problems: ['Track 9 missing'],
+                            problem_items: [{ disc: 1, track: 9, title: 'Missing song', reason: 'missing', unavailable: true, text: 'Track 9 missing' }]
+                        }
+                    ]
+                }
+            }
+        })
+    );
+    await page.goto('/');
+    await page.getByRole('button', { name: 'Open my requests', exact: true }).click();
+    await expect(page.getByText('Added INCOMPLETE album to your library: 8 of 10 tracks verified.')).toBeVisible();
+    await page.locator('summary').filter({ hasText: 'Track problems' }).click();
+    await expect(page.getByText(/Missing song.*Qobuz does not offer/)).toBeVisible();
+});

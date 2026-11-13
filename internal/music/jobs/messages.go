@@ -50,6 +50,7 @@ var english = map[string]string{
 	"retry_wait":           "Attempt {attempt} failed, trying again in {seconds} s",
 	"checking":             "Checking {tracks} tracks",
 	"added":                "Added to your library",
+	"added_incomplete":     "Added INCOMPLETE album to your library: {saved} of {total} tracks verified.",
 	"incomplete":           "Not added to the library: {failed} of {total} tracks failed.",
 	"has_problems":         "Not added to the library: the download has problems.",
 	"no_tracks":            "Not added to the library: streamrip did not download any tracks.",

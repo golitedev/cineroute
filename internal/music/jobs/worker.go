@@ -54,11 +54,13 @@ type outcome struct {
 	msg      Msg
 	problems []ProblemItem
 	rel      string
+	tracks   int
 }
 
 func (m *Manager) process(root, ctx context.Context, job Job) {
 	log := m.log.With("job", job.ID, "album", job.AlbumID)
 	staging := filepath.Join(m.downloadsDir(), job.ID)
+	defer os.RemoveAll(staging + ".verified")
 
 	out := m.download(ctx, job, staging, log)
 
@@ -96,7 +98,7 @@ func (m *Manager) process(root, ctx context.Context, job Job) {
 		j.FinishedAt = ptr(time.Now())
 		if out.status == StatusCompleted {
 			j.LyricsRequested = m.cfg.Lyrics.Enabled && m.deps.EnqueueLyrics != nil
-			j.TracksDone = j.TracksTotal
+			j.TracksDone = out.tracks
 		}
 	})
 	// Enqueue after the completed-job receipt is durable, before history can be
@@ -191,11 +193,10 @@ func (m *Manager) download(ctx context.Context, job Job, staging string, log int
 		if res.Failure == streamrip.FailureAppID {
 			_ = streamrip.ForgetAppID(m.deps.Files)
 		}
-		if res.Failure.Fatal() {
+		last = m.check(ctx, job, album, expected, staging, res, attempt == maxAttempts || res.Failure.Fatal())
+		if res.Failure.Fatal() && last.status == StatusFailed {
 			return fail(failureMsg(res.Failure), ripErrors(res)...)
 		}
-
-		last = m.check(ctx, job, album, expected, staging, res)
 		if last.status != StatusFailed {
 			return last
 		}
@@ -254,12 +255,14 @@ func (m *Manager) rip(ctx context.Context, jobID string, album qobuz.Album, stag
 
 // check verifies what streamrip left in staging and, when everything is
 // there and intact, imports it into the library.
-func (m *Manager) check(ctx context.Context, job Job, album qobuz.Album, expected []verify.Track, staging string, res streamrip.Result) outcome {
+func (m *Manager) check(ctx context.Context, job Job, album qobuz.Album, expected []verify.Track, staging string, res streamrip.Result, finalAttempt bool) outcome {
 	failed := func(msg Msg, problems []ProblemItem) outcome {
 		return outcome{status: StatusFailed, msg: msg, problems: problems}
 	}
-	if res.TimedOut {
-		return failed(M("timeout", "minutes", m.cfg.Download.TimeoutMinutes), ripErrors(res))
+	if finalAttempt {
+		if err := restoreVerified(staging); err != nil {
+			return failed(M("error_verify", "error", err.Error()), nil)
+		}
 	}
 
 	m.update(job.ID, false, func(j *Job) {
@@ -282,7 +285,7 @@ func (m *Manager) check(ctx context.Context, job Job, album qobuz.Album, expecte
 	}
 
 	vr, err := m.deps.Verify(ctx, albumDir, expected, verify.Options{
-		FlacTest:   m.cfg.Download.VerifyFLAC,
+		FlacTest:   true, // Never import undecoded/corrupt audio.
 		FlacBinary: "flac",
 	})
 	if err != nil {
@@ -300,6 +303,12 @@ func (m *Manager) check(ctx context.Context, job Job, album qobuz.Album, expecte
 		}
 		if res.Failure == streamrip.FailureRateLimited {
 			msg = msg.With("rate_limited", true)
+		}
+		if finalAttempt || onlyUnavailable(problems) {
+			return m.importPartial(ctx, job, album, albumDir, expected, vr, problems, fixProblems)
+		}
+		if err := retainVerified(staging, vr, fixProblems); err != nil {
+			return failed(M("error_verify", "error", err.Error()), problems)
 		}
 		return failed(msg, problems)
 	}
@@ -382,12 +391,16 @@ func (m *Manager) appendLog(jobID string, lines ...string) {
 func (m *Manager) importAlbum(job Job, album qobuz.Album, albumDir string, vr verify.Result) outcome {
 	m.update(job.ID, true, func(j *Job) {
 		j.Status = StatusImporting
-		j.TracksDone = j.TracksTotal
+		j.TracksDone = len(vr.Files)
 		j.set(M("importing"))
 	})
 	rel, err := filepath.Rel(filepath.Join(m.downloadsDir(), job.ID), albumDir)
 	if err != nil {
 		return outcome{status: StatusFailed, msg: M("error_naming", "error", err.Error())}
+	}
+	incomplete := len(vr.Problems) > 0
+	if incomplete {
+		rel = strings.TrimSuffix(rel, " - INCOMPLETE") + " - INCOMPLETE"
 	}
 	lib := m.cfg.Paths.Library
 	// Check identity again immediately before import, including albums added
@@ -412,7 +425,10 @@ func (m *Manager) importAlbum(job Job, album qobuz.Album, albumDir string, vr ve
 	if vr.BitDepth > 0 && vr.SampleRate > 0 {
 		msg = M("added", "format", strings.ToUpper(vr.Format), "bits", vr.BitDepth, "khz", khz(vr.SampleRate))
 	}
-	return outcome{status: StatusCompleted, msg: msg, rel: rel}
+	if incomplete {
+		msg = M("added_incomplete", "saved", len(vr.Files), "total", len(album.Tracks))
+	}
+	return outcome{status: StatusCompleted, msg: msg, rel: rel, tracks: len(vr.Files)}
 }
 
 // --- helpers ----------------------------------------------------------------
@@ -508,4 +524,158 @@ func failedName(j Job) string {
 func khz(hz int) string {
 	s := fmt.Sprintf("%.1f", float64(hz)/1000)
 	return strings.TrimSuffix(s, ".0")
+}
+
+// importPartial never imports a rejected file. Re-verify the remaining files
+// with full decoding even if normal FLAC verification was disabled.
+func (m *Manager) importPartial(ctx context.Context, job Job, album qobuz.Album, dir string, expected []verify.Track, vr verify.Result, problems, fixProblems []ProblemItem) outcome {
+	failed := func(msg Msg) outcome { return outcome{status: StatusFailed, msg: msg, problems: problems} }
+	bad := map[string]bool{}
+	for _, p := range vr.Problems {
+		if p.Path != "" {
+			bad[p.Path] = true
+		}
+	}
+	for _, p := range fixProblems {
+		bad[filepath.Join(dir, p.Title)] = true
+	}
+	for path := range bad {
+		if !withinLibrary(dir, path) {
+			return failed(M("error_verify", "error", "rejected file is outside staging"))
+		}
+		if err := os.Remove(path); err != nil && !os.IsNotExist(err) {
+			return failed(M("error_verify", "error", err.Error()))
+		}
+	}
+	clean, err := m.deps.Verify(ctx, dir, expected, verify.Options{FlacTest: true, FlacBinary: "flac"})
+	if ctx.Err() != nil {
+		return outcome{status: StatusCancelled, msg: M("cancelled")}
+	}
+	if err != nil {
+		return failed(M("no_tracks"))
+	}
+	// Refuse files that fail the second check after staging cleanup.
+	var corrupt bool
+	for _, p := range clean.Problems {
+		if p.Path != "" {
+			corrupt = true
+			break
+		}
+	}
+	if corrupt {
+		for _, p := range clean.Problems {
+			if p.Path != "" {
+				if !withinLibrary(dir, p.Path) {
+					return failed(M("error_verify", "error", "rejected file is outside staging"))
+				}
+				if err := os.Remove(p.Path); err != nil && !os.IsNotExist(err) {
+					return failed(M("error_verify", "error", err.Error()))
+				}
+			}
+		}
+		problems = append(problems, describe(album, clean.Problems)...)
+		clean, err = m.deps.Verify(ctx, dir, expected, verify.Options{FlacTest: true, FlacBinary: "flac"})
+		if ctx.Err() != nil {
+			return outcome{status: StatusCancelled, msg: M("cancelled")}
+		}
+		if err != nil {
+			return failed(M("no_tracks"))
+		}
+	}
+	if len(clean.Files) == 0 {
+		return failed(M("no_tracks"))
+	}
+	for _, p := range clean.Problems {
+		if p.Reason != "missing" {
+			return failed(M("has_problems"))
+		}
+	}
+	out := m.importAlbum(job, album, dir, clean)
+	out.problems = problems
+	return out
+}
+
+// Preserve successfully verified tracks across album retries using same-disk
+// renames, not extra copies or a second download database.
+func retainVerified(staging string, vr verify.Result, fixes []ProblemItem) error {
+	bad := map[string]bool{}
+	for _, p := range vr.Problems {
+		if p.Path != "" {
+			bad[p.Path] = true
+		}
+	}
+	for _, p := range fixes {
+		bad[filepath.Join(vr.AlbumDir, p.Title)] = true
+	}
+	for _, f := range vr.Files {
+		if bad[f.Path] {
+			continue
+		}
+		rel, err := filepath.Rel(staging, f.Path)
+		if err != nil || !withinLibrary(staging, f.Path) {
+			return fmt.Errorf("invalid verified track path")
+		}
+		dst := filepath.Join(staging+".verified", rel)
+		if err = os.MkdirAll(filepath.Dir(dst), 0755); err != nil {
+			return err
+		}
+		if err = os.Rename(f.Path, dst); err != nil {
+			return err
+		}
+	}
+	// Keep the downloaded cover/booklet if a later attempt produces no files.
+	if _, err := os.Stat(staging + ".verified"); err == nil {
+		if err := filepath.WalkDir(vr.AlbumDir, func(path string, d os.DirEntry, err error) error {
+			if err != nil {
+				return err
+			}
+			if d.IsDir() {
+				return nil
+			}
+			ext := strings.ToLower(filepath.Ext(path))
+			if ext != ".jpg" && ext != ".jpeg" && ext != ".png" && ext != ".pdf" {
+				return nil
+			}
+			if d.Type()&os.ModeSymlink != 0 {
+				return nil
+			}
+			rel, err := filepath.Rel(staging, path)
+			if err != nil || !withinLibrary(staging, path) {
+				return fmt.Errorf("invalid artwork path")
+			}
+			dst := filepath.Join(staging+".verified", rel)
+			if err = os.MkdirAll(filepath.Dir(dst), 0755); err != nil {
+				return err
+			}
+			return os.Rename(path, dst)
+		}); err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
+func restoreVerified(staging string) error {
+	root := staging + ".verified"
+	if _, err := os.Stat(root); os.IsNotExist(err) {
+		return nil
+	}
+	return filepath.WalkDir(root, func(path string, d os.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		if d.IsDir() {
+			return nil
+		}
+		rel, err := filepath.Rel(root, path)
+		if err != nil || !withinLibrary(root, path) {
+			return fmt.Errorf("invalid retained track path")
+		}
+		dst := filepath.Join(staging, rel)
+		if err = os.MkdirAll(filepath.Dir(dst), 0755); err != nil {
+			return err
+		}
+		return os.Rename(path, dst)
+	})
 }

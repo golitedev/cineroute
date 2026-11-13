@@ -231,7 +231,11 @@ func (m *Manager) Enqueue(ctx context.Context, albumID, requestedBy string, limi
 	if err != nil {
 		return Job{}, err
 	}
-	if !album.Streamable {
+	available := album.Streamable
+	for _, track := range album.Tracks {
+		available = available || track.Streamable
+	}
+	if !available {
 		return Job{}, fmt.Errorf("%q is %w on Qobuz in your country", album.FullTitle(), ErrNotStreamable)
 	}
 
@@ -256,9 +260,7 @@ func (m *Manager) Enqueue(ctx context.Context, albumID, requestedBy string, limi
 	if m.cfg.Naming.IfExists == config.IfExistsSkip {
 		rel := m.albumIDPath(album.ID)
 		if rel == "" {
-			if candidate, err := m.folderFor(album, library.Quality{}); err == nil && library.Exists(m.cfg.Paths.Library, candidate) {
-				rel = candidate
-			}
+			rel = m.albumNamePath(album)
 		}
 		if rel != "" {
 			job.Status = StatusSkipped

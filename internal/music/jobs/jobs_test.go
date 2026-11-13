@@ -257,7 +257,7 @@ func TestCompleteAlbumIsImported(t *testing.T) {
 	}
 }
 
-func TestIncompleteAlbumIsNeverImported(t *testing.T) {
+func TestIncompleteAlbumIsImportedAfterRetries(t *testing.T) {
 	e := newEnv(t, fakeAlbums{"a1": testAlbum("a1", 3)}, func(ctx context.Context, o streamrip.RunOptions, _ int) (streamrip.Result, error) {
 		albumRip("a1", []int{1, 3}, 2, t)(ctx, o) // track 2 fails every time
 		return streamrip.Result{Errors: []string{"Persistent error downloading track 'Song 2', skipping: boom"}}, nil
@@ -265,17 +265,14 @@ func TestIncompleteAlbumIsNeverImported(t *testing.T) {
 	e.start()
 	job, _ := e.m.Enqueue(context.Background(), "a1", "")
 	j := e.wait(job.ID, StatusCompleted, StatusFailed)
-	if j.Status != StatusFailed {
-		t.Fatalf("status %s, want failed", j.Status)
+	if j.Status != StatusCompleted || !strings.HasSuffix(j.LibraryPath, " - INCOMPLETE") || j.TracksDone != 2 || j.TracksTotal != 3 {
+		t.Fatalf("partial job: %+v", j)
 	}
 	if got := e.attempts.Load(); got != 3 {
-		t.Fatalf("attempts = %d, want 3", got)
+		t.Fatalf("attempts %d", got)
 	}
-	if !strings.Contains(j.Message, "1 of 3 tracks failed") || !strings.Contains(j.Message, "Tried 3 times") {
-		t.Fatalf("message %q", j.Message)
-	}
-	if j.MessageCode != "incomplete" || j.MessageArgs["failed"] != 1 || j.MessageArgs["total"] != 3 || j.MessageArgs["tries"] != 3 {
-		t.Fatalf("message code %q args %v", j.MessageCode, j.MessageArgs)
+	if j.MessageCode != "added_incomplete" || j.MessageArgs["saved"] != 2 || j.MessageArgs["total"] != 3 {
+		t.Fatal(j.Message, j.MessageArgs)
 	}
 	var missing bool
 	for _, p := range j.ProblemItems {
@@ -289,8 +286,13 @@ func TestIncompleteAlbumIsNeverImported(t *testing.T) {
 	if len(j.Problems) == 0 || !strings.Contains(strings.Join(j.Problems, "\n"), "Song 2") {
 		t.Fatalf("problems should name the missing track: %v", j.Problems)
 	}
-	if entries, _ := os.ReadDir(e.cfg.Paths.Library); len(entries) != 0 {
-		t.Fatalf("library must stay untouched, has %v", entries)
+	for _, n := range []string{"01. Song 1.flac", "03. Song 3.flac"} {
+		if _, err := os.Stat(filepath.Join(e.cfg.Paths.Library, j.LibraryPath, n)); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if _, err := os.Stat(filepath.Join(e.cfg.Paths.Library, j.LibraryPath, "02. Song 2.flac")); !os.IsNotExist(err) {
+		t.Fatal("missing track imported")
 	}
 	if entries, _ := os.ReadDir(filepath.Join(e.cfg.Paths.Staging, "downloads")); len(entries) != 0 {
 		t.Fatalf("failed download not cleaned up: %v", entries)
@@ -346,7 +348,9 @@ func TestFatalErrorStopsWithoutRetry(t *testing.T) {
 
 func TestKeepFailed(t *testing.T) {
 	e := newEnv(t, fakeAlbums{"a1": testAlbum("a1", 2)}, func(ctx context.Context, o streamrip.RunOptions, _ int) (streamrip.Result, error) {
-		albumRip("a1", []int{1}, 2, t)(ctx, o)
+		// No downloaded audio: keep the diagnostic artifact.
+		os.MkdirAll(filepath.Join(o.Folder, "a1"), 0755)
+		os.WriteFile(filepath.Join(o.Folder, "a1", "error.txt"), []byte("failed"), 0644)
 		return streamrip.Result{}, nil
 	}, func(c *config.Config) { c.Download.Attempts = 1; c.Download.KeepFailed = true })
 	e.start()
@@ -495,6 +499,7 @@ func TestRestartRequeuesInterruptedJobs(t *testing.T) {
 func TestEnqueueErrors(t *testing.T) {
 	a := testAlbum("a2", 1)
 	a.Streamable = false
+	a.Tracks[0].Streamable = false
 	e := newEnv(t, fakeAlbums{"a2": a}, func(context.Context, streamrip.RunOptions, int) (streamrip.Result, error) {
 		return streamrip.Result{}, nil
 	})
@@ -898,5 +903,119 @@ func TestCachedAlbumIDDoesNotSkipDeletedFile(t *testing.T) {
 	os.RemoveAll(dir)
 	if e.m.albumIDPath("a1") != "" {
 		t.Fatal("deleted file treated as present")
+	}
+}
+
+func TestPartialImportRemovesInvalidTracks(t *testing.T) {
+	for _, kind := range []string{"one byte", "empty", "truncated", "preview", "temporary"} {
+		t.Run(kind, func(t *testing.T) {
+			a := testAlbum("partial", 3)
+			if kind == "preview" {
+				a.Tracks[1].DurationSec = 200
+			}
+			e := newEnv(t, fakeAlbums{"partial": a}, func(ctx context.Context, o streamrip.RunOptions, _ int) (streamrip.Result, error) {
+				albumRip("partial", []int{1, 2, 3}, 2, t)(ctx, o)
+				path := filepath.Join(o.Folder, "partial", "02. Song 2.flac")
+				switch kind {
+				case "one byte":
+					os.WriteFile(path, []byte{1}, 0644)
+				case "empty":
+					os.WriteFile(path, nil, 0644)
+				case "truncated":
+					b, _ := os.ReadFile(path)
+					os.WriteFile(path, b[:len(b)-8], 0644)
+				case "preview":
+					makeFLAC(t, filepath.Dir(path), 2, 30)
+				case "temporary":
+					os.Remove(path)
+					os.WriteFile(path+".part", []byte{1}, 0644)
+				}
+				return streamrip.Result{ExitCode: 1}, nil
+			}, func(c *config.Config) { c.Download.Attempts = 1 })
+			e.start()
+			j, err := e.m.Enqueue(context.Background(), "partial", "")
+			if err != nil {
+				t.Fatal(err)
+			}
+			done := e.wait(j.ID, StatusCompleted, StatusFailed)
+			if done.Status != StatusCompleted || done.TracksDone != 2 || done.TracksTotal != 3 || !strings.HasSuffix(done.LibraryPath, " - INCOMPLETE") {
+				t.Fatalf("%+v", done)
+			}
+			dir := filepath.Join(e.cfg.Paths.Library, done.LibraryPath)
+			entries, _ := os.ReadDir(dir)
+			for _, f := range entries {
+				if strings.Contains(f.Name(), "Song 2") {
+					t.Fatal("rejected file imported", f.Name())
+				}
+			}
+			for _, n := range []int{1, 3} {
+				p := filepath.Join(dir, fmt.Sprintf("%02d. Song %d.flac", n, n))
+				if out, err := exec.Command("flac", "-t", "-s", p).CombinedOutput(); err != nil {
+					t.Fatalf("%v %s", err, out)
+				}
+			}
+		})
+	}
+}
+
+func TestUnavailableTracksImportOnce(t *testing.T) {
+	a := testAlbum("partial", 3)
+	a.Streamable = false
+	a.Tracks[1].Streamable = false
+	e := newEnv(t, fakeAlbums{"partial": a}, func(ctx context.Context, o streamrip.RunOptions, _ int) (streamrip.Result, error) {
+		albumRip("partial", []int{1, 3}, 2, t)(ctx, o)
+		return streamrip.Result{}, nil
+	}, func(c *config.Config) { c.Download.Attempts = 3 })
+	e.start()
+	j, err := e.m.Enqueue(context.Background(), "partial", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	done := e.wait(j.ID, StatusCompleted, StatusFailed)
+	if done.Status != StatusCompleted || done.TracksDone != 2 || e.attempts.Load() != 1 || !strings.HasSuffix(done.LibraryPath, " - INCOMPLETE") {
+		t.Fatalf("%+v", done)
+	}
+	if len(done.ProblemItems) != 1 || !done.ProblemItems[0].Unavailable {
+		t.Fatal(done.ProblemItems)
+	}
+}
+
+func TestFailedSingleNeverImports(t *testing.T) {
+	e := newEnv(t, fakeAlbums{"single": testAlbum("single", 1)}, func(_ context.Context, o streamrip.RunOptions, _ int) (streamrip.Result, error) {
+		dir := filepath.Join(o.Folder, "single")
+		os.MkdirAll(dir, 0755)
+		os.WriteFile(filepath.Join(dir, "01. Song 1.flac"), []byte{1}, 0644)
+		return streamrip.Result{}, nil
+	}, func(c *config.Config) { c.Download.Attempts = 1 })
+	e.start()
+	j, err := e.m.Enqueue(context.Background(), "single", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	done := e.wait(j.ID, StatusFailed, StatusCompleted)
+	if done.Status != StatusFailed || done.LibraryPath != "" {
+		t.Fatal(done)
+	}
+	entries, _ := os.ReadDir(e.cfg.Paths.Library)
+	if len(entries) != 0 {
+		t.Fatal("empty release imported", entries)
+	}
+}
+
+func TestVerifiedTracksSurviveLaterFailedAttempt(t *testing.T) {
+	e := newEnv(t, fakeAlbums{"a1": testAlbum("a1", 3)}, func(ctx context.Context, o streamrip.RunOptions, attempt int) (streamrip.Result, error) {
+		if attempt == 1 {
+			albumRip("a1", []int{1, 3}, 2, t)(ctx, o)
+		}
+		return streamrip.Result{ExitCode: 1}, nil
+	}, func(c *config.Config) { c.Download.Attempts = 2 })
+	e.start()
+	j, err := e.m.Enqueue(context.Background(), "a1", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	done := e.wait(j.ID, StatusCompleted, StatusFailed)
+	if done.Status != StatusCompleted || done.TracksDone != 2 || !strings.HasSuffix(done.LibraryPath, " - INCOMPLETE") {
+		t.Fatalf("%+v", done)
 	}
 }

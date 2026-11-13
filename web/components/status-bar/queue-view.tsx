@@ -84,23 +84,26 @@ export default function QueueView() {
                     {job.message && <p className='text-sm break-words text-muted-foreground'>{formatJobMessage(job, t)}</p>}
                     {music && job.lyrics && (
                         <p className='text-xs text-muted-foreground'>
-                            {t(`lyrics.${job.lyrics.status}`)} · {t('lyrics.counts', { saved: job.lyrics.saved, missing: job.lyrics.missing, deferred: job.lyrics.deferred + job.lyrics.errors })}
+                            {t(`lyrics.${job.lyrics.status}`)} ·{' '}
+                            {t('lyrics.counts', { saved: job.lyrics.saved, missing: job.lyrics.missing, deferred: job.lyrics.deferred + job.lyrics.errors })}
                         </p>
                     )}
-                    {music && job.status === 'failed'  && (job.problem_items?.length || job.problems?.length) > 0 && (
-                        <details className='text-sm'>
-                            <summary className='cursor-pointer text-destructive'>
-                                {t('problems', { count: job.problem_items?.length || job.problems.length })}
-                            </summary>
-                            <ul className='list-disc pl-5 space-y-1'>
-                                {(job.problem_items?.length ? job.problem_items.map((item) => formatProblem(item, t)) : job.problems).map((problem, i) => (
-                                    <li key={i} className='break-words'>
-                                        {problem}
-                                    </li>
-                                ))}
-                            </ul>
-                        </details>
-                    )}
+                    {music &&
+                        (job.status === 'failed' || job.message_code === 'added_incomplete') &&
+                        (job.problem_items?.length || job.problems?.length) > 0 && (
+                            <details className='text-sm'>
+                                <summary className='cursor-pointer text-destructive'>
+                                    {t('problems', { count: job.problem_items?.length || job.problems.length })}
+                                </summary>
+                                <ul className='list-disc pl-5 space-y-1'>
+                                    {(job.problem_items?.length ? job.problem_items.map((item) => formatProblem(item, t)) : job.problems).map((problem, i) => (
+                                        <li key={i} className='break-words'>
+                                            {problem}
+                                        </li>
+                                    ))}
+                                </ul>
+                            </details>
+                        )}
                     {music && !isPending(job) && (
                         <div className='flex gap-2'>
                             {job.lyrics?.status === 'partial' && (

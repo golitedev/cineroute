@@ -70,7 +70,7 @@ func (m *Manager) InLibrary(album qobuz.Album) bool {
 	if m.albumIDPath(album.ID) != "" {
 		return true
 	}
-	if rel, err := m.folderFor(album, library.Quality{}); err == nil && index.paths[filepath.Join(m.cfg.Paths.Library, rel)] {
+	if rel, err := m.folderFor(album, library.Quality{}); err == nil && (index.paths[filepath.Join(m.cfg.Paths.Library, rel)] || index.paths[filepath.Join(m.cfg.Paths.Library, rel+" - INCOMPLETE")]) {
 		return true
 	}
 	m.mu.Lock()
@@ -113,8 +113,13 @@ func (m *Manager) albumIDPath(id string) string {
 }
 
 func (m *Manager) albumNamePath(album qobuz.Album) string {
-	if rel, err := m.folderFor(album, library.Quality{}); err == nil && library.Exists(m.cfg.Paths.Library, rel) {
-		return rel
+	if rel, err := m.folderFor(album, library.Quality{}); err == nil {
+		if library.Exists(m.cfg.Paths.Library, rel) {
+			return rel
+		}
+		if library.Exists(m.cfg.Paths.Library, rel+" - INCOMPLETE") {
+			return rel + " - INCOMPLETE"
+		}
 	}
 	return ""
 }

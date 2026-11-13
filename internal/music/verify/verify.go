@@ -330,6 +330,8 @@ func Album(ctx context.Context, root string, expected []Track, opts Options) (Re
 				p.Disc, p.Number, p.Title = a.Disc, a.Number, a.Title
 				r.Problems = append(r.Problems, p)
 			}
+		} else {
+			return r, fmt.Errorf("FLAC verification requires %q: %w", bin, e)
 		}
 	}
 	if err := ctx.Err(); err != nil {

@@ -74,7 +74,7 @@ func TestAlbum(t *testing.T) {
 		{name: "unexpected", files: map[string][]byte{"01. Song.flac": minimalFLAC(100), "02 - Extra.mp3": {1}}, tracks: one, want: []string{"unexpected file"}},
 		{name: "unparseable name", files: map[string][]byte{"unknown.mp3": {1}}, tracks: one, want: []string{"unexpected file", "missing"}},
 		{name: "ignored", files: map[string][]byte{"01. Song.mp3": {1}, "cover.jpg": {}, "booklet.pdf": {}, "info.txt": {}, "a.cue": {}, "a.log": {}, "a.m3u": {}, ".secret.flac": {}, ".hidden/extra.mp3": {1}}, tracks: one},
-		{name: "missing binary skipped", files: map[string][]byte{"01. Song.flac": minimalFLAC(100)}, tracks: one, opts: Options{FlacTest: true, FlacBinary: "cineroute-nonexistent-flac-binary"}},
+		{name: "missing binary rejected", files: map[string][]byte{"01. Song.flac": minimalFLAC(100)}, tracks: one, opts: Options{FlacTest: true, FlacBinary: "cineroute-nonexistent-flac-binary"}},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -83,6 +83,12 @@ func TestAlbum(t *testing.T) {
 				put(t, root, name, data)
 			}
 			r, err := Album(context.Background(), root, tc.tracks, tc.opts)
+			if tc.name == "missing binary rejected" {
+				if err == nil {
+					t.Fatal("missing decoder accepted")
+				}
+				return
+			}
 			if err != nil {
 				t.Fatal(err)
 			}

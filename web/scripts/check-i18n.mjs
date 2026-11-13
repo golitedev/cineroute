@@ -17,12 +17,12 @@ const { translator } = require('../lib/i18n/core.ts');
 const { ApiError, formatApiError, formatAccountError, formatJobMessage, formatProblem } = require('../lib/cineroute-api.ts');
 const placeholders = (value) => [...value.matchAll(/\{(\w+)\}/g)].map((match) => match[1]).sort();
 const codes =
-    'queued starting downloading fixing_flac importing cancelled cancelling already_in_library interrupted_restart interrupted_shutdown retry_wait checking added incomplete has_problems no_tracks timeout failure_auth failure_ineligible failure_app_id failure_rate_limited failure_disk_full failure_missing_credentials failure_crash error_album error_staging error_streamrip error_verify error_fix error_naming error_move_aside error_import'.split(
+    'queued starting downloading fixing_flac importing cancelled cancelling already_in_library interrupted_restart interrupted_shutdown retry_wait checking added added_incomplete incomplete has_problems no_tracks timeout failure_auth failure_ineligible failure_app_id failure_rate_limited failure_disk_full failure_missing_credentials failure_crash error_album error_staging error_streamrip error_verify error_fix error_naming error_move_aside error_import'.split(
         ' '
     );
 const reasons =
     'missing too_short too_long preview_sample decode_failed empty_file unreadable unexpected_file duplicate partial_file file_error streamrip more'.split(' ');
-const args = { attempt: 2, seconds: 3, tracks: 1, format: 'FLAC', bits: 24, khz: 96, failed: 2, total: 10, minutes: 20, error: 'RAW ERROR' };
+const args = { saved: 2, attempt: 2, seconds: 3, tracks: 1, format: 'FLAC', bits: 24, khz: 96, failed: 2, total: 10, minutes: 20, error: 'RAW ERROR' };
 for (const [language, dictionary] of Object.entries({ en, es, sv })) {
     assert.deepEqual(Object.keys(dictionary).sort(), Object.keys(en).sort());
     for (const key of Object.keys(en)) {
