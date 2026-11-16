@@ -22,6 +22,7 @@ type Candidate struct {
 	Release             prowlarr.Release
 	Quality             string
 	Rank                int
+	CodecRank           int
 	Score               int
 	Priority            int
 	Pack                bool
@@ -167,6 +168,7 @@ func languageAllowed(title, original string, p Profile) bool {
 func Evaluate(r prowlarr.Release, media tmdb.Details, p Profile, minSeeders int, priority int) (Candidate, error) {
 	c := Candidate{Release: r, Quality: Quality(r.Title), Priority: priority}
 	c.Rank = slices.Index(p.Qualities, c.Quality)
+	c.CodecRank = slices.Index(p.Codecs, Codec(r.Title))
 	c.Pack = media.MediaType == "tv" && len(EpisodeKeys(r.Title)) == 0
 	if r.TmdbID > 0 && r.TmdbID != media.ID {
 		return c, fmt.Errorf("different TMDB ID")
@@ -177,7 +179,7 @@ func Evaluate(r prowlarr.Release, media tmdb.Details, p Profile, minSeeders int,
 	if c.Rank < 0 {
 		return c, fmt.Errorf("quality is not allowed or could not be identified")
 	}
-	if !slices.Contains(p.Codecs, Codec(r.Title)) {
+	if c.CodecRank < 0 {
 		return c, fmt.Errorf("codec is not allowed or unknown")
 	}
 	if minSeeders > 0 && (r.Seeders == nil || *r.Seeders < minSeeders) {
@@ -263,6 +265,8 @@ func rankingValue(c Candidate, criterion string, preferPacks bool) int64 {
 	switch criterion {
 	case "quality":
 		return -int64(c.Rank)
+	case "codec":
+		return -int64(c.CodecRank)
 	case "language":
 		return int64(c.LanguageScore)
 	case "text_subtitles":

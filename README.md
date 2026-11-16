@@ -288,6 +288,11 @@ image-based subtitles (PGS/DVD) and audio/voice-activity reference mode.
 
 ## Accounts and user requests
 
+Movie and TV profiles each rank video codecs, most preferred first. Codecs outside
+the list are rejected. **Codec rank** participates in the configurable release
+selection order, immediately after quality by default. Reordering codecs affects
+new release selection; it does not trigger upgrades of existing copies.
+
 The movie and TV request dialog includes **Spanish audio**. These requests use
 the same trackers, priorities, and release ranking configured for normal requests,
 while requiring confirmed Spanish audio.

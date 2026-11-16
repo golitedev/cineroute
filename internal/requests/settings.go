@@ -31,6 +31,7 @@ var CodecOptions = []Option{{"h264", "H.264 / x264"}, {"hevc", "HEVC / x265"}, {
 // user and both movie and TV requests.
 var SelectionOptions = []Option{
 	{"quality", "Quality rank"},
+	{"codec", "Codec rank"},
 	{"language", "Language matches"},
 	{"text_subtitles", "Text subtitle format"},
 	{"keywords", "Keyword score"},
@@ -49,14 +50,11 @@ func DefaultSelectionOrder() []string {
 	return out
 }
 
-// NormalizeSelectionOrder upgrades complete legacy orders while preserving
-// their priorities. New bitrate ranking precedes the old seeders fallback.
+// NormalizeSelectionOrder adds new criteria to complete legacy orders while
+// preserving the relative order of the administrator's existing priorities.
 func NormalizeSelectionOrder(order []string) []string {
 	if len(order) == 0 {
 		return DefaultSelectionOrder()
-	}
-	if len(order) != len(SelectionOptions)-1 || slices.Contains(order, "video_bitrate") {
-		return order
 	}
 	seen := map[string]bool{}
 	for _, criterion := range order {
@@ -65,12 +63,20 @@ func NormalizeSelectionOrder(order []string) []string {
 		}
 		seen[criterion] = true
 	}
-	out := make([]string, 0, len(order)+1)
+	for _, option := range SelectionOptions {
+		if !seen[option.ID] && option.ID != "codec" && option.ID != "video_bitrate" {
+			return order
+		}
+	}
+	out := make([]string, 0, len(SelectionOptions))
 	for _, criterion := range order {
-		if criterion == "seeders" {
+		if criterion == "seeders" && !seen["video_bitrate"] {
 			out = append(out, "video_bitrate")
 		}
 		out = append(out, criterion)
+		if criterion == "quality" && !seen["codec"] {
+			out = append(out, "codec")
+		}
 	}
 	return out
 }
@@ -106,7 +112,7 @@ type Profile struct {
 	Destination                string    `json:"destination"`
 	NewTitleDrive              string    `json:"new_title_drive"` // empty means most free space
 	Qualities                  []string  `json:"qualities"`       // most preferred first
-	Codecs                     []string  `json:"codecs"`
+	Codecs                     []string  `json:"codecs"`          // most preferred first; other codecs are rejected
 	AudioLanguages             []string  `json:"audio_languages"` // empty means any language
 	PreferredAudioLanguages    []string  `json:"preferred_audio_languages"`
 	PreferredSubtitleLanguages []string  `json:"preferred_subtitle_languages"`

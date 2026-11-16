@@ -660,7 +660,7 @@ func (e *Engine) process(ctx context.Context, job *Job, settings Settings, downl
 		if e.LibraryChanged != nil {
 			e.LibraryChanged()
 		}
-		slog.Info("request release selected", "request_id", job.ID, "indexer_id", candidate.Release.IndexerID, "priority", candidate.Priority, "quality", candidate.Quality, "language_score", candidate.LanguageScore, "text_subtitle_score", candidate.SubtitleFormatScore, "keyword_score", candidate.Score, "video_bitrate_bps", candidate.Release.Languages.VideoBitrateBPS, "video_bitrate_rank", candidate.videoBitrateRank, "season_pack", candidate.Pack)
+		slog.Info("request release selected", "request_id", job.ID, "indexer_id", candidate.Release.IndexerID, "priority", candidate.Priority, "quality", candidate.Quality, "codec", Codec(candidate.Release.Title), "codec_rank", candidate.CodecRank, "language_score", candidate.LanguageScore, "text_subtitle_score", candidate.SubtitleFormatScore, "keyword_score", candidate.Score, "video_bitrate_bps", candidate.Release.Languages.VideoBitrateBPS, "video_bitrate_rank", candidate.videoBitrateRank, "season_pack", candidate.Pack)
 		*downloads = append(*downloads, download)
 		job.Status = "downloading"
 		job.Message = "Download started"

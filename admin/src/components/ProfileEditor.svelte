@@ -3,6 +3,9 @@
 	import type { Profile, SettingsView } from '../lib/types';
 	let { profile = $bindable(), kind, data }: { profile: Profile; kind: 'movie' | 'tv'; data: SettingsView } = $props();
 	let addQuality = $state('');
+	let addCodec = $state('');
+	const availableCodecs = $derived((data.codecs || []).filter((c) => !profile.codecs.includes(c.id)));
+	const codecLabel = (id: string) => data.codecs.find((c) => c.id === id)?.label || id;
 	const eligible = $derived((data.drives || []).filter((d) => root(d)));
 	const available = $derived((data.qualities || []).filter((q) => !profile.qualities.includes(q.id)));
 	function root(d: SettingsView['drives'][number]) {
@@ -123,11 +126,40 @@
 			>{/if}
 	</div>
 	<fieldset>
-		<legend>Allowed video codecs</legend>
-		<div class="checkbox-options">
-			{#each data.codecs || [] as option}<label class="check"
-					><input type="checkbox" value={option.id} bind:group={profile.codecs} />{option.label}</label
-				>{/each}
+		<legend>Video codec ranking</legend>
+		<p class="muted">
+			Most preferred first. Codecs outside this list are rejected. Set Codec rank's priority in General → Release ranking.
+		</p>
+		<div class="ordered-list">
+			{#each profile.codecs as id, index}<div>
+					<span class="muted">{index + 1}</span><strong>{codecLabel(id)}</strong>
+					<button
+						type="button"
+						aria-label={`Move ${codecLabel(id)} up`}
+						disabled={index === 0}
+						onclick={() => move(profile.codecs, index, -1)}>↑</button
+					>
+					<button
+						type="button"
+						aria-label={`Move ${codecLabel(id)} down`}
+						disabled={index === profile.codecs.length - 1}
+						onclick={() => move(profile.codecs, index, 1)}>↓</button
+					>
+					<button type="button" disabled={profile.codecs.length === 1} onclick={() => profile.codecs.splice(index, 1)}>Remove</button>
+				</div>{/each}
+		</div>
+		<div class="search-row">
+			<select aria-label="Codec to add" bind:value={addCodec}>
+				<option value="">Choose a codec</option>{#each availableCodecs as option}<option value={option.id}>{option.label}</option>{/each}
+			</select>
+			<button
+				type="button"
+				disabled={!addCodec || !availableCodecs.some((c) => c.id === addCodec)}
+				onclick={() => {
+					profile.codecs.push(addCodec);
+					addCodec = '';
+				}}>Add codec</button
+			>
 		</div>
 	</fieldset>
 	<div class="form-grid">

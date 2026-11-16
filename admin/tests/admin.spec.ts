@@ -329,3 +329,25 @@ test('content fills an ultrawide workspace and services live beneath the sidebar
 	expect(detailsBounds!.x + detailsBounds!.width).toBeLessThan(272);
 	await expect.poll(() => page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBeTruthy();
 });
+
+test('movie and TV codec preferences can be ranked independently and saved', async ({ page, requests }) => {
+	await page.goto('http://admin.test/');
+	await navigate(page, 'Request settings');
+	await page.locator('.tabs').getByRole('button', { name: 'Movies', exact: true }).click();
+	await page.getByRole('button', { name: 'Move HEVC / x265 up', exact: true }).click();
+	const codecs = page.getByRole('group', { name: 'Video codec ranking' });
+	await expect(codecs.locator('.ordered-list strong')).toHaveText(['HEVC / x265', 'H.264 / x264']);
+	await page.locator('.tabs').getByRole('button', { name: 'TV', exact: true }).click();
+	await expect(codecs.locator('.ordered-list strong')).toHaveText(['H.264 / x264', 'HEVC / x265']);
+	await codecs.getByRole('button', { name: 'Remove', exact: true }).last().click();
+	await expect(codecs.getByRole('button', { name: 'Remove', exact: true })).toBeDisabled();
+	await codecs.getByLabel('Codec to add').selectOption('hevc');
+	await codecs.getByRole('button', { name: 'Add codec', exact: true }).click();
+	await page.getByRole('button', { name: 'Save settings', exact: true }).click();
+	await expect(page.getByText('Request settings saved.', { exact: true })).toBeVisible();
+	const body = requests.findLast((r) => r.path === '/requests/settings' && r.method === 'PUT')!.body as typeof settingsView.settings;
+	expect(body.movie.codecs).toEqual(['hevc', 'h264']);
+	expect(body.tv.codecs).toEqual(['h264', 'hevc']);
+	await page.locator('.tabs').getByRole('button', { name: 'Movies', exact: true }).click();
+	await expect(codecs.locator('.ordered-list strong')).toHaveText(['HEVC / x265', 'H.264 / x264']);
+});

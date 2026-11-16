@@ -40,7 +40,7 @@ export const settings = {
 	movie_auto_subtitles: false,
 	include_specials: false,
 	prefer_season_packs: true,
-	selection_order: ['quality', 'language', 'text_subtitles', 'keywords', 'pack', 'priority', 'video_bitrate', 'seeders'],
+	selection_order: ['quality', 'codec', 'language', 'text_subtitles', 'keywords', 'pack', 'priority', 'video_bitrate', 'seeders'],
 	trackers: [],
 	movie: profile(),
 	tv: profile(),
@@ -66,6 +66,7 @@ export const settingsView = {
 		id,
 		label: [
 			'Quality rank',
+			'Codec rank',
 			'Language matches',
 			'Text subtitle format',
 			'Keyword score',

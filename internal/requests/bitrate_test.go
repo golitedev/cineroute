@@ -118,7 +118,7 @@ func TestLegacySelectionOrderUpgradesAndPersistsCustomPriorities(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := []string{"language", "quality", "text_subtitles", "keywords", "pack", "priority", "video_bitrate", "seeders"}
+	want := []string{"language", "quality", "codec", "text_subtitles", "keywords", "pack", "priority", "video_bitrate", "seeders"}
 	if !slices.Equal(got.SelectionOrder, want) {
 		t.Fatalf("wrong migrated order: %v", got.SelectionOrder)
 	}
