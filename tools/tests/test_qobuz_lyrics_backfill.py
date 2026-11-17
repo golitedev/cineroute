@@ -58,7 +58,7 @@ class BackfillTests(unittest.TestCase):
             backfill.backfill(self.root, self.client, interval=0, **kwargs)
         )
 
-    def test_lrc_and_plain_fallback_leave_audio_identical(self):
+    def test_only_timed_lyrics_get_sidecars_and_audio_is_identical(self):
         first = self.audio("01.flac")
         second = self.audio("02.flac", "456")
         before = {p: self.signature(p) for p in [first, second]}
@@ -68,17 +68,22 @@ class BackfillTests(unittest.TestCase):
         ]
         counts = self.run_backfill()
         self.assertEqual(counts["written_lrc"], 1)
-        self.assertEqual(counts["written_txt"], 1)
+        self.assertEqual(counts["no_timestamps"], 1)
+        self.assertEqual(counts["written_txt"], 0)
         self.assertEqual(first.with_suffix(".lrc").read_text(), "[00:00.00]Hola\n")
-        self.assertEqual(second.with_suffix(".txt").read_text(), "Plain lyrics\n")
+        self.assertFalse(second.with_suffix(".txt").exists())
+        self.assertFalse(second.with_suffix(".lrc").exists())
         self.assertEqual(before, {p: self.signature(p) for p in before})
         self.assertEqual(
             {p.name for p in self.root.iterdir()},
-            {"01.flac", "02.flac", "01.lrc", "02.txt"},
+            {"01.flac", "02.flac", "01.lrc"},
         )
+        self.client.get_lyrics.side_effect = None
+        self.client.get_lyrics.return_value = Lyrics("Plain lyrics")
         counts = self.run_backfill()
-        self.assertEqual(counts["existing_sidecar"], 2)
-        self.assertEqual(self.client.get_lyrics.await_count, 2)
+        self.assertEqual(counts["existing_sidecar"], 1)
+        self.assertEqual(counts["no_timestamps"], 1)
+        self.assertEqual(self.client.get_lyrics.await_count, 3)
 
     def test_dry_run_writes_nothing_and_preserves_audio(self):
         path = self.audio("01.flac")
@@ -88,7 +93,15 @@ class BackfillTests(unittest.TestCase):
         self.assertEqual(before, self.signature(path))
         self.assertEqual(list(self.root.iterdir()), [path])
 
-    def test_existing_formats_case_variants_and_symlinks_are_preserved(self):
+    def test_dry_run_skips_plain_lyrics_without_promising_a_sidecar(self):
+        path = self.audio("01.flac")
+        self.client.get_lyrics.return_value = Lyrics("Plain lyrics")
+        counts = self.run_backfill(dry_run=True)
+        self.assertEqual(counts["no_timestamps"], 1)
+        self.assertEqual(counts["would_write_lrc"], 0)
+        self.assertEqual(list(self.root.iterdir()), [path])
+
+    def test_only_lrc_blocks_new_output_and_existing_files_are_preserved(self):
         for stem, suffix in [("01", ".txt"), ("02", ".LRC"), ("03", ".lrc")]:
             self.audio(stem + ".flac")
             sidecar = self.root / (stem + suffix)
@@ -97,8 +110,10 @@ class BackfillTests(unittest.TestCase):
             else:
                 sidecar.write_text("Existing lyrics")
         counts = self.run_backfill()
-        self.assertEqual(counts["existing_sidecar"], 3)
-        self.client.get_lyrics.assert_not_awaited()
+        self.assertEqual(counts["existing_sidecar"], 2)
+        self.assertEqual(counts["written_lrc"], 1)
+        self.client.get_lyrics.assert_awaited_once()
+        self.assertTrue((self.root / "01.lrc").exists())
         self.assertEqual((self.root / "01.txt").read_text(), "Existing lyrics")
         self.assertTrue((self.root / "03.lrc").is_symlink())
 

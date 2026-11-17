@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""One-time Qobuz sidecar backfill. Never saves audio tags or downloader config."""
+"""One-time Qobuz LRC-only backfill. Never saves audio tags or downloader config."""
 
 # Per-file failures must not stop the batch or expose credential-bearing errors.
 # ruff: noqa: BLE001
@@ -63,13 +63,9 @@ def track_id(path):
 
 
 def has_sidecar(path):
-    # Preserve either format, including symlinks and case variants, rather than
-    # adding a second lyrics file or overwriting somebody else's lyrics.
-    targets = {
-        path.with_suffix(".lrc").name.casefold(),
-        path.with_suffix(".txt").name.casefold(),
-    }
-    return any(name.casefold() in targets for name in os.listdir(path.parent))
+    # Preserve existing LRC files, including case variants and symlinks.
+    target = path.with_suffix(".lrc").name.casefold()
+    return any(name.casefold() == target for name in os.listdir(path.parent))
 
 
 async def fetch(client, identifier):
@@ -120,13 +116,16 @@ async def backfill(root, client, *, dry_run=False, limit=0, interval=1.0):
                 if not lyrics:
                     counts["unavailable"] += 1
                     print(f"NO LYRICS id={identifier}: {path}", flush=True)
+                elif not lyrics.synced:
+                    counts["no_timestamps"] += 1
+                    print(f"SKIP no timestamps id={identifier}: {path}", flush=True)
                 elif dry_run:
-                    kind = "lrc" if lyrics.synced else "txt"
-                    counts["would_write_" + kind] += 1
-                    print(f"WOULD WRITE {path.with_suffix('.' + kind)}", flush=True)
+                    counts["would_write_lrc"] += 1
+                    print(f"WOULD WRITE {path.with_suffix('.lrc')}", flush=True)
                 elif has_sidecar(path):
                     counts["existing_sidecar"] += 1
                 else:
+                    # Only timestamped lyrics reach this call, so it writes LRC only.
                     # Streamrip publishes UTF-8 sidecars atomically, never overwriting.
                     target = write_sidecar(
                         str(path), lyrics, prefer_synced=True, overwrite=False
@@ -207,7 +206,7 @@ async def run(args):
     try:
         await client.login()
         print(
-            f"Library: {args.root}; dry_run={args.dry_run}; existing sidecars are always skipped",
+            f"Library: {args.root}; dry_run={args.dry_run}; existing LRC sidecars are always skipped",
             flush=True,
         )
         counts = await backfill(
