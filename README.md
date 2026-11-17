@@ -237,6 +237,13 @@ and builds `linux/amd64` + `linux/arm64` images to
 extra secrets are needed — it uses the built-in `GITHUB_TOKEN`. Pull requests
 get a build-only check without pushing.
 
+The bundled Streamrip is installed from the latest `dev` branch of
+`golitedev/streamrip` at image build time. CI bypasses the cache for the
+`streamrip` stage so each new image fetches the current branch. For a local
+Buildx build, use `docker buildx build --no-cache-filter streamrip ...` to refresh
+that stage. Updating Streamrip requires rebuilding and pulling the CineRoute
+image; a running container does not update its bundled downloader automatically.
+
 ## qBittorrent requirements
 
 CineRoute refuses to submit unless:

@@ -58,5 +58,7 @@ jobs:
           push: true
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
+          # Refresh the moving Streamrip dev branch on every image build.
+          no-cache-filters: streamrip
           cache-from: type=gha,scope=cineroute
           cache-to: type=gha,mode=max,scope=cineroute
