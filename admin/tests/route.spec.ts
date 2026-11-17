@@ -143,3 +143,35 @@ test('destination edits ignore an older background refresh with an intermediate 
 	await expect(card).toHaveAttribute('aria-busy', 'false');
 	await expect(card.getByRole('button', { name: 'Remote', exact: true })).toBeEnabled();
 });
+
+test('new uploads appear above existing cards and TV seasons stay grouped in order', async ({ page, requests }) => {
+	let uploaded = false;
+	const newer = { ...intake, id: 'new-movie', group: 'new-movie', torrent_name: 'Newest.Movie', created_at: '2026-03-01T00:00:00Z' };
+	const season1 = {
+		...intake,
+		id: 's1',
+		group: 'show',
+		season: 1,
+		title: 'Grouped show',
+		match: null,
+		torrent_name: 'Show.S01',
+		created_at: '2026-02-01T00:00:00Z',
+	};
+	const season2 = { ...season1, id: 's2', season: 2, torrent_name: 'Show.S02', created_at: '2026-04-01T00:00:00Z' };
+	await page.route('http://admin.test/api/intakes', (route) => {
+		if (route.request().method() === 'POST') {
+			uploaded = true;
+			return route.fulfill({ json: {} });
+		}
+		return route.fulfill({ json: { intakes: uploaded ? [intake, season1, newer, season2] : [intake] } });
+	});
+	await page.goto('http://admin.test/');
+	await expect(page.locator('.intake')).toHaveCount(1);
+	await page
+		.locator('input[type=file]')
+		.setInputFiles({ name: 'new.torrent', mimeType: 'application/x-bittorrent', buffer: Buffer.from('fixture') });
+	await expect(page.locator('.intake h2')).toHaveText(['Grouped show', 'Newest.Movie', intake.torrent_name]);
+	await expect(page.locator('.intake').first().locator('tbody tr td:first-child')).toHaveText(['S01', 'S02']);
+	await page.getByRole('button', { name: 'Refresh', exact: true }).click();
+	await expect(page.locator('.intake h2')).toHaveText(['Grouped show', 'Newest.Movie', intake.torrent_name]);
+});

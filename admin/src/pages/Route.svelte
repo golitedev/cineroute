@@ -16,7 +16,7 @@
 		dragging = $state(false);
 	const groups = $derived.by(() => {
 		const map = new Map<string, Intake[]>();
-		for (const item of resource.data?.intakes || []) {
+		for (const item of [...(resource.data?.intakes || [])].sort((a, b) => Date.parse(b.created_at) - Date.parse(a.created_at))) {
 			const key = item.group || item.id;
 			if (!map.has(key)) map.set(key, []);
 			map.get(key)!.push(item);

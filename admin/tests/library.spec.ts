@@ -1,4 +1,4 @@
-import { test, expect } from '@playwright/test';
+import { test, expect, movie, navigate } from './fixtures';
 import { libraryEntries } from '../src/lib/library';
 test('TV details summarize packs and loose episodes while movie details retain files', () => {
 	const root = '/disk1/tv/Show (2024)';
@@ -19,3 +19,32 @@ test('TV details summarize packs and loose episodes while movie details retain f
 	).toEqual([{ name: 'Season 01', size: 30 }]);
 	expect(libraryEntries('movie', files, sizes, root, 'Show (2024)')).toEqual(files.map((name) => ({ name, size: sizes[name] })));
 });
+
+for (const section of ['Movies', 'TV shows', 'Anime']) {
+	test(`${section} sorts and filters titles by date added`, async ({ page, requests }) => {
+		const items = [
+			{ ...movie, id: 'old', folder_name: 'Alpha', added_at: '2025-01-01T12:00:00Z' },
+			{ ...movie, id: 'new', folder_name: 'Zulu', added_at: '2026-03-15T12:00:00Z' },
+			{ ...movie, id: 'middle', folder_name: 'Beta', added_at: '2026-02-01T12:00:00Z' },
+			{ ...movie, id: 'unknown', folder_name: 'Unknown' },
+		];
+		await page.route('http://admin.test/api/copies?*', (route) => route.fulfill({ json: { items } }));
+		await page.goto('http://admin.test/');
+		await navigate(page, 'Movies');
+		await expect(page.locator('.library-row')).toHaveCount(4);
+		if (section !== 'Movies') await navigate(page, section);
+		const titles = page.locator('.library-row strong');
+		await expect(titles).toHaveText(['Alpha', 'Beta', 'Unknown', 'Zulu']);
+		await page.getByRole('combobox', { name: 'Sort library' }).selectOption('newest');
+		await expect(titles).toHaveText(['Zulu', 'Beta', 'Alpha', 'Unknown']);
+		await page.getByRole('combobox', { name: 'Sort library' }).selectOption('oldest');
+		await expect(titles).toHaveText(['Alpha', 'Beta', 'Zulu', 'Unknown']);
+		await page.getByLabel('Added from').fill('2026-02-01');
+		await page.getByLabel('Added through').fill('2026-03-15');
+		await expect(titles).toHaveText(['Beta', 'Zulu']);
+		await page.getByRole('searchbox', { name: 'Filter library titles' }).fill('zulu');
+		await expect(titles).toHaveText(['Zulu']);
+		await page.getByRole('button', { name: 'Clear', exact: true }).click();
+		await expect(titles).toHaveCount(4);
+	});
+}

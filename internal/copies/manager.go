@@ -25,6 +25,7 @@ type Item struct {
 	RemotePath        string           `json:"remote_path"`
 	FolderName        string           `json:"folder_name"`
 	Status            string           `json:"status"`
+	AddedAt           time.Time        `json:"added_at"`
 	ExistingFiles     []string         `json:"existing_files"`
 	ExistingFileSizes map[string]int64 `json:"existing_file_sizes"`
 	RemoteFiles       []string         `json:"remote_files"`
@@ -121,10 +122,28 @@ func (m *Manager) scanLocked(ctx context.Context) error {
 		} else if len(remoteFiles) > 0 {
 			status = "both"
 		}
+		// Use the earliest populated copy so creating a second copy does not
+		// make an existing title appear newly added.
+		var addedAt time.Time
+		for _, side := range []struct {
+			path  string
+			files []string
+		}{{folder.Path, mainFiles}, {remote, remoteFiles}} {
+			if len(side.files) == 0 {
+				continue
+			}
+			at, err := folderAddedAt(side.path)
+			if err != nil {
+				return err
+			}
+			if addedAt.IsZero() || at.Before(addedAt) {
+				addedAt = at
+			}
+		}
 		hash := sha256.Sum256([]byte(m.mediaType + "\x00" + folder.DriveID + "\x00" + folder.Name))
 		items = append(items, &Item{
 			ID: "copy_" + hex.EncodeToString(hash[:16]), DriveID: folder.DriveID,
-			Path: folder.Path, RemotePath: remote, FolderName: folder.Name, Status: status,
+			Path: folder.Path, RemotePath: remote, FolderName: folder.Name, Status: status, AddedAt: addedAt,
 			ExistingFiles: mainFiles, ExistingFileSizes: mainSizes,
 			RemoteFiles: remoteFiles, RemoteFileSizes: remoteSizes,
 		})

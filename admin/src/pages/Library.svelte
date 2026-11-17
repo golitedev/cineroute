@@ -6,28 +6,47 @@
 	import Pager from '../components/Pager.svelte';
 	import { Resource } from '../lib/resource.svelte';
 	import { post } from '../lib/client';
-	import { bytes, message } from '../lib/utils';
+	import { bytes, message, date } from '../lib/utils';
 	import { libraryEntries } from '../lib/library';
 	import type { CopyView, Copy } from '../lib/types';
 	let { kind }: { kind: 'movie' | 'tv' | 'anime' } = $props();
 	const resource = new Resource<CopyView>();
 	let query = $state(''),
 		filter = $state('all'),
+		sort = $state('name'),
+		addedFrom = $state(''),
+		addedTo = $state(''),
 		page = $state(0),
 		openId = $state(''),
 		busy = $state(false),
 		success = $state('');
 	const anime = $derived(kind === 'anime');
 	const items = $derived(resource.data?.items || []);
-	const filtered = $derived(
-		items.filter(
-			(i) =>
-				(anime || filter === 'all' || i.status === filter) &&
-				`${i.folder_name} ${i.drive_id} ${i.path} ${i.remote_path} ${i.existing_files?.join(' ')} ${i.remote_files?.join(' ')}`
-					.toLowerCase()
-					.includes(query.trim().toLowerCase()),
-		),
-	);
+	const filtered = $derived.by(() => {
+		const from = addedFrom ? new Date(`${addedFrom}T00:00:00`).getTime() : -Infinity;
+		const until = addedTo ? new Date(`${addedTo}T00:00:00`) : null;
+		until?.setDate(until.getDate() + 1);
+		return items
+			.filter((i) => {
+				const added = Date.parse(i.added_at || '');
+				return (
+					(anime || filter === 'all' || i.status === filter) &&
+					`${i.folder_name} ${i.drive_id} ${i.path} ${i.remote_path} ${i.existing_files?.join(' ')} ${i.remote_files?.join(' ')}`
+						.toLowerCase()
+						.includes(query.trim().toLowerCase()) &&
+					(!addedFrom || added >= from) &&
+					(!until || added < until.getTime())
+				);
+			})
+			.sort((a, b) => {
+				const name = a.folder_name.localeCompare(b.folder_name) || a.id.localeCompare(b.id);
+				if (sort === 'name') return name;
+				const aDate = Date.parse(a.added_at || '') || 0;
+				const bDate = Date.parse(b.added_at || '') || 0;
+				if (!aDate || !bDate) return aDate ? -1 : bDate ? 1 : name;
+				return (sort === 'newest' ? bDate - aDate : aDate - bDate) || name;
+			});
+	});
 	const totals = (files: string[] = [], sizes: Record<string, number> = {}) =>
 		files.length ? bytes(files.reduce((n, f) => n + (sizes[f] || 0), 0)) : '';
 	const stats = $derived(
@@ -92,7 +111,7 @@
 			<strong>{n}</strong><span>{label}</span>
 		</div>{/each}
 </div>
-<div class="search-row">
+<div class="search-row wrap">
 	<input
 		aria-label="Filter library titles"
 		type="search"
@@ -100,12 +119,23 @@
 		bind:value={query}
 		oninput={() => (page = 0)}
 	/><button
-		disabled={!query}
+		disabled={!query && !addedFrom && !addedTo}
 		onclick={() => {
 			query = '';
+			addedFrom = '';
+			addedTo = '';
 			page = 0;
 		}}>Clear</button
 	>
+</div>
+<div class="search-row wrap">
+	<select aria-label="Sort library" bind:value={sort} onchange={() => (page = 0)}>
+		<option value="name">Name (A–Z)</option>
+		<option value="newest">Date added (newest first)</option>
+		<option value="oldest">Date added (oldest first)</option>
+	</select>
+	<label>Added from <input type="date" bind:value={addedFrom} onchange={() => (page = 0)} /></label>
+	<label>Added through <input type="date" bind:value={addedTo} onchange={() => (page = 0)} /></label>
 </div>
 {#if !anime}
 	<div class="tabs" aria-label="Copy filters">
@@ -149,6 +179,7 @@
 								>remote {totals(item.remote_files, item.remote_file_sizes)}</span
 							>{/if}
 					</div>
+					{#if item.added_at}<div class="muted text-xs">Added {date(item.added_at)}</div>{/if}
 				</div>
 				{#if anime}<span class="badge">{item.existing_files?.length || 0} files</span>{:else}<span
 						class="badge"

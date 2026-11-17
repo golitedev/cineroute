@@ -17,6 +17,7 @@ export interface Media {
 	media_type?: string;
 }
 export interface Copy {
+	added_at?: string;
 	id: string;
 	drive_id: string;
 	folder_name: string;
