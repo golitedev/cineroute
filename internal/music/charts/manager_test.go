@@ -205,7 +205,7 @@ func TestDailyChartSyncPublishesVerifiedTracksAndKeepsImportHistory(t *testing.T
 
 	var mu sync.Mutex
 	local := map[string][]navidrome.Song{
-		existing.Title: {{ID: "nd-existing", Title: existing.Title, Artist: "Singer"}},
+		existing.Title: {{ID: "nd-existing", Title: existing.Title, Artist: "Singer", Album: "Existing Album"}},
 		download.Title: {{ID: "nd-wrong", Title: "Nueva canción (Live)", Artist: "Ártist"}},
 	}
 	remote := make(map[string]navidrome.Playlist)
@@ -346,6 +346,9 @@ func TestDailyChartSyncPublishesVerifiedTracksAndKeepsImportHistory(t *testing.T
 	current := read(co.ID)
 	colombiaRemoteID := current.NavidromeID
 	checkRemote(colombiaRemoteID, "nd-existing")
+	if got := current.view().Tracks[1].Album; got != "Existing Album" {
+		t.Fatalf("existing track album = %q, wanted Existing Album", got)
+	}
 	lookups := func(query string) int {
 		mu.Lock()
 		defer mu.Unlock()
@@ -375,13 +378,29 @@ func TestDailyChartSyncPublishesVerifiedTracksAndKeepsImportHistory(t *testing.T
 	mu.Lock()
 	local[download.Title] = append(local[download.Title],
 		navidrome.Song{ID: "nd-wrong-isrc", Title: download.Title, Artist: "Artist", Album: "Release", Track: 3, Disc: 2, Duration: 200, ISRC: []string{"OTHER"}},
-		navidrome.Song{ID: "nd-downloaded", Title: download.Title, Artist: "Artist", Album: "Release", Track: 3, Disc: 2, Duration: 200, ISRC: []string{"TEST00000001"}},
+		navidrome.Song{ID: "nd-downloaded", Title: download.Title, Artist: "Artist", Album: "Library Release", Track: 3, Disc: 2, Duration: 200, ISRC: []string{"TEST00000001"}},
 	)
 	mu.Unlock()
 	now = now.Add(workInterval)
 	manager.runOnce(ctx, now)
 	checkRemote(colombiaRemoteID, "nd-downloaded", "nd-existing")
 	checkRemote(read(se.ID).NavidromeID, "nd-downloaded")
+	current = read(co.ID)
+	if got := current.view().Tracks[0].Album; got != "Library Release" || current.Entries[0].Recording.Album != "Release" {
+		t.Fatalf("track album = %q, catalog album = %q", got, current.Entries[0].Recording.Album)
+	}
+	current.Entries[0].SongAlbum = nil // Simulate a match saved before Navidrome album names were stored.
+	if got := current.view().Tracks[0].Album; got != "" {
+		t.Fatalf("track with unknown Navidrome album showed %q", got)
+	}
+	if err := manager.save(ctx, current, current.Revision); err != nil {
+		t.Fatal(err)
+	}
+	manager.runOnce(ctx, now)
+	if got := read(co.ID).view().Tracks[0].Album; got != "Library Release" {
+		t.Fatalf("refreshed track album = %q, wanted Library Release", got)
+	}
+	checkRemote(colombiaRemoteID, "nd-downloaded", "nd-existing")
 	imports, more, err := manager.Imports(ctx, 0)
 	if err != nil || more || len(imports) != 1 || !imports[0].Partial || len(imports[0].Sources) != 2 {
 		t.Fatalf("imports %+v more=%v error=%v", imports, more, err)

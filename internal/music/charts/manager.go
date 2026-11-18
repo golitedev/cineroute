@@ -197,7 +197,8 @@ func (m *Manager) syncPlaylist(ctx context.Context, p playlist, now time.Time, f
 	lookups := 0
 	for i := range p.Entries {
 		e := &p.Entries[i]
-		if now.Before(e.NextAttempt) {
+		missingAlbum := e.State == "ready" && e.SongID != "" && e.SongAlbum == nil
+		if now.Before(e.NextAttempt) && !missingAlbum {
 			continue
 		}
 		if e.JobID != "" && m.jobInProgress(e, now) {
@@ -302,11 +303,10 @@ func (m *Manager) resolve(ctx context.Context, p playlist, e *entry, now time.Ti
 	}
 	song, ambiguous := chooseSong(e.Track, e.Recording, songs)
 	if song.ID != "" {
-		e.State, e.Reason, e.SongID = "ready", "", song.ID
-		e.JobID, e.IndexSince, e.NextAttempt = "", time.Time{}, now.Add(retryTrack)
+		e.setReady(song, now)
 		return nil
 	}
-	e.SongID = ""
+	e.SongID, e.SongAlbum = "", nil
 	if e.JobID != "" {
 		if e.IndexSince.IsZero() {
 			e.IndexSince = now
@@ -344,7 +344,7 @@ func (m *Manager) resolve(ctx context.Context, p playlist, e *entry, now time.Ti
 		}
 		song, ambiguous = chooseSong(e.Track, recording, songs)
 		if song.ID != "" {
-			e.State, e.Reason, e.SongID, e.NextAttempt = "ready", "", song.ID, now.Add(retryTrack)
+			e.setReady(song, now)
 			return nil
 		}
 	}
@@ -369,6 +369,12 @@ func (m *Manager) resolve(ctx context.Context, p playlist, e *entry, now time.Ti
 		}
 	}
 	return nil
+}
+
+func (e *entry) setReady(song navidrome.Song, now time.Time) {
+	album := song.Album
+	e.State, e.Reason, e.SongID, e.SongAlbum = "ready", "", song.ID, &album
+	e.JobID, e.IndexSince, e.NextAttempt = "", time.Time{}, now.Add(retryTrack)
 }
 
 func (m *Manager) enqueue(ctx context.Context, p playlist, e *entry) (jobs.Job, error) {

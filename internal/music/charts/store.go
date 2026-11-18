@@ -109,6 +109,7 @@ type entry struct {
 	State       string
 	Reason      string
 	SongID      string
+	SongAlbum   *string // nil for older entries whose Navidrome album was not stored
 	JobID       string
 	Recording   qobuz.Recording
 	NextAttempt time.Time
@@ -121,10 +122,15 @@ func (p playlist) view() PlaylistView {
 		Published: len(p.PublishedIDs), FetchError: p.FetchError, PublishError: p.PublishError,
 		Tracks: make([]TrackView, 0, len(p.Entries))}
 	for _, track := range p.Entries {
+		album := track.Recording.Album
 		if track.SongID != "" {
 			view.Ready++
+			album = ""
+			if track.SongAlbum != nil {
+				album = *track.SongAlbum
+			}
 		}
-		view.Tracks = append(view.Tracks, TrackView{Track: track.Track, State: track.State, Reason: track.Reason, Album: track.Recording.Album})
+		view.Tracks = append(view.Tracks, TrackView{Track: track.Track, State: track.State, Reason: track.Reason, Album: album})
 	}
 	return view
 }
@@ -270,6 +276,7 @@ func (m *Manager) SyncNow(ctx context.Context, id string) error {
 		p.Entries[i].NextAttempt = time.Time{}
 		if p.Entries[i].JobID == "" {
 			p.Entries[i].SongID = ""
+			p.Entries[i].SongAlbum = nil
 			p.Entries[i].State = "pending"
 		}
 	}
