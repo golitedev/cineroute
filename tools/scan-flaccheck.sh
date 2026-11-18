@@ -95,7 +95,7 @@ def scan_group(root, library, scanner, sandbox, name):
     return tracks, data["skipped"], data["errors"]
 
 
-def write_report(path, library, tracks, skipped, errors):
+def publish_report(work, output, library, tracks, skipped, errors, status):
     albums = defaultdict(list)
     counts = Counter(verdict for _, verdict, _ in tracks)
     for path_in_sandbox, verdict, codec in tracks:
@@ -105,8 +105,10 @@ def write_report(path, library, tracks, skipped, errors):
         album, track = (parts[0], "/".join(parts[1:])) if len(parts) > 1 else ("(Library root)", parts[0])
         albums[album].append((track, codec))
 
+    path = work / "lossy-tracks.txt"
     with path.open("w", encoding="utf-8") as report:
         print(f"Library: {library}", file=report)
+        print(f"Status: {status}", file=report)
         print(f"Tracks flagged as lossy: {counts['TRANSCODED']} across {len(albums)} album(s)", file=report)
         print(f"Scanned: {sum(counts.values())} | Skipped: {skipped} | Errors: {errors}", file=report)
         if skipped or errors:
@@ -117,9 +119,8 @@ def write_report(path, library, tracks, skipped, errors):
                 hint = f" ({display(codec)})" if codec else ""
                 print(f"  {display(track)}{hint}", file=report)
 
-    for verdict, count in sorted(counts.items()):
-        print(f"{verdict}: {count}")
-    print(f"Skipped: {skipped} | Errors: {errors}")
+    # An interrupt or a reader opening the report mid-write must not see a partial file.
+    path.replace(output / path.name)
 
 
 def run(library, output, scanner, sandbox):
@@ -143,7 +144,7 @@ def run(library, output, scanner, sandbox):
         (root / "lib64").symlink_to("usr/lib64")
         (root / "flaccheck").touch()
 
-        tracks, live = [], set()
+        tracks, live, pending = [], set(), []
         reused = scanned = skipped = errors = 0
         for group in entries:
             if group.is_symlink():
@@ -158,43 +159,62 @@ def run(library, output, scanner, sandbox):
                 saved = cache.execute(
                     "SELECT tracks FROM albums WHERE name = ? AND fingerprint = ?", (name, fingerprint)
                 ).fetchone()
-                if saved is not None:
+                if saved is None:
+                    pending.append((group, files, fingerprint))
+                else:
                     tracks.extend(json.loads(saved[0]))
                     reused += 1
-                    continue
-
-                print(f"Scanning {display(name)} ({len(files)} track(s))")
-                found, not_scanned, failed = scan_group(root, library, scanner, sandbox, name)
-                if files != snapshot(group):
-                    raise ValueError("files changed during the scan; retry this album")
-                if len(found) + len(not_scanned) + len(failed) != len(files):
-                    raise ValueError("the scanner returned a different number of tracks than expected")
-
-                tracks.extend(found)
-                scanned += 1
-                skipped += len(not_scanned)
-                errors += len(failed)
-                for label, messages in (("Skipped", not_scanned), ("Error", failed)):
-                    for message in messages:
-                        print(f"{label}: {display(message)}")
-                if not not_scanned and not failed:
-                    with cache:
-                        cache.execute(
-                            "INSERT OR REPLACE INTO albums VALUES (?, ?, ?)",
-                            (name, fingerprint, json.dumps(found)),
-                        )
-            except (OSError, subprocess.CalledProcessError, ValueError) as error:
+            except (OSError, ValueError) as error:
                 errors += 1
-                print(f"Error scanning {display(name)}: {error}")
+                print(f"Error checking {display(name)}: {error}")
+
+        def update_report(status):
+            publish_report(work, output, library, tracks, skipped, errors, status)
+
+        try:
+            update_report("In progress")
+            print(f"Live report: {output / 'lossy-tracks.txt'} ({reused} groups reused from checkpoints)")
+            for group, files, fingerprint in pending:
+                name = group.name
+                try:
+                    print(f"Scanning {display(name)} ({len(files)} track(s))")
+                    found, not_scanned, failed = scan_group(root, library, scanner, sandbox, name)
+                    if files != snapshot(group):
+                        raise ValueError("files changed during the scan; retry this album")
+                    if len(found) + len(not_scanned) + len(failed) != len(files):
+                        raise ValueError("the scanner returned a different number of tracks than expected")
+
+                    tracks.extend(found)
+                    scanned += 1
+                    skipped += len(not_scanned)
+                    errors += len(failed)
+                    for label, messages in (("Skipped", not_scanned), ("Error", failed)):
+                        for message in messages:
+                            print(f"{label}: {display(message)}")
+                    if not not_scanned and not failed:
+                        with cache:
+                            cache.execute(
+                                "INSERT OR REPLACE INTO albums VALUES (?, ?, ?)",
+                                (name, fingerprint, json.dumps(found)),
+                            )
+                except (OSError, subprocess.CalledProcessError, ValueError) as error:
+                    errors += 1
+                    print(f"Error scanning {display(name)}: {error}")
+                update_report("In progress")
+
+            stale = [(name,) for (name,) in cache.execute("SELECT name FROM albums") if name not in live]
+            with cache:
+                cache.executemany("DELETE FROM albums WHERE name = ?", stale)
+            update_report("Completed with skips or errors" if skipped or errors else "Complete")
+        except KeyboardInterrupt:
+            update_report("Interrupted")
+            raise
 
         print(f"Completed groups: {scanned} scanned, {reused} reused from checkpoints")
-        stale = [(name,) for (name,) in cache.execute("SELECT name FROM albums") if name not in live]
-        with cache:
-            cache.executemany("DELETE FROM albums WHERE name = ?", stale)
-        report = work / "lossy-tracks.txt"
-        write_report(report, library, tracks, skipped, errors)
-        report.replace(output / report.name)
-        print(f"Report written to {output / report.name}")
+        for verdict, count in sorted(Counter(verdict for _, verdict, _ in tracks).items()):
+            print(f"{verdict}: {count}")
+        print(f"Skipped: {skipped} | Errors: {errors}")
+        print(f"Report written to {output / 'lossy-tracks.txt'}")
         return int(errors != 0)
 
 
