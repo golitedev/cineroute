@@ -99,6 +99,12 @@
 		font-size: 12px;
 		min-height: 34px;
 	}
+	select,
+	select option,
+	select optgroup {
+		background-color: var(--card);
+		color: var(--foreground);
+	}
 	input[type='checkbox'] {
 		min-height: 0;
 		accent-color: var(--primary);
