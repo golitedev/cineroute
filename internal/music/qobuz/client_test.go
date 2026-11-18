@@ -68,6 +68,30 @@ func TestAlbumParsing(t *testing.T) {
 	}
 }
 
+func TestSearchRecordingsPreservesExplicitVersions(t *testing.T) {
+	c := testClient(t, func(w http.ResponseWriter, r *http.Request) {
+		w.Write([]byte(`{"tracks":{"items":[
+			{"title":"Live and Learn","version":"Live"},
+			{"title":"Song (Live) (feat. Guest)","version":"live"},
+			{"title":"Song – Radio Edit","version":"Radio Edit"},
+			{"title":"Live Is Life"}
+		]}}`))
+	})
+	tracks, err := c.SearchRecordings(t.Context(), "song")
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := []string{"Live and Learn (Live)", "Song (Live) (feat. Guest)", "Song – Radio Edit", "Live Is Life"}
+	if len(tracks) != len(want) {
+		t.Fatalf("got %d tracks, want %d", len(tracks), len(want))
+	}
+	for i, title := range want {
+		if tracks[i].Title != title {
+			t.Errorf("track %d title = %q, want %q", i, tracks[i].Title, title)
+		}
+	}
+}
+
 func TestErrors(t *testing.T) {
 	c := testClient(t, func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(401)

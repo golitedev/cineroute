@@ -49,10 +49,87 @@ func TestMatchingPreservesTheRecordingVersion(t *testing.T) {
 	if title := titleWithoutCredit(track.Title, track.Artists); title != "Nueva canción (Remix)" {
 		t.Fatalf("search title %q", title)
 	}
-	if !matchesTrack(track, "Nueva cancion - Remix", "Artist & Guest") ||
-		matchesTrack(track, "Nueva canción", "Ártist") ||
-		matchesTrack(track, "Nueva canción (Live)", "Ártist") {
+	if trackMatch(track, "Nueva cancion - Remix", "Artist & Guest") != 2 ||
+		trackMatch(track, "Nueva canción", "Ártist") != 0 ||
+		trackMatch(track, "Nueva canción (Live)", "Ártist") != 0 {
 		t.Fatal("incorrect version matching")
+	}
+}
+
+func TestTrackMatchChecksAllDeclaredCredits(t *testing.T) {
+	track := Track{Title: "Song (feat. Guest)", Artists: []string{"Earth, Wind & Fire", "Guest"}}
+	for _, tt := range []struct {
+		title, artist string
+		want          int
+	}{
+		{"Song", "Earth, Wind & Fire", 1},
+		{"Song", "Earth, Wind & Fire, Guest", 2},
+		{"Song (feat. Guest)", "Earth, Wind & Fire", 2},
+		{"Song (feat. Guest & Other)", "Earth, Wind & Fire", 0},
+		{"Song", "Earth, Wind & Fire, Other", 0},
+		{"Song (Live)", "Earth, Wind & Fire, Guest", 0},
+		{"Song", "Earth, Guest", 0},
+	} {
+		if got := trackMatch(track, tt.title, tt.artist); got != tt.want {
+			t.Errorf("trackMatch(%q, %q) = %d, want %d", tt.title, tt.artist, got, tt.want)
+		}
+	}
+}
+
+func TestChooseRecordingChecksCreditsAndConflictingCopies(t *testing.T) {
+	track := Track{Title: "Song", Artists: []string{"Lead", "Guest"}}
+	partial := qobuz.Recording{ID: "partial", AlbumID: "album", Title: "Song", Artist: "Lead", Streamable: true}
+	complete := qobuz.Recording{ID: "complete", AlbumID: "album", Title: "Song", Artist: "Lead & Guest", ISRC: "USAAA1234567", Duration: 200, Streamable: true}
+	unavailable := complete
+	unavailable.Streamable = false
+	equivalent := complete
+	equivalent.ID, equivalent.ISRC, equivalent.Duration = "equivalent", " us-aaa-12-34567 ", 201
+	conflicting := unavailable
+	conflicting.ID, conflicting.Duration = "conflicting", 220
+	wrongCode := unavailable
+	wrongCode.ID, wrongCode.ISRC = "wrong-code", "USAAA7654321"
+	for _, tt := range []struct {
+		name       string
+		candidates []qobuz.Recording
+		want       string
+		reason     string
+	}{
+		{"prefer all credits", []qobuz.Recording{partial, complete}, "complete", ""},
+		{"use an available copy of the same recording", []qobuz.Recording{unavailable, equivalent}, "equivalent", ""},
+		{"keep the better match when unavailable", []qobuz.Recording{partial, unavailable}, "", "unavailable"},
+		{"detect a different ISRC even when unavailable", []qobuz.Recording{complete, wrongCode}, "", "Multiple"},
+		{"detect inconsistent duration even with the same ISRC", []qobuz.Recording{complete, conflicting}, "", "Multiple"},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			got, reason := chooseRecording(track, tt.candidates)
+			if got.ID != tt.want || (tt.reason == "" && reason != "") || !strings.Contains(reason, tt.reason) {
+				t.Fatalf("recording = %q, reason = %q, want %q and %q", got.ID, reason, tt.want, tt.reason)
+			}
+		})
+	}
+}
+
+func TestChooseSongUsesStrongestEvidence(t *testing.T) {
+	track := Track{Title: "Song", Artists: []string{"Lead", "Guest"}}
+	recording := qobuz.Recording{ID: "qobuz", ISRC: "USAAA1234567", Album: "Release", Duration: 200}
+	complete := navidrome.Song{ID: "complete", Title: "Song", Artist: "Lead & Guest", Album: "Release", ISRC: []string{"us-aaa-12-34567"}, Duration: 200}
+	partial := complete
+	partial.ID, partial.Artist, partial.ISRC = "partial", "Lead", []string{"OTHER"}
+	untagged := complete
+	untagged.ID, untagged.ISRC = "untagged", []string{" "}
+	conflicting := complete
+	conflicting.ID, conflicting.Duration = "conflicting", 220
+	if got, ambiguous := chooseSong(track, qobuz.Recording{}, []navidrome.Song{partial, complete}); got.ID != complete.ID || ambiguous {
+		t.Fatalf("complete credits should win, got %q, ambiguous %t", got.ID, ambiguous)
+	}
+	if got, ambiguous := chooseSong(track, recording, []navidrome.Song{untagged, complete}); got.ID != complete.ID || ambiguous {
+		t.Fatalf("verified ISRC should win, got %q, ambiguous %t", got.ID, ambiguous)
+	}
+	if got, ambiguous := chooseSong(track, recording, []navidrome.Song{untagged}); got.ID != untagged.ID || ambiguous {
+		t.Fatalf("blank ISRC should allow album evidence, got %q, ambiguous %t", got.ID, ambiguous)
+	}
+	if got, ambiguous := chooseSong(track, qobuz.Recording{}, []navidrome.Song{complete, conflicting}); got.ID != "" || !ambiguous {
+		t.Fatalf("conflicting durations should be ambiguous, got %q, ambiguous %t", got.ID, ambiguous)
 	}
 }
 

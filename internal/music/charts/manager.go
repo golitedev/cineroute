@@ -292,6 +292,9 @@ func (m *Manager) resolve(ctx context.Context, p playlist, e *entry, now time.Ti
 		}
 		e.Recording = cached
 	}
+	if e.JobID == "" && e.Recording.ID != "" && trackMatch(e.Track, e.Recording.Title, e.Recording.Artist) == 0 {
+		e.Recording = qobuz.Recording{}
+	}
 	title := titleWithoutCredit(e.Title, e.Artists)
 	songs, err := m.nav.Search(ctx, title)
 	if err != nil {
@@ -339,10 +342,16 @@ func (m *Manager) resolve(ctx context.Context, p playlist, e *entry, now time.Ti
 		if err := m.remember(ctx, e.SpotifyID, recording); err != nil {
 			return err
 		}
-		if song, _ := chooseSong(e.Track, recording, songs); song.ID != "" {
+		song, ambiguous = chooseSong(e.Track, recording, songs)
+		if song.ID != "" {
 			e.State, e.Reason, e.SongID, e.NextAttempt = "ready", "", song.ID, now.Add(retryTrack)
 			return nil
 		}
+	}
+	if ambiguous {
+		e.State, e.Reason = "needs_review", "Multiple Navidrome recordings match this track"
+		e.NextAttempt = now.Add(retryTrack)
+		return nil
 	}
 
 	job, err := m.enqueue(ctx, p, e)

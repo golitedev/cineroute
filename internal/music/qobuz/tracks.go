@@ -44,15 +44,28 @@ func (c *Client) SearchRecordings(ctx context.Context, query string) ([]Recordin
 	tracks := make([]Recording, 0, len(response.Tracks.Items))
 	for _, item := range response.Tracks.Items {
 		album := albumMetadata(item.Album)
-		title, version := strings.TrimSpace(item.Title), strings.TrimSpace(item.Version)
-		if version != "" && !strings.Contains(strings.ToLower(title), strings.ToLower(version)) {
-			title += " (" + version + ")"
-		}
 		tracks = append(tracks, Recording{
-			ID: rawID(item.ID), AlbumID: album.ID, Album: album.FullTitle(), Title: title,
+			ID: rawID(item.ID), AlbumID: album.ID, Album: album.FullTitle(), Title: recordingTitle(item.Title, item.Version),
 			Artist: firstNonEmpty(item.Performer.Name, album.Artist), ISRC: item.ISRC,
 			Disc: max(item.Disc, 1), Number: item.Number, Duration: item.Duration, Streamable: item.Available,
 		})
 	}
 	return tracks, nil
+}
+
+func recordingTitle(title, version string) string {
+	title, version = strings.TrimSpace(title), strings.TrimSpace(version)
+	if version == "" {
+		return title
+	}
+	lowerTitle, lowerVersion := strings.ToLower(title), strings.ToLower(version)
+	if strings.Contains(lowerTitle, "("+lowerVersion+")") || strings.Contains(lowerTitle, "["+lowerVersion+"]") {
+		return title
+	}
+	for _, suffix := range []string{" - " + lowerVersion, " – " + lowerVersion, " — " + lowerVersion} {
+		if strings.HasSuffix(lowerTitle, suffix) {
+			return title
+		}
+	}
+	return title + " (" + version + ")"
 }
