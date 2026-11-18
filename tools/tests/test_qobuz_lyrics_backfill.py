@@ -148,6 +148,90 @@ class BackfillTests(unittest.TestCase):
         self.assertEqual(before, {p: self.signature(p) for p in paths})
         self.assertEqual(len(list(self.root.iterdir())), 6)
 
+    def test_known_qobuz_catalog_error_is_confirmed_without_retries(self):
+        client = SimpleNamespace(
+            get_lyrics=AsyncMock(
+                side_effect=RuntimeError("Qobuz lyrics lookup returned HTTP 400")
+            ),
+            secret="test-secret",
+            config=SimpleNamespace(
+                session=SimpleNamespace(qobuz=SimpleNamespace(app_id="app"))
+            ),
+            _api_request=AsyncMock(
+                return_value=(
+                    400,
+                    {
+                        "code": 0,
+                        "message": "You must pass at least one parameter when using an IN() condition.",
+                    },
+                )
+            ),
+        )
+        with self.assertRaises(backfill.QobuzCatalogLyricsError):
+            asyncio.run(backfill.fetch(client, "822602"))
+        client.get_lyrics.assert_awaited_once_with("822602")
+        client._api_request.assert_awaited_once()
+        endpoint, params = client._api_request.call_args.args
+        self.assertEqual(endpoint, "track/lyricsUrl")
+        self.assertEqual(params["track_id"], "822602")
+
+    def test_other_bad_requests_still_retry_and_fail(self):
+        client = SimpleNamespace(
+            get_lyrics=AsyncMock(
+                side_effect=RuntimeError("Qobuz lyrics lookup returned HTTP 400")
+            )
+        )
+        with (
+            patch.object(
+                backfill, "known_catalog_error", AsyncMock(return_value=False)
+            ),
+            patch.object(backfill.asyncio, "sleep", AsyncMock()),
+            self.assertRaisesRegex(RuntimeError, "HTTP 400"),
+        ):
+            asyncio.run(backfill.fetch(client, "123"))
+        self.assertEqual(client.get_lyrics.await_count, 3)
+
+    def test_catalog_failures_do_not_stop_an_album_or_write_files(self):
+        paths = [self.audio(f"{i}.flac") for i in range(6)]
+        before = {p: self.signature(p) for p in paths}
+        with patch.object(
+            backfill, "fetch", AsyncMock(side_effect=backfill.QobuzCatalogLyricsError)
+        ):
+            counts = self.run_backfill()
+        self.assertEqual(counts["catalog_errors"], 6)
+        self.assertEqual(counts["errors"], 0)
+        self.assertEqual(before, {p: self.signature(p) for p in paths})
+        self.assertEqual(len(list(self.root.iterdir())), 6)
+
+    def test_file_disappearing_during_scan_is_skipped(self):
+        missing = self.audio("01.flac")
+        good = self.audio("02.flac")
+        missing.unlink()
+        with patch.object(backfill, "audio_files", return_value=iter([missing, good])):
+            counts = self.run_backfill()
+        self.assertEqual(counts["disappeared"], 1)
+        self.assertEqual(counts["written_lrc"], 1)
+        self.assertTrue(good.with_suffix(".lrc").exists())
+
+    def test_directory_disappearing_during_walk_is_skipped(self):
+        path = self.audio("01.flac")
+
+        def walker(root, followlinks, onerror):
+            onerror(FileNotFoundError(2, "Missing directory", str(root / "gone")))
+            yield str(root), [], [path.name]
+
+        with patch.object(backfill.os, "walk", side_effect=walker):
+            self.assertEqual(list(backfill.audio_files(self.root)), [path])
+        self.assertFalse(backfill.has_sidecar(self.root / "gone" / "track.flac"))
+
+    def test_missing_sidecar_directory_is_not_an_api_failure(self):
+        self.audio("01.flac")
+        with patch.object(backfill, "write_sidecar", side_effect=FileNotFoundError()):
+            counts = self.run_backfill()
+        self.assertEqual(counts["disappeared"], 1)
+        self.assertEqual(counts["errors"], 0)
+        self.assertEqual(len(list(self.root.iterdir())), 1)
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -6,10 +6,12 @@
 
 import argparse
 import asyncio
+import hashlib
 import logging
 import os
 import re
 import sys
+import time
 from collections import Counter
 from pathlib import Path
 
@@ -23,6 +25,9 @@ AUDIO_EXTENSIONS = {".flac", ".mp3", ".m4a", ".ogg", ".opus", ".wav", ".aiff"}
 
 def audio_files(root):
     def failed(error):
+        if isinstance(error, FileNotFoundError):
+            print(f"SKIP disappeared directory: {error.filename}", flush=True)
+            return
         raise error
 
     for folder, dirs, names in os.walk(root, followlinks=False, onerror=failed):
@@ -65,7 +70,40 @@ def track_id(path):
 def has_sidecar(path):
     # Preserve existing LRC files, including case variants and symlinks.
     target = path.with_suffix(".lrc").name.casefold()
-    return any(name.casefold() == target for name in os.listdir(path.parent))
+    try:
+        return any(name.casefold() == target for name in os.listdir(path.parent))
+    except FileNotFoundError:
+        return False
+
+
+class QobuzCatalogLyricsError(RuntimeError):
+    """Qobuz advertises lyrics but its catalog lookup fails for this track."""
+
+
+async def known_catalog_error(client, identifier):
+    # Streamrip exposes only the HTTP status in its exception. Confirm this exact
+    # server-side bug before treating a 400 as a per-track skip. Other 400s, auth
+    # failures and network errors retain normal retries and the circuit breaker.
+    timestamp = str(int(time.time()))
+    raw = f"tracklyricsUrltrack_id{identifier}{timestamp}{client.secret}"
+    status, response = await asyncio.wait_for(
+        client._api_request(
+            "track/lyricsUrl",
+            {
+                "track_id": identifier,
+                "app_id": str(client.config.session.qobuz.app_id),
+                "request_ts": timestamp,
+                "request_sig": hashlib.md5(raw.encode()).hexdigest(),
+            },
+        ),
+        timeout=30,
+    )
+    return (
+        status == 400
+        and response.get("code") == 0
+        and response.get("message")
+        == "You must pass at least one parameter when using an IN() condition."
+    )
 
 
 async def fetch(client, identifier):
@@ -75,6 +113,12 @@ async def fetch(client, identifier):
         except asyncio.CancelledError:
             raise
         except Exception as error:
+            if (
+                isinstance(error, RuntimeError)
+                and str(error) == "Qobuz lyrics lookup returned HTTP 400"
+                and await known_catalog_error(client, identifier)
+            ):
+                raise QobuzCatalogLyricsError from None
             if attempt == 2:
                 raise
             # Never print exceptions containing request URLs or account details.
@@ -100,7 +144,12 @@ async def backfill(root, client, *, dry_run=False, limit=0, interval=1.0):
                 counts["existing_sidecar"] += 1
                 continue
             try:
+                path.stat()  # A file may have disappeared since enumeration.
                 identifier = track_id(path)
+            except FileNotFoundError:
+                counts["disappeared"] += 1
+                print(f"SKIP disappeared file: {path}", flush=True)
+                continue
             except Exception as error:
                 counts["unreadable_tags"] += 1
                 print(
@@ -138,6 +187,17 @@ async def backfill(root, client, *, dry_run=False, limit=0, interval=1.0):
                 consecutive_errors = 0
             except asyncio.CancelledError:
                 raise
+            except QobuzCatalogLyricsError:
+                counts["catalog_errors"] += 1
+                consecutive_errors = 0
+                print(
+                    f"SKIP Qobuz catalog lyrics error id={identifier}: {path}",
+                    flush=True,
+                )
+            except FileNotFoundError:
+                counts["disappeared"] += 1
+                consecutive_errors = 0
+                print(f"SKIP disappeared file or directory: {path}", flush=True)
             except Exception as error:
                 counts["errors"] += 1
                 consecutive_errors += 1

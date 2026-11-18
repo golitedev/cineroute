@@ -21,7 +21,13 @@ skipped. It never overwrites a sidecar. Streamrip publishes complete sidecars
 atomically using a short-lived temporary file in the same directory.
 
 There is one track request at a time, with a one-second pause between tracks.
-Transient failures are retried; five consecutive failures stop the batch.
+Transient failures are retried; five consecutive unexpected failures stop the batch.
+Qobuz sometimes returns HTTP 400 with the exact server-side message
+`You must pass at least one parameter when using an IN() condition.` for tracks
+that advertise lyrics. The helper confirms that response and skips those tracks
+as `catalog_errors`, without triggering the failure limit. Other HTTP 400s still
+retry and fail normally. Files or directories removed during a scan are skipped
+as disappeared; permission and other filesystem errors remain errors.
 Progress and a summary go to the terminal; no log, cache, or report files are
 created in the library. Rerunning resumes by skipping existing sidecars; tracks
 with unavailable lyrics are checked again.
