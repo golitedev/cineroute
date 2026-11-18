@@ -9,6 +9,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"sort"
 	"strings"
 	"sync"
@@ -128,7 +129,7 @@ func New(cfg *config.Config, deps Deps) (*Manager, error) {
 		if j.MessageArgs == nil {
 			j.MessageArgs = map[string]any{}
 		}
-		if !j.Status.Finished() {
+		if !j.Status.Finished() && !m.recoverChartImport(j) {
 			if j.Status.Active() {
 				j.set(M("interrupted_restart"))
 			}
@@ -136,10 +137,36 @@ func New(cfg *config.Config, deps Deps) (*Manager, error) {
 			// Keep the previous queue order.
 			m.queued[j.ID] = now.Add(time.Duration(i) * time.Millisecond)
 		}
+		j.PreparedImport = nil
 		m.jobs = append(m.jobs, j)
 	}
 	m.cleanDownloads()
 	return m, m.saveLocked()
+}
+
+func (m *Manager) recoverChartImport(job *Job) bool {
+	prepared := job.PreparedImport
+	if prepared == nil || len(job.ChartSources) == 0 || prepared.SampleSize <= 0 {
+		return false
+	}
+	root := filepath.Join(m.cfg.Paths.Library, prepared.Path)
+	path := filepath.Join(root, prepared.Sample)
+	if !withinLibrary(m.cfg.Paths.Library, root) || !withinLibrary(root, path) {
+		return false
+	}
+	info, err := os.Lstat(path)
+	if err != nil || !info.Mode().IsRegular() || info.Size() != prepared.SampleSize {
+		return false
+	}
+	if albumID := verify.AlbumID(path); albumID != "" && albumID != job.AlbumID {
+		return false
+	}
+	job.Status = StatusCompleted
+	job.FinishedAt = ptr(prepared.At)
+	job.LibraryPath, job.TracksDone = prepared.Path, prepared.Tracks
+	job.LyricsRequested = m.cfg.Lyrics.Enabled && m.deps.EnqueueLyrics != nil
+	job.set(prepared.Message)
+	return true
 }
 
 func (m *Manager) downloadsDir() string { return filepath.Join(m.cfg.Paths.Staging, "downloads") }
@@ -224,8 +251,38 @@ func (m *Manager) Get(id string) (Job, error) {
 // downloading for this user is not added twice; its existing job is returned.
 // requestedBy is the user who asked for it ("" when login is off).
 func (m *Manager) Enqueue(ctx context.Context, albumID, requestedBy string, limits ...int) (Job, error) {
-	if j, ok := m.pending(albumID, requestedBy); ok {
-		return j, nil
+	return m.enqueue(ctx, albumID, requestedBy, nil, limits)
+}
+
+// EnqueueChart shares an active release across charts and existing user jobs.
+func (m *Manager) EnqueueChart(ctx context.Context, albumID string, source ChartSource) (Job, error) {
+	m.mu.Lock()
+	existing := m.pendingLocked(albumID)
+	if existing != nil {
+		job, err := m.attachChartLocked(existing, source)
+		m.mu.Unlock()
+		return job, err
+	}
+	m.mu.Unlock()
+	return m.enqueue(ctx, albumID, "", &source, []int{6})
+}
+
+func (m *Manager) attachChartLocked(job *Job, source ChartSource) (Job, error) {
+	if !slices.Contains(job.ChartSources, source) {
+		job.ChartSources = append(job.ChartSources, source)
+		if err := m.saveLocked(); err != nil {
+			job.ChartSources = job.ChartSources[:len(job.ChartSources)-1]
+			return Job{}, err
+		}
+	}
+	return job.clone(), nil
+}
+
+func (m *Manager) enqueue(ctx context.Context, albumID, requestedBy string, source *ChartSource, limits []int) (Job, error) {
+	if source == nil {
+		if j, ok := m.pending(albumID, requestedBy); ok {
+			return j, nil
+		}
 	}
 	album, err := m.deps.Albums.Album(ctx, albumID)
 	if err != nil {
@@ -255,9 +312,13 @@ func (m *Manager) Enqueue(ctx context.Context, albumID, requestedBy string, limi
 		CreatedAt:   now,
 	}
 	job.set(M("queued"))
+	if source != nil {
+		job.Automatic = true
+		job.ChartSources = []ChartSource{*source}
+	}
 
 	// Skip right away when the album is already in the library.
-	if m.cfg.Naming.IfExists == config.IfExistsSkip {
+	if job.Automatic || m.cfg.Naming.IfExists == config.IfExistsSkip {
 		rel := m.albumIDPath(album.ID)
 		if rel == "" {
 			rel = m.albumNamePath(album)
@@ -272,6 +333,11 @@ func (m *Manager) Enqueue(ctx context.Context, albumID, requestedBy string, limi
 
 	m.mu.Lock()
 	defer m.mu.Unlock()
+	if source != nil {
+		if existing := m.pendingLocked(album.ID); existing != nil {
+			return m.attachChartLocked(existing, *source)
+		}
+	}
 	if existing := m.pendingLocked(album.ID, requestedBy); existing != nil {
 		return existing.clone(), nil
 	}
@@ -282,9 +348,18 @@ func (m *Manager) Enqueue(ctx context.Context, albumID, requestedBy string, limi
 	if job.Status == StatusQueued {
 		m.queued[job.ID] = now
 	}
-	m.trimLocked()
 	if err := m.saveLocked(); err != nil {
+		delete(m.queued, job.ID)
+		m.jobs = m.jobs[:len(m.jobs)-1]
 		m.log.Error("saving queue", "err", err)
+		return Job{}, err
+	}
+	beforeTrim := len(m.jobs)
+	m.trimLocked()
+	if beforeTrim != len(m.jobs) {
+		if err := m.saveLocked(); err != nil {
+			m.log.Error("saving trimmed music history", "err", err)
+		}
 	}
 	m.signal()
 	return job.clone(), nil
@@ -355,7 +430,7 @@ func (m *Manager) Remove(id string) error {
 		if j.ID != id {
 			continue
 		}
-		if !j.Status.Finished() || (j.LyricsRequested && !j.LyricsEnqueued) {
+		if !j.Status.Finished() || (j.LyricsRequested && !j.LyricsEnqueued) || j.chartReceiptPending() {
 			return ErrNotFinished
 		}
 		m.jobs = append(m.jobs[:i], m.jobs[i+1:]...)
@@ -371,7 +446,7 @@ func (m *Manager) ClearFinished() error {
 	defer m.mu.Unlock()
 	kept := m.jobs[:0]
 	for _, j := range m.jobs {
-		if j.Status.Finished() && (!j.LyricsRequested || j.LyricsEnqueued) {
+		if j.Status.Finished() && (!j.LyricsRequested || j.LyricsEnqueued) && !j.chartReceiptPending() {
 			os.Remove(m.LogPath(j.ID))
 			continue
 		}
@@ -422,7 +497,7 @@ func (m *Manager) trimLocked() {
 	limit := m.cfg.Download.HistoryLimit
 	var finished []*Job
 	for _, j := range m.jobs {
-		if j.Status.Finished() && (!j.LyricsRequested || j.LyricsEnqueued) {
+		if j.Status.Finished() && (!j.LyricsRequested || j.LyricsEnqueued) && !j.chartReceiptPending() {
 			finished = append(finished, j)
 		}
 	}
@@ -448,23 +523,51 @@ func (m *Manager) trimLocked() {
 
 func (m *Manager) saveLocked() error { return m.st.save(m.jobs) }
 
+func (m *Manager) PendingChartImports() []Job {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	var imports []Job
+	for _, job := range m.jobs {
+		if job.chartReceiptPending() {
+			imports = append(imports, job.clone())
+		}
+	}
+	return imports
+}
+
+// ConfirmChartImport releases the queue receipt after the audit row is durable.
+func (m *Manager) ConfirmChartImport(id string) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if job := m.find(id); job != nil && job.chartReceiptPending() {
+		job.ChartLogged = true
+		if err := m.saveLocked(); err != nil {
+			job.ChartLogged = false
+			return err
+		}
+	}
+	return nil
+}
+
 // update changes a job under the lock and optionally persists it.
-func (m *Manager) update(id string, persist bool, fn func(j *Job)) {
+func (m *Manager) update(id string, persist bool, fn func(j *Job)) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	j := m.find(id)
 	if j == nil {
-		return
+		return ErrNotFound
 	}
 	fn(j)
 	if persist {
 		if err := m.saveLocked(); err != nil {
 			m.log.Error("saving queue", "err", err)
+			return err
 		}
 	}
+	return nil
 }
 
-// next takes the oldest queued job and marks it as started.
+// next takes the oldest queued job in the highest priority and marks it as started.
 func (m *Manager) next() (Job, context.Context, context.CancelFunc, bool) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -473,7 +576,8 @@ func (m *Manager) next() (Job, context.Context, context.CancelFunc, bool) {
 		if j.Status != StatusQueued {
 			continue
 		}
-		if pick == nil || m.queued[j.ID].Before(m.queued[pick.ID]) {
+		if pick == nil || (pick.Automatic && !j.Automatic) ||
+			(pick.Automatic == j.Automatic && m.queued[j.ID].Before(m.queued[pick.ID])) {
 			pick = j
 		}
 	}

@@ -227,6 +227,11 @@ music:
   metadata:
     translate_genres: true
     clean_descriptions: true
+  navidrome:
+    url: ""
+    username: "" # Navidrome administrator for scans and public chart playlists
+    password: ""
+    music_folder_id: "" # optional shared library ID for Navidrome track lookups
   lyrics:
     enabled: false # opt in for releases imported by CineRoute
     verified_only: true # restrict sources to those validating returned artist/title

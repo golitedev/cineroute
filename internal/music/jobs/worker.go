@@ -91,6 +91,7 @@ func (m *Manager) process(root, ctx context.Context, job Job) {
 	}
 	m.update(job.ID, true, func(j *Job) {
 		j.Status = out.status
+		j.PreparedImport = nil
 		j.set(out.msg)
 		j.ProblemItems = append([]ProblemItem{}, out.problems...)
 		j.Problems = problemTexts(j.ProblemItems)
@@ -389,11 +390,6 @@ func (m *Manager) appendLog(jobID string, lines ...string) {
 }
 
 func (m *Manager) importAlbum(job Job, album qobuz.Album, albumDir string, vr verify.Result) outcome {
-	m.update(job.ID, true, func(j *Job) {
-		j.Status = StatusImporting
-		j.TracksDone = len(vr.Files)
-		j.set(M("importing"))
-	})
 	rel, err := filepath.Rel(filepath.Join(m.downloadsDir(), job.ID), albumDir)
 	if err != nil {
 		return outcome{status: StatusFailed, msg: M("error_naming", "error", err.Error())}
@@ -405,11 +401,11 @@ func (m *Manager) importAlbum(job Job, album qobuz.Album, albumDir string, vr ve
 	lib := m.cfg.Paths.Library
 	// Check identity again immediately before import, including albums added
 	// by another downloader while this job was running.
-	if existing := m.albumIDPath(album.ID); existing != "" && m.cfg.Naming.IfExists == config.IfExistsSkip {
+	if existing := m.albumIDPath(album.ID); existing != "" && (job.Automatic || m.cfg.Naming.IfExists == config.IfExistsSkip) {
 		return outcome{status: StatusSkipped, msg: M("already_in_library"), rel: existing}
 	}
 	if library.Exists(lib, rel) {
-		if m.cfg.Naming.IfExists != config.IfExistsReplace {
+		if job.Automatic || m.cfg.Naming.IfExists != config.IfExistsReplace {
 			return outcome{status: StatusSkipped, msg: M("already_in_library"), rel: rel}
 		}
 		aside, err := library.MoveAside(lib, rel, m.replacedDir())
@@ -418,15 +414,32 @@ func (m *Manager) importAlbum(job Job, album qobuz.Album, albumDir string, vr ve
 		}
 		m.log.Info("existing album moved aside", "from", rel, "to", aside)
 	}
-	if _, err := library.Import(albumDir, lib, rel); err != nil {
-		return outcome{status: StatusFailed, msg: M("error_import", "error", err.Error())}
-	}
 	msg := M("added")
 	if vr.BitDepth > 0 && vr.SampleRate > 0 {
 		msg = M("added", "format", strings.ToUpper(vr.Format), "bits", vr.BitDepth, "khz", khz(vr.SampleRate))
 	}
 	if incomplete {
 		msg = M("added_incomplete", "saved", len(vr.Files), "total", len(album.Tracks))
+	}
+	var chartDownload bool
+	if err := m.update(job.ID, true, func(j *Job) {
+		j.Status = StatusImporting
+		j.TracksDone = len(vr.Files)
+		j.set(M("importing"))
+		chartDownload = len(j.ChartSources) > 0
+		if len(vr.Files) > 0 {
+			sample := vr.Files[0]
+			j.PreparedImport = &preparedImport{Path: rel, Sample: sample.Rel, SampleSize: sample.Size,
+				Tracks: len(vr.Files), Message: msg, At: time.Now()}
+		}
+	}); err != nil && chartDownload {
+		return outcome{status: StatusFailed, msg: M("error_import", "error", err.Error())}
+	}
+	if path, err := library.Import(albumDir, lib, rel); err != nil {
+		if path == "" {
+			return outcome{status: StatusFailed, msg: M("error_import", "error", err.Error())}
+		}
+		m.log.Warn("cleaning staging after an album import", "job", job.ID, "err", err)
 	}
 	return outcome{status: StatusCompleted, msg: msg, rel: rel, tracks: len(vr.Files)}
 }

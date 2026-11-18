@@ -351,3 +351,78 @@ test('movie and TV codec preferences can be ranked independently and saved', asy
 	await page.locator('.tabs').getByRole('button', { name: 'Movies', exact: true }).click();
 	await expect(codecs.locator('.ordered-list strong')).toHaveText(['HEVC / x265', 'H.264 / x264']);
 });
+
+test('admin can create a chart playlist and see its automatic import history', async ({ page, requests }) => {
+	let created = false;
+	await page.route('**/api/music/charts**', async (route) => {
+		const request = route.request();
+		const { pathname } = new URL(request.url());
+		if (pathname.endsWith('/imports')) {
+			return route.fulfill({
+				json: {
+					more: false,
+					offset: 0,
+					imports: [
+						{
+							job_id: 'import-1',
+							album: 'Example release',
+							artist: 'Example artist',
+							imported_at: '2026-11-18T00:00:00Z',
+							partial: false,
+							sources: [{ playlist: 'Top 5 Colombia', track: 'Chart song', chart_date: '2026-11-16' }],
+						},
+					],
+				},
+			});
+		}
+		if (request.method() === 'POST') {
+			expect(request.headers()['x-cineroute-csrf']).toBe('test-csrf');
+			expect(request.postDataJSON()).toEqual({ country: 'co', limit: 5, name: '', enabled: true });
+			created = true;
+			return route.fulfill({ status: 201, json: {} });
+		}
+		return route.fulfill({
+			json: {
+				available: true,
+				markets: [
+					{ code: 'global', label: 'Global' },
+					{ code: 'co', label: 'Colombia' },
+				],
+				playlists: created
+					? [
+							{
+								id: 'colombia',
+								settings: { country: 'co', limit: 5, enabled: true },
+								display_name: 'Top 5 Colombia',
+								chart_date: '2026-11-16',
+								ready: 1,
+								tracks: [
+									{ rank: 1, spotify_id: '1', title: 'Chart song', artists: ['Example artist'], state: 'ready' },
+									{
+										rank: 2,
+										spotify_id: '2',
+										title: 'Live version',
+										artists: ['Example artist'],
+										state: 'needs_review',
+										reason: 'No matching Qobuz track',
+									},
+								],
+							},
+						]
+					: [],
+			},
+		});
+	});
+	await page.goto('http://admin.test/');
+	await navigate(page, 'Music');
+	expect(requests.some((request) => request.path === '/session')).toBeTruthy();
+	await page.getByRole('button', { name: 'Add chart playlist' }).click();
+	await page.getByLabel('Country or Global').selectOption('co');
+	await page.getByLabel('Track count').fill('5');
+	await page.getByRole('button', { name: 'Save playlist' }).click();
+	await expect(page.getByRole('heading', { name: 'Top 5 Colombia', exact: true })).toBeVisible();
+	await expect(page.getByText('1 of 5 playable')).toBeVisible();
+	await page.getByText('Track status', { exact: true }).click();
+	await expect(page.getByText('Needs review · No matching Qobuz track')).toBeVisible();
+	await expect(page.getByRole('region', { name: 'Automatic imports' })).toContainText('Example release');
+});

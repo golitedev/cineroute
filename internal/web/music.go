@@ -101,13 +101,15 @@ func publicMusicJob(job jobs.Job) jobs.Job {
 	job.LibraryPath = ""
 	job.LyricsRequested = false
 	job.LyricsEnqueued = false
+	job.ChartSources = nil
+	job.ChartLogged = false
 	return job
 }
 func (s *Server) musicJobs(w http.ResponseWriter, r *http.Request) {
 	result := []jobs.Job{}
 	if s.music != nil {
 		for _, job := range s.music.Jobs.List() {
-			if job.RequestedBy == actor(r).Name {
+			if !job.Automatic && job.RequestedBy == actor(r).Name {
 				if s.music.Lyrics != nil {
 					job.Lyrics = s.music.Lyrics.Get(job.ID)
 				}
@@ -133,7 +135,7 @@ func (s *Server) musicAdd(w http.ResponseWriter, r *http.Request) {
 	// Bound each user's outstanding queue before the catalog lookup.
 	count := 0
 	for _, j := range s.music.Jobs.List() {
-		if j.RequestedBy == actor(r).Name && !j.Status.Finished() {
+		if !j.Automatic && j.RequestedBy == actor(r).Name && !j.Status.Finished() {
 			count++
 			if j.AlbumID == body.AlbumID {
 				musicOK(w, publicMusicJob(j))
@@ -162,7 +164,7 @@ func (s *Server) musicAction(w http.ResponseWriter, r *http.Request) {
 	}
 	id := r.PathValue("id")
 	job, err := s.music.Jobs.Get(id)
-	if err != nil || job.RequestedBy != actor(r).Name {
+	if err != nil || job.Automatic || job.RequestedBy != actor(r).Name {
 		writeErr(w, 404, "Request not found.")
 		return
 	}
@@ -193,7 +195,7 @@ func (s *Server) musicRemove(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	job, err := s.music.Jobs.Get(r.PathValue("id"))
-	if err != nil || job.RequestedBy != actor(r).Name {
+	if err != nil || job.Automatic || job.RequestedBy != actor(r).Name {
 		writeErr(w, 404, "Request not found.")
 		return
 	}

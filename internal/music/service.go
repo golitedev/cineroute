@@ -10,6 +10,7 @@ import (
 	"os/exec"
 	"time"
 
+	"cineroute/internal/music/charts"
 	"cineroute/internal/music/config"
 	"cineroute/internal/music/jobs"
 	"cineroute/internal/music/lyrics"
@@ -31,6 +32,7 @@ type Service struct {
 	Catalog Catalog
 	Jobs    *jobs.Manager
 	Lyrics  *lyrics.Manager
+	Charts  *charts.Manager
 	cancel  context.CancelFunc
 	done    chan struct{}
 }
@@ -68,8 +70,11 @@ func Start(parent context.Context, cfg *config.Config) (*Service, error) {
 	})
 	var afterImport func(context.Context, string)
 	var scan func(context.Context) error
+	var nd *navidrome.Client
+	var chartManager *charts.Manager
 	if cfg.Navidrome.URL != "" {
-		nd := navidrome.New(cfg.Navidrome.URL, cfg.Navidrome.Username, cfg.Navidrome.Password)
+		nd = navidrome.New(cfg.Navidrome.URL, cfg.Navidrome.Username, cfg.Navidrome.Password)
+		nd.MusicFolderID = cfg.Navidrome.MusicFolderID
 		scan = nd.StartScan
 		afterImport = func(ctx context.Context, _ string) {
 			ctx, cancel := context.WithTimeout(ctx, time.Minute)
@@ -77,6 +82,7 @@ func Start(parent context.Context, cfg *config.Config) (*Service, error) {
 			if err := nd.StartScan(ctx); err != nil {
 				slog.Warn("music library scan", "err", err)
 			}
+			chartManager.Wake()
 		}
 	}
 	var lyricQueue *lyrics.Manager
@@ -105,10 +111,19 @@ func Start(parent context.Context, cfg *config.Config) (*Service, error) {
 		}
 		return nil, err
 	}
+	chartManager, err = charts.New(cfg.Paths.Data, catalog, nd, manager)
+	if err != nil {
+		if lyricQueue != nil {
+			lyricQueue.Close()
+		}
+		return nil, fmt.Errorf("chart playlists: %w", err)
+	}
 	ctx, cancel := context.WithCancel(parent)
-	s := &Service{Catalog: catalog, Jobs: manager, Lyrics: lyricQueue, cancel: cancel, done: make(chan struct{})}
+	s := &Service{Catalog: catalog, Jobs: manager, Lyrics: lyricQueue, Charts: chartManager, cancel: cancel, done: make(chan struct{})}
 	go func() {
 		defer close(s.done)
+		chartsDone := make(chan struct{})
+		go func() { defer close(chartsDone); chartManager.Run(ctx) }()
 		lyricsDone := make(chan struct{})
 		reconcileDone := make(chan struct{})
 		if lyricQueue != nil {
@@ -141,6 +156,8 @@ func Start(parent context.Context, cfg *config.Config) (*Service, error) {
 			close(reconcileDone)
 		}
 		manager.Run(ctx)
+		<-chartsDone
+		chartManager.Close()
 		<-lyricsDone
 		<-reconcileDone
 		if lyricQueue != nil {

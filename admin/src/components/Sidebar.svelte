@@ -16,6 +16,7 @@
 		Settings,
 		ListChecks,
 		PanelLeft,
+		Music,
 		X,
 	} from 'lucide-svelte';
 	import { SidebarState, setSidebar } from './sidebar/context.svelte';
@@ -51,6 +52,7 @@
 				{ id: 'movies', label: 'Movies', icon: Film },
 				{ id: 'tv', label: 'TV shows', icon: Tv },
 				{ id: 'anime', label: 'Anime', icon: Sparkles },
+				{ id: 'music', label: 'Music', icon: Music },
 				{ id: 'hardlinks', label: 'Hardlinks', icon: Link },
 				{ id: 'subtitles', label: 'Subtitles', icon: Subtitles },
 			],

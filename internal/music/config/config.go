@@ -86,9 +86,10 @@ type Lyrics struct {
 }
 
 type Navidrome struct {
-	URL      string `yaml:"url"`
-	Username string `yaml:"username"`
-	Password string `yaml:"password"`
+	URL           string `yaml:"url"`
+	Username      string `yaml:"username"`
+	Password      string `yaml:"password"`
+	MusicFolderID string `yaml:"music_folder_id"`
 }
 
 // Default returns the defaults overlaid by config.yaml music settings.
@@ -235,6 +236,7 @@ func (c *Config) Validate() error {
 		}
 	}
 	c.Navidrome.URL = strings.TrimRight(strings.TrimSpace(c.Navidrome.URL), "/")
+	c.Navidrome.MusicFolderID = strings.TrimSpace(c.Navidrome.MusicFolderID)
 
 	if len(errs) > 0 {
 		return errors.New(strings.Join(errs, "; "))

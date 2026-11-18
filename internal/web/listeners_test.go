@@ -75,7 +75,7 @@ func TestPublicListenerNeverExposesAdministrativeRoutes(t *testing.T) {
 	if err := os.WriteFile(sentinel, []byte("original media"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	paths := []string{"/api/status", "/api/history", "/api/intakes", "/api/intakes/anything", "/api/intakes/anything/submit", "/api/intakes/anything/destination", "/api/copies", "/api/copies/scan", "/api/copies/anything/hardlink", "/api/hardlinks", "/api/hardlinks/scan", "/api/hardlinks/anything", "/api/hardlinks/anything/relink", "/api/subtitles", "/api/subtitles/settings", "/api/subtitles/work/clear", "/api/subtitles/run", "/api/subtitles/anything/run", "/api/requests/settings", "/api/requests/indexers", "/api/requests/queue", "/api/requests/history", "/api/requests/queue/anything/approve", "/api/requests/queue/anything/retry"}
+	paths := []string{"/api/status", "/api/history", "/api/intakes", "/api/intakes/anything", "/api/intakes/anything/submit", "/api/intakes/anything/destination", "/api/copies", "/api/copies/scan", "/api/copies/anything/hardlink", "/api/hardlinks", "/api/hardlinks/scan", "/api/hardlinks/anything", "/api/hardlinks/anything/relink", "/api/subtitles", "/api/subtitles/settings", "/api/subtitles/work/clear", "/api/subtitles/run", "/api/subtitles/anything/run", "/api/requests/settings", "/api/requests/indexers", "/api/requests/queue", "/api/requests/history", "/api/requests/queue/anything/approve", "/api/requests/queue/anything/retry", "/api/music/charts", "/api/music/charts/imports", "/api/music/charts/anything", "/api/music/charts/anything/sync"}
 	for _, path := range paths {
 		for _, method := range []string{"GET", "HEAD", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"} {
 			for _, credential := range []string{"none", "user", "admin-cookie", "admin-basic"} {

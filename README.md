@@ -834,6 +834,22 @@ An optional `music.navidrome` section accepts `url`, `username` and `password`
 to trigger a scan after importing. Qobuz quality `3` caps requests at 96 kHz;
 quality `4` requests the highest tier including 192 kHz.
 
+In **Resources → Music**, administrators can configure multiple daily Spotify
+chart playlists from Kworb. Choose Global or a country, and 1–200 tracks per
+playlist. **Sync now** checks the latest published chart and retries unresolved
+matches. Pausing stops future syncs and leaves the current playlist available.
+Removing a playlist also removes it from Navidrome. Imported albums stay in
+the music library.
+
+Use a Navidrome administrator in `music.navidrome` for chart playlists. That
+account owns the playlists, and Navidrome's public playlist setting makes them
+visible to regular users who have access to the music library. For Navidrome
+servers with multiple libraries, set `music.navidrome.music_folder_id` to the
+shared music library's ID from Navidrome's `getMusicFolders` response. CineRoute
+reuses playable library tracks and downloads missing releases through the normal
+Qobuz queue. The Music page shows missing or ambiguous tracks and keeps an
+automatic import history under `music.paths.data/charts`.
+
 Automatic lyrics are disabled by default for newly imported music releases.
 `music.lyrics.enabled: true` enables them. A separate, single-worker SQLite queue
 under `music.paths.data/lyrics/queue.db` writes sidecars only inside that release's

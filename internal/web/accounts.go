@@ -151,6 +151,9 @@ func publicPath(p string) bool {
 }
 func userPath(r *http.Request) bool {
 	p := r.URL.Path
+	if p == "/api/music/charts" || strings.HasPrefix(p, "/api/music/charts/") {
+		return false
+	}
 	return (r.Method == http.MethodGet && (p == "/api/session" || p == "/api/catalog/search" || strings.HasPrefix(p, "/api/catalog/movie/") || strings.HasPrefix(p, "/api/catalog/tv/") || p == "/api/user/requests" || strings.HasPrefix(p, "/api/music/"))) ||
 		(r.Method == http.MethodDelete && strings.HasPrefix(p, "/api/music/jobs/")) ||
 		(r.Method == http.MethodPost && (p == "/api/music/jobs" || (strings.HasPrefix(p, "/api/music/jobs/") && (strings.HasSuffix(p, "/cancel") || strings.HasSuffix(p, "/retry") || strings.HasSuffix(p, "/retry-lyrics"))) || p == "/api/logout" || p == "/api/user/requests" || (strings.HasPrefix(p, "/api/user/requests/") && strings.HasSuffix(p, "/cancel"))))

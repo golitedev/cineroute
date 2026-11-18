@@ -53,21 +53,50 @@ type Job struct {
 	MessageArgs map[string]any `json:"message_args"`
 	Problems    []string       `json:"problems"`
 	// ProblemItems are the problems in a form the UI can translate.
-	ProblemItems    []ProblemItem `json:"problem_items"`
-	Attempt         int           `json:"attempt"`
-	MaxAttempts     int           `json:"max_attempts"`
-	LyricsEnqueued  bool          `json:"lyrics_enqueued,omitempty"`
-	LyricsRequested bool          `json:"lyrics_requested,omitempty"`
-	Lyrics          *lyrics.State `json:"lyrics,omitempty"`
-	LibraryPath     string        `json:"library_path"`
-	RequestedBy     string        `json:"requested_by"`
-	CreatedAt       time.Time     `json:"created_at"`
-	StartedAt       *time.Time    `json:"started_at"`
-	FinishedAt      *time.Time    `json:"finished_at"`
+	ProblemItems    []ProblemItem   `json:"problem_items"`
+	Attempt         int             `json:"attempt"`
+	MaxAttempts     int             `json:"max_attempts"`
+	LyricsEnqueued  bool            `json:"lyrics_enqueued,omitempty"`
+	Automatic       bool            `json:"automatic,omitempty"`
+	ChartSources    []ChartSource   `json:"chart_sources,omitempty"`
+	ChartLogged     bool            `json:"chart_logged,omitempty"`
+	PreparedImport  *preparedImport `json:"prepared_import,omitempty"`
+	LyricsRequested bool            `json:"lyrics_requested,omitempty"`
+	Lyrics          *lyrics.State   `json:"lyrics,omitempty"`
+	LibraryPath     string          `json:"library_path"`
+	RequestedBy     string          `json:"requested_by"`
+	CreatedAt       time.Time       `json:"created_at"`
+	StartedAt       *time.Time      `json:"started_at"`
+	FinishedAt      *time.Time      `json:"finished_at"`
+}
+
+// ChartSource records the chart entry that needed this release.
+type ChartSource struct {
+	PlaylistID string `json:"playlist_id"`
+	Playlist   string `json:"playlist"`
+	ChartDate  string `json:"chart_date"`
+	SpotifyID  string `json:"spotify_id"`
+	Track      string `json:"track"`
+}
+
+// preparedImport identifies the installed album if a restart interrupts the
+// handoff between the final rename and saving the completed job.
+type preparedImport struct {
+	Path, Sample string
+	SampleSize   int64
+	Tracks       int
+	Message      Msg
+	At           time.Time
+}
+
+func (j *Job) chartReceiptPending() bool {
+	return j.Status == StatusCompleted && len(j.ChartSources) != 0 && !j.ChartLogged
 }
 
 func (j *Job) clone() Job {
 	c := *j
+	c.PreparedImport = nil
+	c.ChartSources = append([]ChartSource(nil), j.ChartSources...)
 	if j.Lyrics != nil {
 		state := *j.Lyrics
 		c.Lyrics = &state
