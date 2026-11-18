@@ -185,6 +185,45 @@ func TestChooseSongReusesOriginalAndArtistAliases(t *testing.T) {
 	}
 }
 
+func TestChooseSongReusesVerifiedReleaseLabels(t *testing.T) {
+	recording := qobuz.Recording{ID: "catalog", ISRC: "USAAA1234567", Duration: 200}
+	for _, tt := range []struct {
+		chart, library string
+		code           string
+		duration       int
+		want           bool
+	}{
+		{"Song", "Song (Album Version)", recording.ISRC, 201, true},
+		{"Song", "Song [LP Version]", recording.ISRC, 200, true},
+		{"Song", "Song – Bonus Track", recording.ISRC, 200, true},
+		{"Song (Album Version)", "Song", recording.ISRC, 200, true},
+		{"Song (feat. Guest)", "Song (Album Version) (feat. Guest)", recording.ISRC, 200, true},
+		{"Song", "Song (Album Version)", "USAAA7654321", 200, false},
+		{"Song", "Song (Album Version)", recording.ISRC, 0, false},
+		{"Song", "Song (Bonus Track)", recording.ISRC, 225, false},
+		{"Song", "Song (Radio Edit)", recording.ISRC, 200, false},
+		{"Song", "Song (Bachata)", recording.ISRC, 200, false},
+		{"Song", "Song (2026 Remaster)", recording.ISRC, 200, false},
+		{"Song (Live)", "Song (Album Version)", recording.ISRC, 200, false},
+	} {
+		track := Track{Title: tt.chart, Artists: []string{"Artist", "Guest"}}
+		song := navidrome.Song{ID: "local", Title: tt.library, Artist: "Artist", Duration: tt.duration, ISRC: []string{tt.code}}
+		got, ambiguous := chooseSong(track, recording, []navidrome.Song{song})
+		if (got.ID != "") != tt.want || ambiguous {
+			t.Errorf("chart %q, library %q, ISRC %q, duration %d: got %q, ambiguous %t", tt.chart, tt.library, tt.code, tt.duration, got.ID, ambiguous)
+		}
+	}
+
+	track := Track{Title: "Song", Artists: []string{"Artist"}}
+	exact := navidrome.Song{ID: "plain", Title: "Song", Artist: "Artist", Duration: 200, ISRC: []string{recording.ISRC}}
+	bonus := exact
+	bonus.ID, bonus.Title = "bonus", "Song (Bonus Track)"
+	got, ambiguous := chooseSong(track, recording, []navidrome.Song{bonus, exact})
+	if got.ID != exact.ID || ambiguous {
+		t.Fatalf("match = %q, ambiguous %t, want exact title", got.ID, ambiguous)
+	}
+}
+
 type testQueue struct {
 	job jobs.Job
 }

@@ -11,10 +11,12 @@ import (
 	"golang.org/x/text/unicode/norm"
 )
 
+const releaseLabel = `(?:(?:single|original|album|lp)\s+version|bonus\s+track)`
+
 var (
 	featureCredit        = regexp.MustCompile(`(?i)\s+(?:[(\[]\s*)?\b(?:feat\.?|ft\.?|featuring)\s+([^\])]+)[\])]?$`)
 	artistDivider        = regexp.MustCompile(`(?i)\s*(?:,|;)\s*|\s+(?:&|and|x|with|feat\.?|ft\.?|featuring)\s+`)
-	releaseVersionSuffix = regexp.MustCompile(`(?i)\s*(?:\((?:single|original) version\)|\[(?:single|original) version\]|[-–—]\s+(?:single|original) version)\s*$`)
+	releaseVersionSuffix = regexp.MustCompile(`(?i)\s*(?:\(` + releaseLabel + `\)|\[` + releaseLabel + `\]|[-–—]\s+` + releaseLabel + `)\s*$`)
 )
 
 func normalize(value string) string {
@@ -68,6 +70,16 @@ func splitFeaturedCredit(title string, known []string) (string, []string) {
 func titleWithoutCredit(title string, artists []string) string {
 	base, _ := splitFeaturedCredit(title, normalizeArtists(artists))
 	return base
+}
+
+func splitReleaseLabel(title string, artists []string) (string, string) {
+	trimmed := strings.TrimSpace(title)
+	base := titleWithoutCredit(trimmed, artists)
+	match := releaseVersionSuffix.FindStringIndex(base)
+	if match == nil {
+		return title, ""
+	}
+	return strings.TrimSpace(base[:match[0]]) + trimmed[len(base):], normalize(base[match[0]:])
 }
 
 func normalizeArtists(artists []string) []string {
@@ -172,22 +184,36 @@ func chooseSong(track Track, recording qobuz.Recording, songs []navidrome.Song) 
 		chosen = matches[0]
 	}
 
-	// Prefer the single or original version when it matches either the catalog
-	// result or an unambiguous library match for the chart title.
+	// Compare release labels only after identifying the recording from the
+	// catalog or an unambiguous library match for the chart title.
 	ids, duration := chosen.ISRC, chosen.Duration
 	if normalizeISRC(recording.ISRC) != "" {
-		ids, duration = []string{recording.ISRC}, recording.Duration
+		ids = []string{recording.ISRC}
+		if recording.Duration > 0 {
+			duration = recording.Duration
+		}
 	}
-	if len(ids) == 0 {
+	if len(ids) == 0 || duration <= 0 {
+		return chosen, false
+	}
+	baseTrack := track
+	baseTrack.Title, _ = splitReleaseLabel(track.Title, track.Artists)
+	if chosen.ID != "" && baseTrack.Title != track.Title {
 		return chosen, false
 	}
 	var versions []navidrome.Song
 	for _, song := range songs {
-		title := releaseVersionSuffix.ReplaceAllString(song.Title, "")
-		if song.ID == "" || title == song.Title || !compatibleDurations(duration, song.Duration) || !sharesISRC(ids, song.ISRC) {
+		if song.ID == "" || song.Duration <= 0 || !compatibleDurations(duration, song.Duration) || !sharesISRC(ids, song.ISRC) {
 			continue
 		}
-		score := trackMatch(track, title, song.Artist)
+		title, label := splitReleaseLabel(song.Title, track.Artists)
+		if label == "" && baseTrack.Title == track.Title {
+			continue
+		}
+		if chosen.ID != "" && label != "single version" && label != "original version" {
+			continue
+		}
+		score := trackMatch(baseTrack, title, song.Artist)
 		if score == 0 || score < best {
 			continue
 		}
