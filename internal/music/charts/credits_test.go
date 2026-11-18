@@ -6,6 +6,7 @@ import (
 	"errors"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 
@@ -61,7 +62,7 @@ func TestChartISRCSelectsAndRemembersTheRecording(t *testing.T) {
 	const album = "I Love You."
 	qobuzResults := catalogRecordings{
 		{ID: "other", AlbumID: "other-album", Title: track.Title, Artist: track.Artists[0], Album: album, ISRC: otherISRC, Duration: 240, Streamable: true},
-		{ID: "compilation", AlbumID: "compilation-album", Title: track.Title, Artist: track.Artists[0], Album: "Compilation", ISRC: chartISRC, Duration: 240, Streamable: true},
+		{ID: "compilation", AlbumID: "compilation-album", Title: track.Title, Artist: track.Artists[0], Album: "Compilation", ISRC: chartISRC, Duration: 237, Streamable: true},
 		{ID: "chart", AlbumID: "chart-album", Title: track.Title, Artist: track.Artists[0], Album: album, ISRC: chartISRC, Duration: 240, Streamable: true},
 	}
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -126,10 +127,10 @@ func TestChartISRCSelectsAndRemembersTheRecording(t *testing.T) {
 	if lookups != 1 {
 		t.Fatalf("Credits.fm lookups = %d, wanted one", lookups)
 	}
-	if err := m.SetTrackISRC(ctx, first.ID, sweaterSpotifyID, "wrong"); !errors.Is(err, ErrSettings) {
+	if err := m.SetTrackISRC(ctx, first.ID, sweaterSpotifyID, "wrong", ""); !errors.Is(err, ErrSettings) {
 		t.Fatalf("invalid ISRC error = %v", err)
 	}
-	if err := m.SetTrackISRC(ctx, first.ID, sweaterSpotifyID, "us-sm1-13-00891"); !errors.Is(err, ErrTrackBusy) {
+	if err := m.SetTrackISRC(ctx, first.ID, sweaterSpotifyID, "us-sm1-13-00891", ""); !errors.Is(err, ErrTrackBusy) {
 		t.Fatalf("changing ISRC on an active job returned %v", err)
 	}
 	for _, p := range []playlist{first, second} {
@@ -138,7 +139,8 @@ func TestChartISRCSelectsAndRemembersTheRecording(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	if err := m.SetTrackISRC(ctx, first.ID, sweaterSpotifyID, "us-sm1-13-00891"); err != nil {
+	const manualAlbum = "Other Edition"
+	if err := m.SetTrackISRC(ctx, first.ID, sweaterSpotifyID, "us-sm1-13-00891", " "+manualAlbum+" "); err != nil {
 		t.Fatal(err)
 	}
 	if err := m.cacheIdentity(ctx, sweaterSpotifyID, trackIdentity{ISRC: chartISRC}, now); err != nil {
@@ -153,7 +155,8 @@ func TestChartISRCSelectsAndRemembersTheRecording(t *testing.T) {
 	}
 	m.lookupIdentity = lookup
 	views, err := m.Views(ctx)
-	if err != nil || len(views) != 2 || views[0].Tracks[0].ConfirmedISRC != otherISRC || views[1].Tracks[0].ConfirmedISRC != otherISRC {
+	if err != nil || len(views) != 2 || views[0].Tracks[0].ConfirmedISRC != otherISRC || views[1].Tracks[0].ConfirmedISRC != otherISRC ||
+		views[0].Tracks[0].ConfirmedAlbum != manualAlbum || views[1].Tracks[0].ConfirmedAlbum != manualAlbum {
 		t.Fatalf("manual ISRC views %+v, error %v", views, err)
 	}
 	p, err := m.playlist(ctx, second.ID)
@@ -166,10 +169,44 @@ func TestChartISRCSelectsAndRemembersTheRecording(t *testing.T) {
 	if lookups != 1 || p.Entries[0].SongID != "manual-local" {
 		t.Fatalf("manual match %q, lookups %d", p.Entries[0].SongID, lookups)
 	}
-	if err := m.SetTrackISRC(ctx, first.ID, sweaterSpotifyID, ""); err != nil {
+	if err := m.SetTrackISRC(ctx, first.ID, sweaterSpotifyID, "", ""); err != nil {
 		t.Fatal(err)
 	}
 	if got, err := m.identity(ctx, sweaterSpotifyID); err != nil || got.ISRC != "" {
 		t.Fatalf("cleared ISRC %+v, error %v", got, err)
+	}
+}
+
+func TestVerifiedAlbumDistinguishesSameISRCDifferentDurations(t *testing.T) {
+	track := Track{Title: "Rockin' Around The Christmas Tree", Artists: []string{"Brenda Lee"}}
+	original := qobuz.Recording{ID: "original", AlbumID: "1964", Title: track.Title, Artist: track.Artists[0],
+		Album: "Merry Christmas From Brenda Lee", ISRC: "USMC15848998", Duration: 126, Streamable: true}
+	shorter := original
+	shorter.ID, shorter.AlbumID, shorter.Album, shorter.Duration = "shorter", "compilation", "A Rockin’ Christmas With Brenda Lee", 123
+	differentISRC := original
+	differentISRC.ID, differentISRC.ISRC = "different", "USUV71705179"
+	candidates := []qobuz.Recording{shorter, differentISRC, original}
+	identity := trackIdentity{ISRC: original.ISRC}
+	if _, reason := chooseRecordingWithISRC(track, candidates, identity); !strings.Contains(reason, "Set a preferred album") {
+		t.Fatalf("ISRC without edition evidence gave %q", reason)
+	}
+	identity.Album = original.Album
+	if got, reason := chooseRecordingWithISRC(track, candidates, identity); got.ID != original.ID || reason != "" {
+		t.Fatalf("verified album gave %q, reason %q", got.ID, reason)
+	}
+	songs := []navidrome.Song{
+		{ID: shorter.ID, Title: track.Title, Artist: track.Artists[0], Album: shorter.Album, ISRC: []string{shorter.ISRC}, Duration: shorter.Duration},
+		{ID: original.ID, Title: track.Title, Artist: track.Artists[0], Album: original.Album, ISRC: []string{original.ISRC}, Duration: original.Duration},
+	}
+	if got, ambiguous := chooseSongWithIdentity(track, qobuz.Recording{}, songs, identity); got.ID != original.ID || ambiguous {
+		t.Fatalf("local album gave %q, ambiguous %t", got.ID, ambiguous)
+	}
+	shorter.Album = original.Album
+	if _, reason := chooseRecordingWithISRC(track, []qobuz.Recording{shorter, original}, identity); reason != ambiguousCatalogRecording {
+		t.Fatalf("conflicting tracks on the verified album gave %q", reason)
+	}
+	songs[0].Album = original.Album
+	if got, ambiguous := chooseSongWithIdentity(track, qobuz.Recording{}, songs, identity); got.ID != "" || !ambiguous {
+		t.Fatalf("conflicting local tracks on the verified album gave %q, ambiguous %t", got.ID, ambiguous)
 	}
 }

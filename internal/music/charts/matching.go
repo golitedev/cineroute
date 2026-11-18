@@ -12,6 +12,7 @@ import (
 )
 
 const releaseLabel = `(?:(?:single|original|album|lp)\s+version|bonus\s+track)`
+const ambiguousCatalogRecording = "Multiple Qobuz recordings match this title and artist"
 
 var (
 	featureCredit        = regexp.MustCompile(`(?i)\s+(?:[(\[]\s*)?\b(?:feat\.?|ft\.?|featuring)\s+([^\])]+)[\])]?$`)
@@ -175,6 +176,10 @@ func catalogMatch(track Track, recording qobuz.Recording) int {
 }
 
 func chooseRecording(track Track, candidates []qobuz.Recording) (qobuz.Recording, string) {
+	return chooseRecordingOnAlbum(track, candidates, "")
+}
+
+func chooseRecordingOnAlbum(track Track, candidates []qobuz.Recording, album string) (qobuz.Recording, string) {
 	// Qobuz can list the same acoustic recording with and without its version.
 	acousticCodes := make(map[string]bool)
 	for _, candidate := range candidates {
@@ -186,6 +191,9 @@ func chooseRecording(track Track, candidates []qobuz.Recording) (qobuz.Recording
 	best := 0
 	for _, candidate := range candidates {
 		if candidate.ID == "" || candidate.AlbumID == "" || acousticCodes[normalizeISRC(candidate.ISRC)] {
+			continue
+		}
+		if album != "" && normalize(candidate.Album) != album {
 			continue
 		}
 		score := catalogMatch(track, candidate)
@@ -213,7 +221,7 @@ func chooseRecording(track Track, candidates []qobuz.Recording) (qobuz.Recording
 		if slices.ContainsFunc(matches[:i], func(other qobuz.Recording) bool {
 			return other.ID != candidate.ID && (!equalISRC(other.ISRC, candidate.ISRC) || !compatibleDurations(other.Duration, candidate.Duration))
 		}) {
-			return qobuz.Recording{}, "Multiple Qobuz recordings match this title and artist"
+			return qobuz.Recording{}, ambiguousCatalogRecording
 		}
 	}
 	return chosen, ""
@@ -224,23 +232,37 @@ func chooseRecordingWithISRC(track Track, candidates []qobuz.Recording, identity
 		return chooseRecording(track, candidates)
 	}
 	matches := slices.DeleteFunc(slices.Clone(candidates), func(r qobuz.Recording) bool { return !equalISRC(r.ISRC, identity.ISRC) })
-	if album := normalize(identity.Album); album != "" {
-		if i := slices.IndexFunc(matches, func(r qobuz.Recording) bool { return r.Streamable && normalize(r.Album) == album }); i > 0 {
-			matches[0], matches[i] = matches[i], matches[0]
+	album := normalize(identity.Album)
+	if album != "" {
+		// An independently identified edition can settle conflicts between
+		// releases. Conflicting tracks on that edition still require review.
+		recording, reason := chooseRecordingOnAlbum(track, matches, album)
+		if recording.ID != "" || reason == ambiguousCatalogRecording {
+			return recording, reason
 		}
 	}
 	recording, reason := chooseRecording(track, matches)
-	if reason == "No matching Qobuz track" {
+	switch {
+	case reason == "No matching Qobuz track":
 		reason = "No library or Qobuz match for ISRC " + identity.ISRC
+	case reason == ambiguousCatalogRecording && album == "":
+		reason = "Qobuz editions with this ISRC differ in duration. Set a preferred album."
 	}
 	return recording, reason
 }
 
-func chooseSongWithISRC(track Track, recording qobuz.Recording, songs []navidrome.Song, code string) (navidrome.Song, bool) {
-	if code != "" {
-		songs = slices.DeleteFunc(slices.Clone(songs), func(song navidrome.Song) bool {
-			return !slices.ContainsFunc(song.ISRC, func(id string) bool { return equalISRC(id, code) })
-		})
+func chooseSongWithIdentity(track Track, recording qobuz.Recording, songs []navidrome.Song, identity trackIdentity) (navidrome.Song, bool) {
+	if identity.ISRC == "" {
+		return chooseSong(track, recording, songs)
+	}
+	songs = slices.DeleteFunc(slices.Clone(songs), func(song navidrome.Song) bool {
+		return !slices.ContainsFunc(song.ISRC, func(id string) bool { return equalISRC(id, identity.ISRC) })
+	})
+	if album := normalize(identity.Album); album != "" {
+		onAlbum := slices.DeleteFunc(slices.Clone(songs), func(song navidrome.Song) bool { return normalize(song.Album) != album })
+		if song, ambiguous := chooseSong(track, recording, onAlbum); song.ID != "" || ambiguous {
+			return song, ambiguous
+		}
 	}
 	return chooseSong(track, recording, songs)
 }

@@ -337,7 +337,7 @@ func (m *Manager) resolve(ctx context.Context, p playlist, e *entry, now time.Ti
 	if err != nil {
 		return err
 	}
-	song, ambiguous := chooseSongWithISRC(e.Track, e.Recording, songs, identity.ISRC)
+	song, ambiguous := chooseSongWithIdentity(e.Track, e.Recording, songs, identity)
 	if song.ID != "" {
 		e.setReady(song, now)
 		return nil
@@ -382,7 +382,7 @@ func (m *Manager) resolve(ctx context.Context, p playlist, e *entry, now time.Ti
 				}
 				if resolved.ISRC != "" {
 					identity = resolved
-					song, ambiguous = chooseSongWithISRC(e.Track, qobuz.Recording{}, songs, identity.ISRC)
+					song, ambiguous = chooseSongWithIdentity(e.Track, qobuz.Recording{}, songs, identity)
 					if song.ID != "" {
 						e.setReady(song, now)
 						return nil
@@ -404,7 +404,7 @@ func (m *Manager) resolve(ctx context.Context, p playlist, e *entry, now time.Ti
 				return err
 			}
 		}
-		song, ambiguous = chooseSongWithISRC(e.Track, recording, songs, identity.ISRC)
+		song, ambiguous = chooseSongWithIdentity(e.Track, recording, songs, identity)
 		if song.ID != "" {
 			e.setReady(song, now)
 			return nil

@@ -18,6 +18,7 @@
 		reason?: string;
 		album?: string;
 		confirmed_isrc?: string;
+		confirmed_album?: string;
 	};
 	type Chart = {
 		id: string;
@@ -41,6 +42,7 @@
 	let editor = $state('');
 	let isrcEditor = $state('');
 	let isrc = $state('');
+	let isrcAlbum = $state('');
 	let country = $state('global');
 	let limit = $state<number | undefined>(50);
 	let name = $state('');
@@ -119,7 +121,7 @@
 		success = '';
 	}
 
-	async function mutate(path: string, method: string, notice: string, body?: Settings | { isrc: string }) {
+	async function mutate(path: string, method: string, notice: string, body?: Settings | { isrc: string; album?: string }) {
 		busy = true;
 		error = '';
 		success = '';
@@ -152,9 +154,14 @@
 		}
 	}
 
-	async function saveISRC(chart: Chart, track: Track, code: string) {
+	async function saveISRC(chart: Chart, track: Track, code: string, album = '') {
 		const path = `/${chart.id}/tracks/${track.spotify_id}/isrc`;
-		if (await mutate(path, 'PUT', code ? 'ISRC saved. Track check queued.' : 'Automatic matching restored.', { isrc: code }))
+		if (
+			await mutate(path, 'PUT', code ? 'ISRC saved. Track check queued.' : 'Automatic matching restored.', {
+				isrc: code,
+				album: album || undefined,
+			})
+		)
 			isrcEditor = '';
 	}
 
@@ -269,16 +276,18 @@
 									{statusLabels[track.state] || track.state}{track.reason ? ' · ' + track.reason : ''}
 									{track.album ? ' · ' + track.album : ''}
 									{track.confirmed_isrc ? ' · Confirmed ISRC ' + track.confirmed_isrc : ''}
+									{track.confirmed_album && track.confirmed_album !== track.album ? ' · Preferred album ' + track.confirmed_album : ''}
 								</p>
 								{#if isrcEditor === trackKey}
 									<form
 										onsubmit={(event) => {
 											event.preventDefault();
-											void saveISRC(chart, track, isrc.trim());
+											void saveISRC(chart, track, isrc.trim(), isrcAlbum.trim());
 										}}
 									>
 										<div class="actions">
 											<label>ISRC <input bind:value={isrc} required maxlength="24" disabled={busy} /></label>
+											<label>Preferred album (optional) <input bind:value={isrcAlbum} maxlength="256" disabled={busy} /></label>
 											<button type="submit" disabled={busy || !isrc.trim()}>Save ISRC</button>
 											{#if track.confirmed_isrc}<button type="button" disabled={busy} onclick={() => saveISRC(chart, track, '')}
 													>Use automatic match</button
@@ -300,6 +309,7 @@
 										onclick={() => {
 											isrcEditor = trackKey;
 											isrc = track.confirmed_isrc || '';
+											isrcAlbum = track.confirmed_album || '';
 										}}
 									>
 										{track.confirmed_isrc ? 'Edit ISRC' : 'Set ISRC'}

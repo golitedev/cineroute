@@ -374,6 +374,7 @@ test('admin chart playlists show sync progress and automatic import history', as
 	let created = false;
 	let reviewing = false;
 	let confirmedISRC = '';
+	let confirmedAlbum = '';
 	const folder = 'Example artist — Example release (2026) [FLAC]';
 	const folderPath = '/mnt/music/' + folder;
 	await page.route('**/api/music/charts**', async (route) => {
@@ -389,8 +390,9 @@ test('admin chart playlists show sync progress and automatic import history', as
 		if (pathname === '/api/music/charts/colombia/tracks/2/isrc' && request.method() === 'PUT') {
 			expect(request.headers()['x-cineroute-csrf']).toBe('test-csrf');
 			const body = request.postDataJSON();
-			expect(body).toEqual({ isrc: confirmedISRC ? '' : 'USSM11300080' });
+			expect(body).toEqual(confirmedISRC ? { isrc: '' } : { isrc: 'USSM11300080', album: 'I Love You.' });
 			confirmedISRC = body.isrc;
+			confirmedAlbum = body.album || '';
 			return route.fulfill({ status: 202, json: { saved: true } });
 		}
 		if (pathname.endsWith('/imports')) {
@@ -445,6 +447,7 @@ test('admin chart playlists show sync progress and automatic import history', as
 										state: reviewing ? 'needs_review' : 'indexing',
 										reason: reviewing ? 'No matching Qobuz track' : '',
 										confirmed_isrc: confirmedISRC || undefined,
+										confirmed_album: confirmedAlbum || undefined,
 									},
 								],
 							},
@@ -472,9 +475,11 @@ test('admin chart playlists show sync progress and automatic import history', as
 	await expect(page.getByText('Needs review · No matching Qobuz track')).toBeVisible();
 	await page.getByRole('button', { name: 'Set ISRC', exact: true }).click();
 	await page.getByLabel('ISRC', { exact: true }).fill('USSM11300080');
+	await page.getByLabel('Preferred album (optional)').fill('I Love You.');
 	await page.getByRole('button', { name: 'Save ISRC', exact: true }).click();
 	await expect(page.getByText('Confirmed ISRC USSM11300080', { exact: false })).toBeVisible();
 	await page.getByRole('button', { name: 'Edit ISRC', exact: true }).click();
+	await expect(page.getByLabel('Preferred album (optional)')).toHaveValue('I Love You.');
 	await page.getByRole('button', { name: 'Use automatic match', exact: true }).click();
 	await expect(page.getByRole('button', { name: 'Set ISRC', exact: true })).toBeVisible();
 	await page.getByRole('main').getByRole('button', { name: 'Import history', exact: true }).click();

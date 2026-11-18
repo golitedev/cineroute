@@ -86,7 +86,8 @@ func (s *Server) setChartTrackISRC(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var body struct {
-		ISRC *string `json:"isrc"`
+		ISRC  *string `json:"isrc"`
+		Album string  `json:"album"`
 	}
 	dec := json.NewDecoder(http.MaxBytesReader(w, r.Body, 4096))
 	dec.DisallowUnknownFields()
@@ -94,7 +95,7 @@ func (s *Server) setChartTrackISRC(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusBadRequest, "Provide an ISRC or an empty string to clear it.")
 		return
 	}
-	if err := manager.SetTrackISRC(r.Context(), r.PathValue("id"), r.PathValue("track"), *body.ISRC); err != nil {
+	if err := manager.SetTrackISRC(r.Context(), r.PathValue("id"), r.PathValue("track"), *body.ISRC, body.Album); err != nil {
 		chartError(w, err)
 		return
 	}

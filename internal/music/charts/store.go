@@ -76,10 +76,11 @@ type PlaylistView struct {
 
 type TrackView struct {
 	Track
-	State         string `json:"state"`
-	Reason        string `json:"reason,omitempty"`
-	Album         string `json:"album,omitempty"`
-	ConfirmedISRC string `json:"confirmed_isrc,omitempty"`
+	State          string `json:"state"`
+	Reason         string `json:"reason,omitempty"`
+	Album          string `json:"album,omitempty"`
+	ConfirmedISRC  string `json:"confirmed_isrc,omitempty"`
+	ConfirmedAlbum string `json:"confirmed_album,omitempty"`
 }
 
 type playlist struct {
@@ -233,7 +234,7 @@ func (m *Manager) Views(ctx context.Context) ([]PlaylistView, error) {
 	if err != nil {
 		return nil, err
 	}
-	manual, err := m.confirmedISRCs(ctx)
+	manual, err := m.confirmedIdentities(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -247,7 +248,8 @@ func (m *Manager) Views(ctx context.Context) ([]PlaylistView, error) {
 		}
 		for i, entry := range p.Entries {
 			track := &view.Tracks[i]
-			track.ConfirmedISRC = manual[entry.SpotifyID]
+			identity := manual[entry.SpotifyID]
+			track.ConfirmedISRC, track.ConfirmedAlbum = identity.ISRC, identity.Album
 			if entry.JobID == "" {
 				continue
 			}
@@ -356,29 +358,34 @@ func (m *Manager) cacheIdentity(ctx context.Context, spotifyID string, identity 
 	return err
 }
 
-func (m *Manager) confirmedISRCs(ctx context.Context) (map[string]string, error) {
-	rows, err := m.db.QueryContext(ctx, "SELECT spotify_id, isrc FROM chart_identity WHERE manual = 1")
+func (m *Manager) confirmedIdentities(ctx context.Context) (map[string]trackIdentity, error) {
+	rows, err := m.db.QueryContext(ctx, "SELECT spotify_id, isrc, album FROM chart_identity WHERE manual = 1")
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
-	result := make(map[string]string)
+	result := make(map[string]trackIdentity)
 	for rows.Next() {
-		var id, code string
-		if err := rows.Scan(&id, &code); err != nil {
+		var id string
+		var identity trackIdentity
+		if err := rows.Scan(&id, &identity.ISRC, &identity.Album); err != nil {
 			return nil, err
 		}
-		result[id] = code
+		result[id] = identity
 	}
 	return result, rows.Err()
 }
 
 // SetTrackISRC updates all playlists that include the Spotify track. An empty
 // code returns it to automatic matching.
-func (m *Manager) SetTrackISRC(ctx context.Context, playlistID, spotifyID, input string) error {
+func (m *Manager) SetTrackISRC(ctx context.Context, playlistID, spotifyID, input, album string) error {
 	code := normalizeISRC(input)
 	if strings.TrimSpace(input) != "" && !validISRC.MatchString(code) {
 		return fmt.Errorf("%w: enter a valid 12-character ISRC", ErrSettings)
+	}
+	album = strings.TrimSpace(album)
+	if utf8.RuneCountInString(album) > 256 {
+		return fmt.Errorf("%w: album name must be at most 256 characters", ErrSettings)
 	}
 	m.mutations.Lock()
 	defer m.mutations.Unlock()
@@ -422,8 +429,8 @@ func (m *Manager) SetTrackISRC(ctx context.Context, playlistID, spotifyID, input
 	if code == "" {
 		_, err = tx.ExecContext(ctx, "DELETE FROM chart_identity WHERE spotify_id = ? AND manual = 1", spotifyID)
 	} else {
-		_, err = tx.ExecContext(ctx, `INSERT INTO chart_identity VALUES (?, ?, '', 1, 0)
-			ON CONFLICT(spotify_id) DO UPDATE SET isrc = excluded.isrc, album = '', manual = 1, checked_at = 0`, spotifyID, code)
+		_, err = tx.ExecContext(ctx, `INSERT INTO chart_identity VALUES (?, ?, ?, 1, 0)
+			ON CONFLICT(spotify_id) DO UPDATE SET isrc = excluded.isrc, album = excluded.album, manual = 1, checked_at = 0`, spotifyID, code, album)
 	}
 	if err != nil {
 		return err

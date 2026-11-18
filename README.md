@@ -851,7 +851,9 @@ the music library.
 When the usual match is unresolved, CineRoute tries the exact Spotify track
 link with the keyless Credits.fm API. Under **Track status**, use **Set ISRC**
 to confirm an unresolved recording. CineRoute saves the code for that Spotify
-track across playlists. **Use automatic match** clears the manual choice.
+track across playlists. Add a **Preferred album** when the same ISRC appears
+on multiple editions, using the exact album name. **Use automatic match**
+clears the manual choice.
 
 Use a Navidrome administrator in `music.navidrome` for chart playlists. That
 account owns the playlists, and Navidrome's public playlist setting makes them
