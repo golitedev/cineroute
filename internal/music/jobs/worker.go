@@ -60,9 +60,11 @@ type outcome struct {
 func (m *Manager) process(root, ctx context.Context, job Job) {
 	log := m.log.With("job", job.ID, "album", job.AlbumID)
 	staging := filepath.Join(m.downloadsDir(), job.ID)
-	defer os.RemoveAll(staging + ".verified")
 
 	out := m.download(ctx, job, staging, log)
+	// Retry files are only used by download. Remove them before publishing the
+	// job's status so callers can observe completion and an empty staging area together.
+	os.RemoveAll(staging + ".verified")
 
 	// A server shutdown is not the user's cancel: queue the job again.
 	if root.Err() != nil && out.status == StatusCancelled {
