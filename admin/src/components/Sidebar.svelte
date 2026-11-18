@@ -126,8 +126,9 @@
 			<Header collapsed={!sidebar.isExpanded}>
 				<div class="relative">
 					<a
-						href="#route"
+						href="/admin/route"
 						onclick={(e) => {
+							if (e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return;
 							e.preventDefault();
 							go('route');
 						}}

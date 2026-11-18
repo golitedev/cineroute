@@ -43,6 +43,7 @@ type Manager struct {
 	jobs    downloadQueue
 	fetch   func(context.Context, string) (Snapshot, error)
 	wake    chan struct{}
+	phases  sync.Map // playlist ID to syncPhase for the current worker pass
 
 	// Settings changes and external playlist writes must not overlap.
 	mutations  sync.Mutex
@@ -128,6 +129,11 @@ type fetchResult struct {
 	err      error
 }
 
+type syncPhase struct {
+	revision int64
+	name     string
+}
+
 func (m *Manager) runOnce(ctx context.Context, now time.Time) {
 	if err := m.recordImports(ctx); err != nil && ctx.Err() == nil {
 		slog.Error("saving chart import history", "err", err)
@@ -155,8 +161,10 @@ func (m *Manager) runOnce(ctx context.Context, now time.Time) {
 }
 
 func (m *Manager) syncPlaylist(ctx context.Context, p playlist, now time.Time, fetched map[string]fetchResult) error {
+	defer m.phases.Delete(p.ID)
 	dirty := false
 	if !now.Before(p.NextFetch) {
+		m.phases.Store(p.ID, syncPhase{p.Revision, "fetching"})
 		result, ok := fetched[p.Settings.Country]
 		if !ok {
 			result.snapshot, result.err = m.fetch(ctx, p.Settings.Country)
@@ -172,7 +180,7 @@ func (m *Manager) syncPlaylist(ctx context.Context, p playlist, now time.Time, f
 			p.NextFetch = now.Add(retryFetch)
 		default:
 			p.FetchError = ""
-			p.accept(result.snapshot, now)
+			p.accept(result.snapshot)
 		}
 		dirty = true
 		if err := m.save(ctx, p, p.Revision); err != nil {
@@ -211,6 +219,9 @@ func (m *Manager) syncPlaylist(ctx context.Context, p playlist, now time.Time, f
 		if err := ctx.Err(); err != nil {
 			return err
 		}
+		if lookups == 0 {
+			m.phases.Store(p.ID, syncPhase{p.Revision, "matching"})
+		}
 		lookups++
 		if err := m.resolve(ctx, p, e, now); err != nil {
 			if errors.Is(err, ErrStale) {
@@ -234,7 +245,7 @@ func (m *Manager) syncPlaylist(ctx context.Context, p playlist, now time.Time, f
 	return m.publish(ctx, p, now)
 }
 
-func (p *playlist) accept(snapshot Snapshot, now time.Time) {
+func (p *playlist) accept(snapshot Snapshot) {
 	previous := make(map[string]entry, len(p.Entries))
 	for _, old := range p.Entries {
 		previous[old.SpotifyID] = old
@@ -251,7 +262,7 @@ func (p *playlist) accept(snapshot Snapshot, now time.Time) {
 		if p.ChartDate != snapshot.Date && e.SongID != "" {
 			// Recheck local file availability on the new chart without delaying
 			// tracks that were already confirmed and still rank.
-			e.NextAttempt = now
+			e.NextAttempt = time.Time{}
 		}
 		e.Track = track
 		entries = append(entries, e)
@@ -418,6 +429,7 @@ func (m *Manager) publish(ctx context.Context, p playlist, now time.Time) error 
 		return nil
 	}
 
+	m.phases.Store(p.ID, syncPhase{p.Revision, "publishing"})
 	m.mutations.Lock()
 	defer m.mutations.Unlock()
 	current, err := m.playlist(ctx, p.ID)

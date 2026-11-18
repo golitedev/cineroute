@@ -166,6 +166,25 @@ func TestChooseSongPrefersVerifiedSingleVersion(t *testing.T) {
 	}
 }
 
+func TestChooseSongReusesOriginalAndArtistAliases(t *testing.T) {
+	christmas := Track{Title: "All I Want for Christmas Is You", Artists: []string{"Mariah Carey"}}
+	original := navidrome.Song{ID: "original", Title: christmas.Title + " (Original Version)", Artist: "Mariah Carey", Duration: 241, ISRC: []string{"USSM19400325"}}
+	deluxe := navidrome.Song{ID: "deluxe", Title: christmas.Title, Artist: "Mariah Carey", Duration: 241, ISRC: []string{"USSM19400325"}}
+	catalog := qobuz.Recording{ID: "qobuz", ISRC: "USSM19400325", Duration: 241}
+	if got, ambiguous := chooseSong(christmas, catalog, []navidrome.Song{original}); got.ID != original.ID || ambiguous {
+		t.Fatalf("original already in the library = %q, ambiguous %v", got.ID, ambiguous)
+	}
+	if got, ambiguous := chooseSong(christmas, catalog, []navidrome.Song{deluxe, original}); got.ID != original.ID || ambiguous {
+		t.Fatalf("original or deluxe = %q, ambiguous %v", got.ID, ambiguous)
+	}
+	iris := Track{Title: "Iris", Artists: []string{"The Goo Goo Dolls"}}
+	local := navidrome.Song{ID: "iris", Title: "Iris", Artist: "Goo Goo Dolls"}
+	cover := navidrome.Song{ID: "cover", Title: "Iris", Artist: "Mike Posner"}
+	if got, ambiguous := chooseSong(iris, qobuz.Recording{}, []navidrome.Song{cover, local}); got.ID != local.ID || ambiguous {
+		t.Fatalf("Iris = %q, ambiguous %v", got.ID, ambiguous)
+	}
+}
+
 type testQueue struct {
 	job jobs.Job
 }
@@ -342,6 +361,10 @@ func TestDailyChartSyncPublishesVerifiedTracksAndKeepsImportHistory(t *testing.T
 			t.Fatalf("Navidrome playlist %+v, expected songs %v", p, expected)
 		}
 	}
+	queued, err := manager.Views(ctx)
+	if err != nil || len(queued) != 2 || !queued[0].SyncRequested {
+		t.Fatalf("queued playlist views %+v, error %v", queued, err)
+	}
 	manager.runOnce(ctx, now)
 	current := read(co.ID)
 	colombiaRemoteID := current.NavidromeID
@@ -357,6 +380,12 @@ func TestDailyChartSyncPublishesVerifiedTracksAndKeepsImportHistory(t *testing.T
 	if len(queue.job.ChartSources) != 2 || lookups("Nueva canción Ártist") != 1 ||
 		current.Entries[2].State != "needs_review" || read(se.ID).NavidromeID != "" {
 		t.Fatalf("queue %+v, chart %+v", queue.job, current.Entries)
+	}
+
+	queue.job.Status = jobs.StatusDownloading
+	active, err := manager.Views(ctx)
+	if err != nil || active[0].SyncRequested || active[0].SyncPhase != "" || active[0].Tracks[0].State != "downloading" {
+		t.Fatalf("downloading playlist views %+v, error %v", active, err)
 	}
 
 	queue.job.Status, queue.job.MessageCode = jobs.StatusCompleted, "added_incomplete"
@@ -413,6 +442,9 @@ func TestDailyChartSyncPublishesVerifiedTracksAndKeepsImportHistory(t *testing.T
 	mu.Unlock()
 	if err := manager.SyncNow(ctx, co.ID); err != nil {
 		t.Fatal(err)
+	}
+	if queued := read(co.ID).view(); !queued.SyncRequested || queued.Ready != 2 || queued.PendingChecks != 2 {
+		t.Fatalf("manual sync should retain confirmed tracks: %+v", queued)
 	}
 	manager.runOnce(ctx, now)
 	updated, err := nav.Playlist(ctx, colombiaRemoteID)

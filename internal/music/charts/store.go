@@ -74,6 +74,9 @@ type PlaylistView struct {
 	PublishedAt   time.Time   `json:"published_at,omitzero"`
 	Published     int         `json:"published"`
 	Ready         int         `json:"ready"`
+	PendingChecks int         `json:"pending_checks,omitempty"`
+	SyncRequested bool        `json:"sync_requested,omitempty"`
+	SyncPhase     string      `json:"sync_phase,omitempty"`
 	FetchError    string      `json:"fetch_error,omitempty"`
 	PublishError  string      `json:"publish_error,omitempty"`
 	Tracks        []TrackView `json:"tracks"`
@@ -120,11 +123,15 @@ func (p playlist) view() PlaylistView {
 	view := PlaylistView{ID: p.ID, Settings: p.Settings, DisplayName: p.Settings.displayName(),
 		ChartDate: p.ChartDate, PublishedDate: p.PublishedDate, PublishedAt: p.PublishedAt,
 		Published: len(p.PublishedIDs), FetchError: p.FetchError, PublishError: p.PublishError,
-		Tracks: make([]TrackView, 0, len(p.Entries))}
+		SyncRequested: p.Settings.Enabled && p.NextFetch.IsZero(),
+		Tracks:        make([]TrackView, 0, len(p.Entries))}
 	for _, track := range p.Entries {
 		album := track.Recording.Album
 		if track.SongID != "" {
 			view.Ready++
+			if track.State == "ready" && track.NextAttempt.IsZero() {
+				view.PendingChecks++
+			}
 			album = ""
 			if track.SongAlbum != nil {
 				album = *track.SongAlbum
@@ -218,7 +225,31 @@ func (m *Manager) Views(ctx context.Context) ([]PlaylistView, error) {
 	playlists, err := m.playlists(ctx)
 	views := make([]PlaylistView, 0, len(playlists))
 	for _, p := range playlists {
-		views = append(views, p.view())
+		view := p.view()
+		if value, ok := m.phases.Load(p.ID); ok {
+			if phase := value.(syncPhase); phase.revision == p.Revision {
+				view.SyncPhase = phase.name
+			}
+		}
+		for i, entry := range p.Entries {
+			if entry.JobID == "" {
+				continue
+			}
+			job, err := m.jobs.Get(entry.JobID)
+			if err != nil {
+				continue
+			}
+			track := &view.Tracks[i]
+			switch job.Status {
+			case jobs.StatusCompleted, jobs.StatusSkipped:
+				track.State, track.Reason = "indexing", "Waiting for Navidrome to index the track"
+			case jobs.StatusFailed, jobs.StatusCancelled:
+				track.State, track.Reason = string(job.Status), job.Message
+			default:
+				track.State, track.Reason = string(job.Status), ""
+			}
+		}
+		views = append(views, view)
 	}
 	return views, err
 }
@@ -273,11 +304,11 @@ func (m *Manager) SyncNow(ctx context.Context, id string) error {
 	p.NextFetch = time.Time{}
 	p.VerifyRemote = true
 	for i := range p.Entries {
-		p.Entries[i].NextAttempt = time.Time{}
-		if p.Entries[i].JobID == "" {
-			p.Entries[i].SongID = ""
-			p.Entries[i].SongAlbum = nil
-			p.Entries[i].State = "pending"
+		e := &p.Entries[i]
+		e.NextAttempt = time.Time{}
+		// Keep confirmed tracks in the playlist while the worker checks batches.
+		if e.JobID == "" && e.SongID == "" {
+			e.State, e.Reason = "pending", ""
 		}
 	}
 	p.Revision++

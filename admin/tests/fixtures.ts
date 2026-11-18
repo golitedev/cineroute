@@ -359,7 +359,10 @@ export const test = base.extend<{ requests: RequestRecord[] }>({
 				return route.fulfill({ json: data });
 			}
 			const root = path.resolve('../internal/adminui/dist');
-			const name = url.pathname === '/' ? 'index.html' : url.pathname.replace(/^\/admin\//, '');
+			const isPage =
+				url.pathname === '/' ||
+				/^\/admin\/(?:route|movies|tv|anime|music|hardlinks|subtitles|settings|queue|history)?\/?$/.test(url.pathname);
+			const name = isPage ? 'index.html' : url.pathname.replace(/^\/admin\//, '');
 			const file = path.resolve(root, name);
 			if (!file.startsWith(root + path.sep) || !fs.existsSync(file) || !fs.statSync(file).isFile()) return route.fulfill({ status: 404 });
 			return route.fulfill({

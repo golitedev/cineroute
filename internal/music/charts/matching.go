@@ -12,9 +12,9 @@ import (
 )
 
 var (
-	featureCredit       = regexp.MustCompile(`(?i)\s+(?:[(\[]\s*)?\b(?:feat\.?|ft\.?|featuring)\s+([^\])]+)[\])]?$`)
-	artistDivider       = regexp.MustCompile(`(?i)\s*(?:,|;)\s*|\s+(?:&|and|x|with|feat\.?|ft\.?|featuring)\s+`)
-	singleVersionSuffix = regexp.MustCompile(`(?i)\s*(?:\(single version\)|\[single version\]|[-–—]\s+single version)\s*$`)
+	featureCredit        = regexp.MustCompile(`(?i)\s+(?:[(\[]\s*)?\b(?:feat\.?|ft\.?|featuring)\s+([^\])]+)[\])]?$`)
+	artistDivider        = regexp.MustCompile(`(?i)\s*(?:,|;)\s*|\s+(?:&|and|x|with|feat\.?|ft\.?|featuring)\s+`)
+	releaseVersionSuffix = regexp.MustCompile(`(?i)\s*(?:\((?:single|original) version\)|\[(?:single|original) version\]|[-–—]\s+(?:single|original) version)\s*$`)
 )
 
 func normalize(value string) string {
@@ -31,16 +31,20 @@ func normalize(value string) string {
 	return strings.Join(strings.Fields(value), " ")
 }
 
+func artistKey(name string) string {
+	return strings.TrimPrefix(normalize(name), "the ")
+}
+
 // Keep compound artist names intact when they appear among multiple credits.
 func artistNames(credit string, known []string) []string {
 	parts := artistDivider.Split(credit, -1)
 	var names []string
 	for len(parts) > 0 {
 		n := len(parts)
-		name := normalize(strings.Join(parts[:n], " "))
+		name := artistKey(strings.Join(parts[:n], " "))
 		for n > 1 && !slices.Contains(known, name) {
 			n--
-			name = normalize(strings.Join(parts[:n], " "))
+			name = artistKey(strings.Join(parts[:n], " "))
 		}
 		if name != "" && !slices.Contains(names, name) {
 			names = append(names, name)
@@ -69,7 +73,7 @@ func titleWithoutCredit(title string, artists []string) string {
 func normalizeArtists(artists []string) []string {
 	known := make([]string, len(artists))
 	for i, artist := range artists {
-		known[i] = normalize(artist)
+		known[i] = artistKey(artist)
 	}
 	return known
 }
@@ -168,7 +172,7 @@ func chooseSong(track Track, recording qobuz.Recording, songs []navidrome.Song) 
 		chosen = matches[0]
 	}
 
-	// Prefer the single release when its recording matches either the catalog
+	// Prefer the single or original version when it matches either the catalog
 	// result or an unambiguous library match for the chart title.
 	ids, duration := chosen.ISRC, chosen.Duration
 	if normalizeISRC(recording.ISRC) != "" {
@@ -177,9 +181,9 @@ func chooseSong(track Track, recording qobuz.Recording, songs []navidrome.Song) 
 	if len(ids) == 0 {
 		return chosen, false
 	}
-	var singles []navidrome.Song
+	var versions []navidrome.Song
 	for _, song := range songs {
-		title := singleVersionSuffix.ReplaceAllString(song.Title, "")
+		title := releaseVersionSuffix.ReplaceAllString(song.Title, "")
 		if song.ID == "" || title == song.Title || !compatibleDurations(duration, song.Duration) || !sharesISRC(ids, song.ISRC) {
 			continue
 		}
@@ -188,15 +192,15 @@ func chooseSong(track Track, recording qobuz.Recording, songs []navidrome.Song) 
 			continue
 		}
 		if score > best {
-			singles, best = singles[:0], score
+			versions, best = versions[:0], score
 		}
-		singles = append(singles, song)
+		versions = append(versions, song)
 	}
-	if ambiguousSongs(singles) {
+	if ambiguousSongs(versions) {
 		return chosen, chosen.ID == ""
 	}
-	if len(singles) > 0 {
-		return singles[0], false
+	if len(versions) > 0 {
+		return versions[0], false
 	}
 	return chosen, false
 }

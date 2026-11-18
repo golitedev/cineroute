@@ -352,8 +352,27 @@ test('movie and TV codec preferences can be ranked independently and saved', asy
 	await expect(codecs.locator('.ordered-list strong')).toHaveText(['HEVC / x265', 'H.264 / x264']);
 });
 
-test('admin can create a chart playlist and see its automatic import history', async ({ page, requests }) => {
+test('admin routes survive refresh and browser history', async ({ page, requests }) => {
+	await page.goto('http://admin.test/admin/music');
+	await expect(page.getByRole('heading', { name: 'Music', exact: true })).toBeVisible();
+	expect(requests.some((request) => request.path === '/session')).toBeTruthy();
+	await navigate(page, 'TV shows');
+	await expect(page).toHaveURL(/\/admin\/tv$/);
+	await page.reload();
+	await expect(page.getByRole('heading', { name: 'TV shows', exact: true })).toBeVisible();
+	await navigate(page, 'Request settings');
+	await expect(page).toHaveURL(/\/admin\/settings$/);
+	await page.reload();
+	await expect(page.getByRole('heading', { name: 'Request settings', exact: true })).toBeVisible();
+	await page.goBack();
+	await expect(page.getByRole('heading', { name: 'TV shows', exact: true })).toBeVisible();
+	await page.goForward();
+	await expect(page.getByRole('heading', { name: 'Request settings', exact: true })).toBeVisible();
+});
+
+test('admin chart playlists show sync progress and automatic import history', async ({ page, requests }) => {
 	let created = false;
+	let reviewing = false;
 	await page.route('**/api/music/charts**', async (route) => {
 		const request = route.request();
 		const { pathname } = new URL(request.url());
@@ -395,6 +414,8 @@ test('admin can create a chart playlist and see its automatic import history', a
 								settings: { country: 'co', limit: 5, enabled: true },
 								display_name: 'Top 5 Colombia',
 								chart_date: '2026-11-16',
+								published_date: '2026-11-16',
+								published: 1,
 								ready: 1,
 								tracks: [
 									{ rank: 1, spotify_id: '1', title: 'Chart song', artists: ['Example artist'], state: 'ready' },
@@ -403,8 +424,8 @@ test('admin can create a chart playlist and see its automatic import history', a
 										spotify_id: '2',
 										title: 'Live version',
 										artists: ['Example artist'],
-										state: 'needs_review',
-										reason: 'No matching Qobuz track',
+										state: reviewing ? 'needs_review' : 'indexing',
+										reason: reviewing ? 'No matching Qobuz track' : '',
 									},
 								],
 							},
@@ -421,7 +442,13 @@ test('admin can create a chart playlist and see its automatic import history', a
 	await page.getByLabel('Track count').fill('5');
 	await page.getByRole('button', { name: 'Save playlist' }).click();
 	await expect(page.getByRole('heading', { name: 'Top 5 Colombia', exact: true })).toBeVisible();
-	await expect(page.getByText('1 of 5 playable')).toBeVisible();
+	await expect(page.getByText('1 of 5 published')).toBeVisible();
+	const status = page.getByRole('region', { name: 'Chart playlists' }).getByRole('status');
+	await expect(status).toContainText('Adding tracks');
+	await expect(status).toContainText('1 waiting for Navidrome');
+	reviewing = true;
+	await expect(status).toContainText('Sync complete with tracks needing review', { timeout: 7_000 });
+	await expect(page.getByRole('progressbar', { name: 'Tracks processed' })).toHaveAttribute('value', '2');
 	await page.getByText('Track status', { exact: true }).click();
 	await expect(page.getByText('Needs review · No matching Qobuz track')).toBeVisible();
 	await expect(page.getByRole('region', { name: 'Automatic imports' })).toContainText('Example release');

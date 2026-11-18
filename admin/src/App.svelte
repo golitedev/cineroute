@@ -12,6 +12,11 @@
 	import History from './pages/History.svelte';
 	import { api, post, configureSession, clearSession } from './lib/client';
 	import type { Account, Session, View } from './lib/types';
+	const views: View[] = ['route', 'movies', 'tv', 'anime', 'music', 'hardlinks', 'subtitles', 'settings', 'queue', 'history'];
+	function currentView(): View {
+		const path = window.location.pathname.replace(/\/$/, '');
+		return views.find((view) => path === `/admin/${view}`) ?? 'route';
+	}
 	let account = $state<Account | null>(null),
 		checking = $state(true),
 		view = $state<View>('route'),
@@ -21,16 +26,18 @@
 	function reset() {
 		clearSession();
 		account = null;
-		view = 'route';
 		settingsVisited = false;
 		settingsDirty = false;
 	}
+	function applySession(session: Session) {
+		if (session.account.role !== 'admin') throw Error('An administrator account is required.');
+		configureSession(session.csrf_token, reset);
+		showView(currentView());
+		account = session.account;
+	}
 	async function session() {
 		try {
-			const session = await api<Session>('/session');
-			if (session.account.role !== 'admin') throw Error('An administrator account is required.');
-			configureSession(session.csrf_token, reset);
-			account = session.account;
+			applySession(await api<Session>('/session'));
 		} catch {
 			reset();
 		} finally {
@@ -42,10 +49,7 @@
 	});
 	async function login(name: string, password: string) {
 		await post('/login', { username: name, password });
-		const session = await api<Session>('/session');
-		if (session.account.role !== 'admin') throw Error('An administrator account is required.');
-		configureSession(session.csrf_token, reset);
-		account = session.account;
+		applySession(await api<Session>('/session'));
 	}
 	async function logout() {
 		if (settingsDirty && !confirm('Discard unsaved settings and sign out?')) return;
@@ -57,13 +61,18 @@
 			error = e instanceof Error ? e.message : String(e);
 		}
 	}
-	function navigate(next: View) {
+	function showView(next: View) {
 		view = next;
 		if (next === 'settings') settingsVisited = true;
+	}
+	function navigate(next: View) {
+		if (next !== view) window.history.pushState(null, '', `/admin/${next}`);
+		showView(next);
 		window.scrollTo({ top: 0 });
 	}
 </script>
 
+<svelte:window onpopstate={() => account && showView(currentView())} />
 <svelte:head><title>CineRoute · Administration</title></svelte:head>
 {#if checking}<div class="empty">Loading CineRoute…</div>{:else if !account}<Login {login} />{:else}<Sidebar
 		{account}
