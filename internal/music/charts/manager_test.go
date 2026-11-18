@@ -56,6 +56,39 @@ func TestMatchingPreservesTheRecordingVersion(t *testing.T) {
 	}
 }
 
+func TestChooseSongPrefersVerifiedSingleVersion(t *testing.T) {
+	track := Track{Title: "Last Christmas", Artists: []string{"Wham!"}}
+	recording := qobuz.Recording{ID: "qobuz-soundtrack", ISRC: "GBBBM8400019", Duration: 264}
+	original := navidrome.Song{ID: "single", Title: "Last Christmas (Single Version)", Artist: "Wham!", Duration: 262, ISRC: []string{"gbbbm8400019"}}
+	soundtrack := navidrome.Song{ID: "soundtrack", Title: "Last Christmas", Artist: "Wham!", Duration: 264, ISRC: []string{"GBBBM8400019"}}
+	puddingMix := navidrome.Song{ID: "mix", Title: "Last Christmas (Pudding Mix)", Artist: "Wham!", Duration: 398, ISRC: []string{"GBBBM8400004"}}
+	wrongISRC := original
+	wrongISRC.ISRC = puddingMix.ISRC
+	wrongDuration := original
+	wrongDuration.Duration = puddingMix.Duration
+	for _, tt := range []struct {
+		name      string
+		recording qobuz.Recording
+		songs     []navidrome.Song
+		want      string
+	}{
+		{"use the single before importing the catalog album", recording, []navidrome.Song{puddingMix, original}, "single"},
+		{"replace the already imported soundtrack", recording, []navidrome.Song{soundtrack, original}, "single"},
+		{"verify against the local soundtrack without the catalog", qobuz.Recording{}, []navidrome.Song{soundtrack, original}, "single"},
+		{"require evidence for the single", qobuz.Recording{}, []navidrome.Song{original}, ""},
+		{"reject a different ISRC", recording, []navidrome.Song{soundtrack, wrongISRC}, "soundtrack"},
+		{"reject a materially different duration", recording, []navidrome.Song{soundtrack, wrongDuration}, "soundtrack"},
+		{"keep distinct mix titles separate", recording, []navidrome.Song{puddingMix}, ""},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			got, ambiguous := chooseSong(track, tt.recording, tt.songs)
+			if got.ID != tt.want || ambiguous {
+				t.Fatalf("song = %q, ambiguous = %t, want %q", got.ID, ambiguous, tt.want)
+			}
+		})
+	}
+}
+
 type testQueue struct {
 	job jobs.Job
 }

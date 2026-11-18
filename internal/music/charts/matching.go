@@ -12,8 +12,9 @@ import (
 )
 
 var (
-	featureCredit = regexp.MustCompile(`(?i)\s+(?:[(\[]\s*)?\b(?:feat\.?|ft\.?|featuring)\s+([^\])]+)[\])]?$`)
-	artistDivider = regexp.MustCompile(`(?i)\s*(?:,|;)\s*|\s+(?:&|and|x|with|feat\.?|ft\.?|featuring)\s+`)
+	featureCredit       = regexp.MustCompile(`(?i)\s+(?:[(\[]\s*)?\b(?:feat\.?|ft\.?|featuring)\s+([^\])]+)[\])]?$`)
+	artistDivider       = regexp.MustCompile(`(?i)\s*(?:,|;)\s*|\s+(?:&|and|x|with|feat\.?|ft\.?|featuring)\s+`)
+	singleVersionSuffix = regexp.MustCompile(`(?i)\s*(?:\(single version\)|\[single version\]|[-–—]\s+single version)\s*$`)
 )
 
 func normalize(value string) string {
@@ -96,17 +97,42 @@ func chooseSong(track Track, recording qobuz.Recording, songs []navidrome.Song) 
 		}
 		if chosen.ID == "" {
 			chosen = song
-		} else if song.ID != chosen.ID && !slices.ContainsFunc(chosen.ISRC, func(isrc string) bool {
-			return isrc != "" && slices.Contains(song.ISRC, isrc)
-		}) {
+		} else if song.ID != chosen.ID && !sharesISRC(chosen.ISRC, song.ISRC) {
 			return navidrome.Song{}, true
+		}
+	}
+
+	// Prefer the single release when its recording matches either the catalog
+	// result or an unambiguous library match for the chart title.
+	ids, duration := chosen.ISRC, chosen.Duration
+	if recording.ISRC != "" {
+		ids, duration = []string{recording.ISRC}, recording.Duration
+	}
+	if len(ids) == 0 {
+		return chosen, false
+	}
+	for _, song := range songs {
+		title := singleVersionSuffix.ReplaceAllString(song.Title, "")
+		if song.ID != "" && title != song.Title && matchesTrack(track, title, song.Artist) &&
+			compatibleDurations(duration, song.Duration) && sharesISRC(ids, song.ISRC) {
+			return song, false
 		}
 	}
 	return chosen, false
 }
 
+func sharesISRC(a, b []string) bool {
+	return slices.ContainsFunc(a, func(isrc string) bool {
+		return isrc != "" && slices.ContainsFunc(b, func(other string) bool { return strings.EqualFold(isrc, other) })
+	})
+}
+
+func compatibleDurations(a, b int) bool {
+	return a <= 0 || b <= 0 || (a-b <= 2 && b-a <= 2)
+}
+
 func matchesRecording(recording qobuz.Recording, song navidrome.Song) bool {
-	if recording.Duration > 0 && song.Duration > 0 && (song.Duration-recording.Duration > 2 || recording.Duration-song.Duration > 2) {
+	if !compatibleDurations(recording.Duration, song.Duration) {
 		return false
 	}
 	if recording.ISRC != "" && len(song.ISRC) > 0 {
