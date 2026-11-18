@@ -264,6 +264,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("PUT /api/music/charts/{id}/tracks/{track}/isrc", s.setChartTrackISRC)
 	mux.HandleFunc("DELETE /api/music/charts/{id}", s.removeChartPlaylist)
 	mux.HandleFunc("GET /api/music/charts/imports", s.chartImports)
+	mux.HandleFunc("GET /api/music/charts/imports.csv", s.exportChartImports)
 	return s.logRequests(s.listenerBoundary(adminListener, s.auth(mux)))
 }
 

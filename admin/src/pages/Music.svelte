@@ -1,11 +1,12 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
-	import { Plus, RefreshCw } from 'lucide-svelte';
+	import { FolderClock, Plus, RefreshCw } from 'lucide-svelte';
 	import PageHeader from '../components/PageHeader.svelte';
 	import Notice from '../components/Notice.svelte';
 	import { Resource } from '../lib/resource.svelte';
 	import { api } from '../lib/client';
 	import { date, message } from '../lib/utils';
+	let { onhistory }: { onhistory: () => void } = $props();
 
 	type Settings = { country: string; limit: number; name: string; enabled: boolean };
 	type Track = {
@@ -35,22 +36,8 @@
 		tracks: Track[];
 	};
 	type Charts = { available: boolean; reason?: string; markets: { code: string; label: string }[]; playlists: Chart[] };
-	type History = {
-		imports: {
-			job_id: string;
-			album: string;
-			artist: string;
-			imported_at: string;
-			partial: boolean;
-			sources: { playlist_id: string; playlist: string; chart_date: string; spotify_id: string; track: string }[];
-		}[];
-		more: boolean;
-		offset: number;
-	};
-
 	const chartsPath = '/music/charts';
 	const charts = new Resource<Charts>();
-	const history = new Resource<History>();
 	let editor = $state('');
 	let isrcEditor = $state('');
 	let isrc = $state('');
@@ -111,24 +98,14 @@
 		return { status, details, settled: settled - rechecks };
 	}
 
-	function loadHistory(offset = 0) {
-		return history.load(`${chartsPath}/imports?offset=${offset}`);
-	}
-
 	onMount(() => {
 		void charts.load(chartsPath);
-		void loadHistory();
 		const chartsTimer = setInterval(() => {
 			if (!busy && !charts.loading) void charts.load(chartsPath);
 		}, 5_000);
-		const historyTimer = setInterval(() => {
-			if (!history.loading && !history.data?.offset) void loadHistory();
-		}, 15_000);
 		return () => {
 			clearInterval(chartsTimer);
-			clearInterval(historyTimer);
 			charts.destroy();
-			history.destroy();
 		};
 	});
 
@@ -190,7 +167,8 @@
 	}
 </script>
 
-<PageHeader title="Music" description="Manage daily Spotify charts in Navidrome and track automatic album imports.">
+<PageHeader title="Music" description="Manage daily Spotify charts in Navidrome.">
+	<button type="button" onclick={onhistory}><FolderClock class="size-4" /> Import history</button>
 	<button type="button" class="primary" disabled={!charts.data?.available || busy} onclick={() => edit()}>
 		<Plus class="size-4" /> Add chart playlist
 	</button>
@@ -336,34 +314,6 @@
 	{:else}
 		{#if charts.data?.available}<p class="empty">No chart playlists configured.</p>{/if}
 	{/each}
-</section>
-
-<section class="panel" aria-label="Automatic imports">
-	<h2>Automatic imports</h2>
-	<Notice error={history.error} />
-	{#each history.data?.imports || [] as item (item.job_id)}
-		<div class="history-line">
-			<strong>{item.album}</strong> · {item.artist}
-			<p class="muted">{date(item.imported_at)}{item.partial ? ' · Partial album' : ''}</p>
-			<ul>
-				{#each item.sources as source}
-					<li>{source.playlist} · {source.track} · {source.chart_date}</li>
-				{/each}
-			</ul>
-		</div>
-	{:else}
-		{#if !history.loading && !history.error}<p class="muted">No automatic albums imported yet.</p>{/if}
-	{/each}
-	{#if history.data && (history.data.offset || history.data.more)}
-		<div class="pager">
-			<button disabled={history.loading || !history.data.offset} onclick={() => loadHistory(Math.max(0, (history.data?.offset || 0) - 25))}>
-				Newer
-			</button>
-			<button disabled={history.loading || !history.data.more} onclick={() => loadHistory((history.data?.offset || 0) + 25)}>
-				Older
-			</button>
-		</div>
-	{/if}
 </section>
 
 <style>

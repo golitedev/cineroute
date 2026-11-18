@@ -13,6 +13,7 @@ import (
 	"testing"
 	"time"
 
+	"cineroute/internal/music/config"
 	"cineroute/internal/music/jobs"
 	"cineroute/internal/music/navidrome"
 	"cineroute/internal/music/qobuz"
@@ -380,8 +381,8 @@ func TestDailyChartSyncPublishesVerifiedTracksAndKeepsImportHistory(t *testing.T
 	catalog := qobuz.New("user", "token", func() string { return "app-id" })
 	catalog.BaseURL = server.URL
 	queue := new(testQueue)
-	dir := t.TempDir()
-	manager, err := New(dir, catalog, nav, queue)
+	paths := config.Paths{Data: t.TempDir(), Library: "/music"}
+	manager, err := New(paths, catalog, nav, queue)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -459,6 +460,7 @@ func TestDailyChartSyncPublishesVerifiedTracksAndKeepsImportHistory(t *testing.T
 	}
 
 	queue.job.Status, queue.job.MessageCode = jobs.StatusCompleted, "added_incomplete"
+	queue.job.LibraryPath = "Ártist/Release - INCOMPLETE"
 	queue.job.FinishedAt = &now
 	now = now.Add(workInterval)
 	manager.runOnce(ctx, now)
@@ -469,7 +471,7 @@ func TestDailyChartSyncPublishesVerifiedTracksAndKeepsImportHistory(t *testing.T
 	if err := manager.Close(); err != nil {
 		t.Fatal(err)
 	}
-	manager, err = New(dir, catalog, nav, queue)
+	manager, err = New(paths, catalog, nav, queue)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -502,7 +504,8 @@ func TestDailyChartSyncPublishesVerifiedTracksAndKeepsImportHistory(t *testing.T
 	}
 	checkRemote(colombiaRemoteID, "nd-downloaded", "nd-existing")
 	imports, more, err := manager.Imports(ctx, 0)
-	if err != nil || more || len(imports) != 1 || !imports[0].Partial || len(imports[0].Sources) != 2 {
+	if err != nil || more || len(imports) != 1 || !imports[0].Partial || len(imports[0].Sources) != 2 ||
+		imports[0].FolderPath != "/music/Ártist/Release - INCOMPLETE" {
 		t.Fatalf("imports %+v more=%v error=%v", imports, more, err)
 	}
 

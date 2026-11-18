@@ -21,7 +21,7 @@ func Handler() http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		name := path.Clean("/" + r.URL.Path)
 		switch name {
-		case "/", "/route", "/movies", "/tv", "/anime", "/music", "/hardlinks", "/subtitles", "/settings", "/queue", "/history":
+		case "/", "/route", "/movies", "/tv", "/anime", "/music", "/music/imports", "/hardlinks", "/subtitles", "/settings", "/queue", "/history":
 			data, err := fs.ReadFile(root, "index.html")
 			w.Header().Set("Content-Type", "text/html; charset=utf-8")
 			w.Header().Set("Cache-Control", "no-store")

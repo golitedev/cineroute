@@ -57,16 +57,6 @@ func (s Settings) displayName() string {
 	return fmt.Sprintf("Top %d %s", s.Limit, marketLabel(s.Country))
 }
 
-type Import struct {
-	JobID   string             `json:"job_id"`
-	AlbumID string             `json:"album_id"`
-	Album   string             `json:"album"`
-	Artist  string             `json:"artist"`
-	Date    time.Time          `json:"imported_at"`
-	Partial bool               `json:"partial"`
-	Sources []jobs.ChartSource `json:"sources"`
-}
-
 type PlaylistView struct {
 	ID            string      `json:"id"`
 	Settings      Settings    `json:"settings"`
@@ -466,49 +456,4 @@ func (m *Manager) remember(ctx context.Context, spotifyID string, match qobuz.Re
 	_, err = m.db.ExecContext(ctx, `INSERT INTO chart_recording VALUES (?, ?)
 		ON CONFLICT(spotify_id) DO UPDATE SET metadata = excluded.metadata`, spotifyID, raw)
 	return err
-}
-
-func (m *Manager) recordImports(ctx context.Context) error {
-	for _, job := range m.jobs.PendingChartImports() {
-		finished := job.CreatedAt
-		if job.FinishedAt != nil {
-			finished = *job.FinishedAt
-		}
-		receipt := Import{JobID: job.ID, AlbumID: job.AlbumID, Album: job.Title, Artist: job.Artist,
-			Date: finished, Partial: job.MessageCode == "added_incomplete", Sources: job.ChartSources}
-		raw, err := json.Marshal(receipt)
-		if err != nil {
-			return err
-		}
-		if _, err := m.db.ExecContext(ctx, "INSERT OR IGNORE INTO chart_import VALUES (?, ?, ?)", job.ID, receipt.Date.Unix(), raw); err != nil {
-			return err
-		}
-		if err := m.jobs.ConfirmChartImport(job.ID); err != nil {
-			return err
-		}
-	}
-	return nil
-}
-
-// Imports returns one page of the durable import log, newest first.
-func (m *Manager) Imports(ctx context.Context, offset int) ([]Import, bool, error) {
-	const pageSize = 25
-	rows, err := m.db.QueryContext(ctx, "SELECT receipt FROM chart_import ORDER BY imported_at DESC, job_id DESC LIMIT ? OFFSET ?", pageSize+1, offset)
-	if err != nil {
-		return nil, false, err
-	}
-	defer rows.Close()
-	imports := make([]Import, 0, pageSize+1)
-	for rows.Next() {
-		var raw []byte
-		var receipt Import
-		if err := rows.Scan(&raw); err != nil {
-			return nil, false, err
-		}
-		if err := json.Unmarshal(raw, &receipt); err != nil {
-			return nil, false, err
-		}
-		imports = append(imports, receipt)
-	}
-	return imports[:min(len(imports), pageSize)], len(imports) > pageSize, rows.Err()
 }

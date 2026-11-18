@@ -30,9 +30,10 @@ type Qobuz struct {
 }
 
 type Paths struct {
-	Library string `yaml:"library"`
-	Staging string `yaml:"staging"`
-	Data    string `yaml:"data"`
+	Library     string `yaml:"library"`
+	HostLibrary string `yaml:"host_library"` // optional host path for import history
+	Staging     string `yaml:"staging"`
+	Data        string `yaml:"data"`
 }
 
 type Naming struct {
@@ -167,6 +168,13 @@ func (c *Config) Validate() error {
 			continue
 		}
 		*p = filepath.Clean(abs)
+	}
+	if c.Paths.HostLibrary != "" {
+		if filepath.IsAbs(c.Paths.HostLibrary) {
+			c.Paths.HostLibrary = filepath.Clean(c.Paths.HostLibrary)
+		} else {
+			add("paths.host_library must be an absolute path")
+		}
 	}
 	if c.Paths.Library != "" && c.Paths.Staging != "" {
 		if within(c.Paths.Staging, c.Paths.Library) {

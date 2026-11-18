@@ -12,6 +12,7 @@ import (
 	"sync"
 	"time"
 
+	"cineroute/internal/music/config"
 	"cineroute/internal/music/jobs"
 	"cineroute/internal/music/navidrome"
 	"cineroute/internal/music/qobuz"
@@ -42,6 +43,7 @@ type Manager struct {
 	catalog        catalog
 	nav            *navidrome.Client
 	jobs           downloadQueue
+	importRoot     string
 	fetch          func(context.Context, string) (Snapshot, error)
 	lookupIdentity func(context.Context, string) (trackIdentity, error)
 	wake           chan struct{}
@@ -53,15 +55,25 @@ type Manager struct {
 	lastScan   time.Time
 }
 
-func New(data string, catalog catalog, nav *navidrome.Client, queue downloadQueue) (*Manager, error) {
-	db, err := openStore(data)
+func New(paths config.Paths, catalog catalog, nav *navidrome.Client, queue downloadQueue) (*Manager, error) {
+	db, err := openStore(paths.Data)
 	if err != nil {
 		return nil, err
 	}
 	credits := &creditsClient{client: &http.Client{Timeout: 5 * time.Second, CheckRedirect: func(*http.Request, []*http.Request) error {
 		return http.ErrUseLastResponse
 	}}}
-	return &Manager{db: db, catalog: catalog, nav: nav, jobs: queue, fetch: fetchKworb, lookupIdentity: credits.lookup, wake: make(chan struct{}, 1)}, nil
+	importRoot := paths.HostLibrary
+	if importRoot == "" {
+		importRoot = paths.Library
+	}
+	m := &Manager{db: db, catalog: catalog, nav: nav, jobs: queue, importRoot: importRoot,
+		fetch: fetchKworb, lookupIdentity: credits.lookup, wake: make(chan struct{}, 1)}
+	if err := m.restoreImportPaths(context.Background()); err != nil {
+		db.Close()
+		return nil, err
+	}
+	return m, nil
 }
 
 func (m *Manager) Close() error { return m.db.Close() }

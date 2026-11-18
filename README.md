@@ -859,8 +859,12 @@ visible to regular users who have access to the music library. For Navidrome
 servers with multiple libraries, set `music.navidrome.music_folder_id` to the
 shared music library's ID from Navidrome's `getMusicFolders` response. CineRoute
 reuses playable library tracks and downloads missing releases through the normal
-Qobuz queue. The Music page shows missing or ambiguous tracks and keeps an
-automatic import history under `music.paths.data/charts`.
+Qobuz queue. The Music page shows missing or ambiguous tracks. Open
+**Resources → Import history** to see which chart track triggered each album,
+copy its exact folder path, or download the full history as CSV. Set
+`music.paths.host_library` to the absolute host path of the library mount if
+you browse your files from outside the container. CineRoute recovers older
+folder paths from the original jobs when their records are still available.
 
 Automatic lyrics are disabled by default for newly imported music releases.
 `music.lyrics.enabled: true` enables them. A separate, single-worker SQLite queue

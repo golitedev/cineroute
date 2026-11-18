@@ -361,7 +361,7 @@ export const test = base.extend<{ requests: RequestRecord[] }>({
 			const root = path.resolve('../internal/adminui/dist');
 			const isPage =
 				url.pathname === '/' ||
-				/^\/admin\/(?:route|movies|tv|anime|music|hardlinks|subtitles|settings|queue|history)?\/?$/.test(url.pathname);
+				/^\/admin\/(?:route|movies|tv|anime|music(?:\/imports)?|hardlinks|subtitles|settings|queue|history)?\/?$/.test(url.pathname);
 			const name = isPage ? 'index.html' : url.pathname.replace(/^\/admin\//, '');
 			const file = path.resolve(root, name);
 			if (!file.startsWith(root + path.sep) || !fs.existsSync(file) || !fs.statSync(file).isFile()) return route.fulfill({ status: 404 });

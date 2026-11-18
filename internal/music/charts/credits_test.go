@@ -9,6 +9,7 @@ import (
 	"testing"
 	"time"
 
+	"cineroute/internal/music/config"
 	"cineroute/internal/music/navidrome"
 	"cineroute/internal/music/qobuz"
 )
@@ -78,8 +79,8 @@ func TestChartISRCSelectsAndRemembersTheRecording(t *testing.T) {
 	defer server.Close()
 	nav := navidrome.New(server.URL, "admin", "password")
 	queue := &testQueue{}
-	dir := t.TempDir()
-	m, err := New(dir, qobuzResults, nav, queue)
+	paths := config.Paths{Data: t.TempDir(), Library: "/music"}
+	m, err := New(paths, qobuzResults, nav, queue)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -146,7 +147,7 @@ func TestChartISRCSelectsAndRemembersTheRecording(t *testing.T) {
 	if err := m.Close(); err != nil {
 		t.Fatal(err)
 	}
-	m, err = New(dir, qobuzResults, nav, queue)
+	m, err = New(paths, qobuzResults, nav, queue)
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -7,12 +7,25 @@
 	import Hardlinks from './pages/Hardlinks.svelte';
 	import Subtitles from './pages/Subtitles.svelte';
 	import Music from './pages/Music.svelte';
+	import MusicImports from './pages/MusicImports.svelte';
 	import Settings from './pages/Settings.svelte';
 	import Queue from './pages/Queue.svelte';
 	import History from './pages/History.svelte';
 	import { api, post, configureSession, clearSession } from './lib/client';
 	import type { Account, Session, View } from './lib/types';
-	const views: View[] = ['route', 'movies', 'tv', 'anime', 'music', 'hardlinks', 'subtitles', 'settings', 'queue', 'history'];
+	const views: View[] = [
+		'route',
+		'movies',
+		'tv',
+		'anime',
+		'music',
+		'music/imports',
+		'hardlinks',
+		'subtitles',
+		'settings',
+		'queue',
+		'history',
+	];
 	function currentView(): View {
 		const path = window.location.pathname.replace(/\/$/, '');
 		return views.find((view) => path === `/admin/${view}`) ?? 'route';
@@ -83,9 +96,12 @@
 			{#if error}<div class="notice error" role="alert">{error}</div>{/if}{#if view === 'route'}<Route
 				/>{:else if view === 'movies' || view === 'tv' || view === 'anime'}{#key view}<Library
 						kind={view === 'tv' ? 'tv' : view === 'anime' ? 'anime' : 'movie'}
-					/>{/key}{:else if view === 'music'}<Music />{:else if view === 'hardlinks'}<Hardlinks />{:else if view === 'subtitles'}<Subtitles
-				/>{:else if view === 'queue'}<Queue onhistory={() => navigate('history')} />{:else if view === 'history'}<History
-				/>{/if}{#if settingsVisited}<div hidden={view !== 'settings'}>
+					/>{/key}{:else if view === 'music'}<Music
+					onhistory={() => navigate('music/imports')}
+				/>{:else if view === 'music/imports'}<MusicImports />{:else if view === 'hardlinks'}<Hardlinks
+				/>{:else if view === 'subtitles'}<Subtitles />{:else if view === 'queue'}<Queue
+					onhistory={() => navigate('history')}
+				/>{:else if view === 'history'}<History />{/if}{#if settingsVisited}<div hidden={view !== 'settings'}>
 					<Settings bind:dirty={settingsDirty} />
 				</div>{/if}
 		</main></Sidebar

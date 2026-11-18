@@ -111,7 +111,7 @@ func Start(parent context.Context, cfg *config.Config) (*Service, error) {
 		}
 		return nil, err
 	}
-	chartManager, err = charts.New(cfg.Paths.Data, catalog, nd, manager)
+	chartManager, err = charts.New(cfg.Paths, catalog, nd, manager)
 	if err != nil {
 		if lyricQueue != nil {
 			lyricQueue.Close()

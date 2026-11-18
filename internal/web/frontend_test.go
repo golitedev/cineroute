@@ -25,7 +25,7 @@ func TestAdminFrontendBundle(t *testing.T) {
 	if strings.Contains(page, "onclick=") || strings.Contains(page, "/requests.js") {
 		t.Fatal("retired template UI is still served")
 	}
-	for _, path := range []string{"/admin/music", "/admin/tv", "/admin/movies", "/admin/settings", "/admin/history"} {
+	for _, path := range []string{"/admin/music", "/admin/music/imports", "/admin/tv", "/admin/movies", "/admin/settings", "/admin/history"} {
 		route := requestCall(t, handler, http.MethodGet, path, nil, false)
 		if route.Code != http.StatusOK || route.Body.String() != page || route.Header().Get("Cache-Control") != "no-store" {
 			t.Fatalf("admin route %s returned %d", path, route.Code)

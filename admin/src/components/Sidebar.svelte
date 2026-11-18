@@ -17,6 +17,7 @@
 		ListChecks,
 		PanelLeft,
 		Music,
+		FolderClock,
 		X,
 	} from 'lucide-svelte';
 	import { SidebarState, setSidebar } from './sidebar/context.svelte';
@@ -53,6 +54,7 @@
 				{ id: 'tv', label: 'TV shows', icon: Tv },
 				{ id: 'anime', label: 'Anime', icon: Sparkles },
 				{ id: 'music', label: 'Music', icon: Music },
+				{ id: 'music/imports', label: 'Import history', icon: FolderClock },
 				{ id: 'hardlinks', label: 'Hardlinks', icon: Link },
 				{ id: 'subtitles', label: 'Subtitles', icon: Subtitles },
 			],

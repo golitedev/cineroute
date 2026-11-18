@@ -374,9 +374,18 @@ test('admin chart playlists show sync progress and automatic import history', as
 	let created = false;
 	let reviewing = false;
 	let confirmedISRC = '';
+	const folder = 'Example artist — Example release (2026) [FLAC]';
+	const folderPath = '/mnt/music/' + folder;
 	await page.route('**/api/music/charts**', async (route) => {
 		const request = route.request();
 		const { pathname } = new URL(request.url());
+		if (pathname.endsWith('/imports.csv')) {
+			return route.fulfill({
+				contentType: 'text/csv',
+				headers: { 'Content-Disposition': 'attachment; filename="cineroute-automatic-imports.csv"' },
+				body: 'Folder path\n' + folderPath,
+			});
+		}
 		if (pathname === '/api/music/charts/colombia/tracks/2/isrc' && request.method() === 'PUT') {
 			expect(request.headers()['x-cineroute-csrf']).toBe('test-csrf');
 			const body = request.postDataJSON();
@@ -396,6 +405,7 @@ test('admin chart playlists show sync progress and automatic import history', as
 							artist: 'Example artist',
 							imported_at: '2026-11-18T00:00:00Z',
 							partial: false,
+							folder_path: folderPath,
 							sources: [{ playlist: 'Top 5 Colombia', track: 'Chart song', chart_date: '2026-11-16' }],
 						},
 					],
@@ -467,5 +477,16 @@ test('admin chart playlists show sync progress and automatic import history', as
 	await page.getByRole('button', { name: 'Edit ISRC', exact: true }).click();
 	await page.getByRole('button', { name: 'Use automatic match', exact: true }).click();
 	await expect(page.getByRole('button', { name: 'Set ISRC', exact: true })).toBeVisible();
-	await expect(page.getByRole('region', { name: 'Automatic imports' })).toContainText('Example release');
+	await page.getByRole('main').getByRole('button', { name: 'Import history', exact: true }).click();
+	await expect(page).toHaveURL(/\/admin\/music\/imports$/);
+	await page.reload();
+	await expect(page.getByRole('heading', { name: 'Automatic imports' })).toBeVisible();
+	const history = page.getByRole('region', { name: 'Import history' });
+	await expect(history.getByRole('heading', { name: 'Example release' })).toBeVisible();
+	await expect(history.getByText(folder, { exact: false })).toBeVisible();
+	await expect(history.getByLabel('Folder path')).toHaveValue(folderPath);
+	await expect(history.getByText('Top 5 Colombia · Chart song · 2026-11-16')).toBeVisible();
+	const downloaded = page.waitForEvent('download');
+	await page.getByRole('link', { name: 'Download CSV' }).click();
+	expect((await downloaded).suggestedFilename()).toBe('cineroute-automatic-imports.csv');
 });

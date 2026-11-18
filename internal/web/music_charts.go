@@ -140,6 +140,21 @@ func (s *Server) chartImports(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{"imports": items, "more": more, "offset": offset})
 }
 
+func (s *Server) exportChartImports(w http.ResponseWriter, r *http.Request) {
+	manager := s.chartManager(w)
+	if manager == nil {
+		return
+	}
+	data, err := manager.ImportsCSV(r.Context())
+	if err != nil {
+		chartError(w, err)
+		return
+	}
+	w.Header().Set("Content-Type", "text/csv; charset=utf-8")
+	w.Header().Set("Content-Disposition", `attachment; filename="cineroute-automatic-imports.csv"`)
+	w.Write(data)
+}
+
 func (s *Server) chartManager(w http.ResponseWriter) *charts.Manager {
 	if s.music == nil || s.music.Charts == nil {
 		writeErr(w, http.StatusServiceUnavailable, "Music is disabled.")

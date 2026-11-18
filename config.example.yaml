@@ -215,6 +215,7 @@ music:
     quality: 3 # 1 MP3, 2 CD, 3 up to 24/96, 4 up to 24/192
   paths:
     library: "/music"
+    # host_library: "/mnt/media/music" # display this host path in the import history
     staging: "/staging" # separate from the library; same filesystem is faster
     data: "/data/music"
   naming:
