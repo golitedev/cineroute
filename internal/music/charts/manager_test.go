@@ -109,6 +109,25 @@ func TestChooseRecordingChecksCreditsAndConflictingCopies(t *testing.T) {
 	}
 }
 
+func TestChooseRecordingRejectsAcousticDuplicates(t *testing.T) {
+	track := Track{Title: "Beauty And A Beat", Artists: []string{"Justin Bieber", "Nicki Minaj"}}
+	original := qobuz.Recording{ID: "original", AlbumID: "believe", Title: track.Title + " (Album Version)", Artist: "Justin Bieber", Album: "Believe", ISRC: "USUM71205367", Duration: 227, Streamable: true}
+	acoustic := qobuz.Recording{ID: "acoustic-untagged", AlbumID: "acoustic-release", Title: track.Title, Artist: "Justin Bieber", Album: "Compilation", ISRC: "USUM71217075", Duration: 143, Streamable: true}
+	labeled := acoustic
+	labeled.ID, labeled.Title = "acoustic-explicit", track.Title+" (Acoustic Version)"
+	if got, reason := chooseRecording(track, []qobuz.Recording{acoustic, labeled, original}); got.ID != original.ID || reason != "" {
+		t.Fatalf("catalog match = %q, reason = %q", got.ID, reason)
+	}
+	if got, reason := chooseRecording(track, []qobuz.Recording{acoustic, labeled}); got.ID != "" || reason != "No matching Qobuz track" {
+		t.Fatalf("acoustic-only match = %q, reason = %q", got.ID, reason)
+	}
+	track.Title = labeled.Title
+	track.Artists = []string{"Justin Bieber"}
+	if got, reason := chooseRecording(track, []qobuz.Recording{acoustic, labeled, original}); got.ID != labeled.ID || reason != "" {
+		t.Fatalf("explicit acoustic match = %q, reason = %q", got.ID, reason)
+	}
+}
+
 func TestChooseSongUsesStrongestEvidence(t *testing.T) {
 	track := Track{Title: "Song", Artists: []string{"Lead", "Guest"}}
 	recording := qobuz.Recording{ID: "qobuz", ISRC: "USAAA1234567", Album: "Release", Duration: 200}
@@ -264,7 +283,10 @@ func TestDailyChartSyncPublishesVerifiedTracksAndKeepsImportHistory(t *testing.T
 	var mu sync.Mutex
 	local := map[string][]navidrome.Song{
 		existing.Title: {{ID: "nd-existing", Title: existing.Title, Artist: "Singer", Album: "Existing Album"}},
-		download.Title: {{ID: "nd-wrong", Title: "Nueva canción (Live)", Artist: "Ártist"}},
+		download.Title: {
+			{ID: "nd-wrong", Title: "Nueva canción (Live)", Artist: "Ártist"},
+			{ID: "nd-acoustic", Title: download.Title, Artist: "Ártist", Album: "Release Acoustic", ISRC: []string{"ACOUSTIC"}},
+		},
 	}
 	remote := make(map[string]navidrome.Playlist)
 	qobuzLookups := make(map[string]int)
@@ -277,7 +299,10 @@ func TestDailyChartSyncPublishesVerifiedTracksAndKeepsImportHistory(t *testing.T
 			qobuzLookups[query]++
 			switch query {
 			case "Nueva canción Ártist":
-				fmt.Fprint(w, `{"tracks":{"items":[{"id":99,"title":"Nueva cancion (feat. Guest)","isrc":"TEST00000001","media_number":2,"track_number":3,"duration":200,"streamable":true,"performer":{"name":"Artist"},"album":{"id":"release","title":"Release"}}]}}`)
+				fmt.Fprint(w, `{"tracks":{"items":[
+					{"id":98,"title":"Nueva cancion","streamable":true,"performer":{"name":"Artist"},"album":{"id":"acoustic","title":"Release Acoustic"}},
+					{"id":99,"title":"Nueva cancion (feat. Guest)","version":"Album Version","isrc":"TEST00000001","media_number":2,"track_number":3,"duration":200,"streamable":true,"performer":{"name":"Artist"},"album":{"id":"release","title":"Release"}}
+				]}}`)
 			case "Rock (Remix) Band":
 				fmt.Fprint(w, `{"tracks":{"items":[
 					{"id":100,"title":"Rock","version":"Remix","isrc":"TEST00000002","streamable":true,"performer":{"name":"Band"},"album":{"id":"one","title":"One"}},
@@ -381,6 +406,11 @@ func TestDailyChartSyncPublishesVerifiedTracksAndKeepsImportHistory(t *testing.T
 	}
 	se, err := manager.Configure(ctx, "", Settings{Country: "se", Limit: 1, Enabled: true})
 	if err != nil {
+		t.Fatal(err)
+	}
+	if err := manager.remember(ctx, download.SpotifyID, qobuz.Recording{
+		ID: "old", AlbumID: "acoustic", Title: download.Title, Artist: "Ártist", Album: "Release Acoustic", ISRC: "ACOUSTIC", Streamable: true,
+	}); err != nil {
 		t.Fatal(err)
 	}
 	read := func(id string) playlist {

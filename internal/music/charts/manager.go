@@ -304,7 +304,7 @@ func (m *Manager) resolve(ctx context.Context, p playlist, e *entry, now time.Ti
 		}
 		e.Recording = cached
 	}
-	if e.JobID == "" && e.Recording.ID != "" && trackMatch(e.Track, e.Recording.Title, e.Recording.Artist) == 0 {
+	if e.JobID == "" && e.Recording.ID != "" && catalogMatch(e.Track, e.Recording) == 0 {
 		e.Recording = qobuz.Recording{}
 	}
 	title := titleWithoutCredit(e.Title, e.Artists)

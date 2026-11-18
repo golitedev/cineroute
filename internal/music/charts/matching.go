@@ -17,6 +17,7 @@ var (
 	featureCredit        = regexp.MustCompile(`(?i)\s+(?:[(\[]\s*)?\b(?:feat\.?|ft\.?|featuring)\s+([^\])]+)[\])]?$`)
 	artistDivider        = regexp.MustCompile(`(?i)\s*(?:,|;)\s*|\s+(?:&|and|x|with|feat\.?|ft\.?|featuring)\s+`)
 	releaseVersionSuffix = regexp.MustCompile(`(?i)\s*(?:\(` + releaseLabel + `\)|\[` + releaseLabel + `\]|[-–—]\s+` + releaseLabel + `)\s*$`)
+	acousticLabel        = regexp.MustCompile(`\bacoustic(?: version| sessions?)?$`)
 )
 
 func normalize(value string) string {
@@ -114,14 +115,38 @@ func trackMatch(track Track, title, artist string) int {
 	return len(names)
 }
 
+func acousticConflict(track Track, title, album string) bool {
+	return !acousticLabel.MatchString(normalize(titleWithoutCredit(track.Title, track.Artists))) &&
+		(acousticLabel.MatchString(normalize(titleWithoutCredit(title, track.Artists))) || acousticLabel.MatchString(normalize(album)))
+}
+
+func catalogMatch(track Track, recording qobuz.Recording) int {
+	if acousticConflict(track, recording.Title, recording.Album) {
+		return 0
+	}
+	if score := trackMatch(track, recording.Title, recording.Artist); score != 0 {
+		return score
+	}
+	title, _ := splitReleaseLabel(recording.Title, track.Artists)
+	track.Title, _ = splitReleaseLabel(track.Title, track.Artists)
+	return trackMatch(track, title, recording.Artist)
+}
+
 func chooseRecording(track Track, candidates []qobuz.Recording) (qobuz.Recording, string) {
+	// Qobuz can list the same acoustic recording with and without its version.
+	acousticCodes := make(map[string]bool)
+	for _, candidate := range candidates {
+		if code := normalizeISRC(candidate.ISRC); code != "" && acousticConflict(track, candidate.Title, candidate.Album) {
+			acousticCodes[code] = true
+		}
+	}
 	var matches []qobuz.Recording
 	best := 0
 	for _, candidate := range candidates {
-		if candidate.ID == "" || candidate.AlbumID == "" {
+		if candidate.ID == "" || candidate.AlbumID == "" || acousticCodes[normalizeISRC(candidate.ISRC)] {
 			continue
 		}
-		score := trackMatch(track, candidate.Title, candidate.Artist)
+		score := catalogMatch(track, candidate)
 		if score == 0 || score < best {
 			continue
 		}
@@ -157,7 +182,7 @@ func chooseSong(track Track, recording qobuz.Recording, songs []navidrome.Song) 
 	best := 0
 	verified := false
 	for _, song := range songs {
-		if song.ID == "" || (recording.ID != "" && !matchesRecording(recording, song)) {
+		if song.ID == "" || acousticConflict(track, song.Title, song.Album) || (recording.ID != "" && !matchesRecording(recording, song)) {
 			continue
 		}
 		score := trackMatch(track, song.Title, song.Artist)
@@ -207,6 +232,9 @@ func chooseSong(track Track, recording qobuz.Recording, songs []navidrome.Song) 
 			continue
 		}
 		title, label := splitReleaseLabel(song.Title, track.Artists)
+		if acousticConflict(track, title, song.Album) {
+			continue
+		}
 		if label == "" && baseTrack.Title == track.Title {
 			continue
 		}
