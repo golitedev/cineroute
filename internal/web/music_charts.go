@@ -80,6 +80,27 @@ func (s *Server) syncChartPlaylist(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusAccepted, map[string]bool{"queued": true})
 }
 
+func (s *Server) setChartTrackISRC(w http.ResponseWriter, r *http.Request) {
+	manager := s.chartManager(w)
+	if manager == nil {
+		return
+	}
+	var body struct {
+		ISRC *string `json:"isrc"`
+	}
+	dec := json.NewDecoder(http.MaxBytesReader(w, r.Body, 4096))
+	dec.DisallowUnknownFields()
+	if err := dec.Decode(&body); err != nil || body.ISRC == nil {
+		writeErr(w, http.StatusBadRequest, "Provide an ISRC or an empty string to clear it.")
+		return
+	}
+	if err := manager.SetTrackISRC(r.Context(), r.PathValue("id"), r.PathValue("track"), *body.ISRC); err != nil {
+		chartError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusAccepted, map[string]bool{"saved": true})
+}
+
 func (s *Server) removeChartPlaylist(w http.ResponseWriter, r *http.Request) {
 	manager := s.chartManager(w)
 	if manager == nil {
@@ -133,7 +154,7 @@ func chartError(w http.ResponseWriter, err error) {
 		writeErr(w, http.StatusNotFound, err.Error())
 	case errors.Is(err, charts.ErrSettings):
 		writeErr(w, http.StatusBadRequest, strings.TrimPrefix(err.Error(), charts.ErrSettings.Error()+": "))
-	case errors.Is(err, charts.ErrPaused), errors.Is(err, charts.ErrStale):
+	case errors.Is(err, charts.ErrPaused), errors.Is(err, charts.ErrStale), errors.Is(err, charts.ErrTrackBusy):
 		writeErr(w, http.StatusConflict, err.Error())
 	default:
 		slog.Error("music chart request", "err", err)

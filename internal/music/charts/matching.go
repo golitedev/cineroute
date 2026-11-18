@@ -177,6 +177,32 @@ func chooseRecording(track Track, candidates []qobuz.Recording) (qobuz.Recording
 	return chosen, ""
 }
 
+func chooseRecordingWithISRC(track Track, candidates []qobuz.Recording, identity trackIdentity) (qobuz.Recording, string) {
+	if identity.ISRC == "" {
+		return chooseRecording(track, candidates)
+	}
+	matches := slices.DeleteFunc(slices.Clone(candidates), func(r qobuz.Recording) bool { return !equalISRC(r.ISRC, identity.ISRC) })
+	if album := normalize(identity.Album); album != "" {
+		if i := slices.IndexFunc(matches, func(r qobuz.Recording) bool { return r.Streamable && normalize(r.Album) == album }); i > 0 {
+			matches[0], matches[i] = matches[i], matches[0]
+		}
+	}
+	recording, reason := chooseRecording(track, matches)
+	if reason == "No matching Qobuz track" {
+		reason = "No library or Qobuz match for ISRC " + identity.ISRC
+	}
+	return recording, reason
+}
+
+func chooseSongWithISRC(track Track, recording qobuz.Recording, songs []navidrome.Song, code string) (navidrome.Song, bool) {
+	if code != "" {
+		songs = slices.DeleteFunc(slices.Clone(songs), func(song navidrome.Song) bool {
+			return !slices.ContainsFunc(song.ISRC, func(id string) bool { return equalISRC(id, code) })
+		})
+	}
+	return chooseSong(track, recording, songs)
+}
+
 func chooseSong(track Track, recording qobuz.Recording, songs []navidrome.Song) (navidrome.Song, bool) {
 	var matches []navidrome.Song
 	best := 0

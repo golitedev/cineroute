@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"net/http"
 	"slices"
 	"strings"
 	"sync"
@@ -37,13 +38,14 @@ type downloadQueue interface {
 
 // Manager retains chart progress separately from the download history.
 type Manager struct {
-	db      *sql.DB
-	catalog catalog
-	nav     *navidrome.Client
-	jobs    downloadQueue
-	fetch   func(context.Context, string) (Snapshot, error)
-	wake    chan struct{}
-	phases  sync.Map // playlist ID to syncPhase for the current worker pass
+	db             *sql.DB
+	catalog        catalog
+	nav            *navidrome.Client
+	jobs           downloadQueue
+	fetch          func(context.Context, string) (Snapshot, error)
+	lookupIdentity func(context.Context, string) (trackIdentity, error)
+	wake           chan struct{}
+	phases         sync.Map // playlist ID to syncPhase for the current worker pass
 
 	// Settings changes and external playlist writes must not overlap.
 	mutations  sync.Mutex
@@ -56,7 +58,10 @@ func New(data string, catalog catalog, nav *navidrome.Client, queue downloadQueu
 	if err != nil {
 		return nil, err
 	}
-	return &Manager{db: db, catalog: catalog, nav: nav, jobs: queue, fetch: fetchKworb, wake: make(chan struct{}, 1)}, nil
+	credits := &creditsClient{client: &http.Client{Timeout: 5 * time.Second, CheckRedirect: func(*http.Request, []*http.Request) error {
+		return http.ErrUseLastResponse
+	}}}
+	return &Manager{db: db, catalog: catalog, nav: nav, jobs: queue, fetch: fetchKworb, lookupIdentity: credits.lookup, wake: make(chan struct{}, 1)}, nil
 }
 
 func (m *Manager) Close() error { return m.db.Close() }
@@ -297,12 +302,20 @@ func (m *Manager) jobInProgress(e *entry, now time.Time) bool {
 }
 
 func (m *Manager) resolve(ctx context.Context, p playlist, e *entry, now time.Time) error {
+	identity, err := m.identity(ctx, e.SpotifyID)
+	if err != nil {
+		return err
+	}
 	if e.Recording.ID == "" {
 		cached, err := m.recording(ctx, e.SpotifyID)
 		if err != nil {
 			return err
 		}
 		e.Recording = cached
+	}
+	if e.Recording.ID != "" && identity.ISRC != "" && !equalISRC(identity.ISRC, e.Recording.ISRC) {
+		e.Recording = qobuz.Recording{}
+		e.JobID, e.IndexSince = "", time.Time{}
 	}
 	if e.JobID == "" && e.Recording.ID != "" && catalogMatch(e.Track, e.Recording) == 0 {
 		e.Recording = qobuz.Recording{}
@@ -312,7 +325,7 @@ func (m *Manager) resolve(ctx context.Context, p playlist, e *entry, now time.Ti
 	if err != nil {
 		return err
 	}
-	song, ambiguous := chooseSong(e.Track, e.Recording, songs)
+	song, ambiguous := chooseSongWithISRC(e.Track, e.Recording, songs, identity.ISRC)
 	if song.ID != "" {
 		e.setReady(song, now)
 		return nil
@@ -341,19 +354,45 @@ func (m *Manager) resolve(ctx context.Context, p playlist, e *entry, now time.Ti
 		if err != nil {
 			return fmt.Errorf("Qobuz track search failed")
 		}
-		recording, reason := chooseRecording(e.Track, candidates)
+		recording, reason := chooseRecordingWithISRC(e.Track, candidates, identity)
+		nextAttempt := now.Add(retryTrack)
+		if identity.ISRC == "" && (reason != "" || ambiguous) && now.Sub(time.Unix(identity.CheckedAt, 0)) >= retryTrack {
+			resolved, lookupErr := m.lookupIdentity(ctx, e.SpotifyID)
+			if lookupErr != nil {
+				if ctx.Err() != nil {
+					return ctx.Err()
+				}
+				// A third-party outage must not hold up the rest of the playlist.
+				nextAttempt = now.Add(retryFetch)
+			} else {
+				if err := m.cacheIdentity(ctx, e.SpotifyID, resolved, now); err != nil {
+					return err
+				}
+				if resolved.ISRC != "" {
+					identity = resolved
+					song, ambiguous = chooseSongWithISRC(e.Track, qobuz.Recording{}, songs, identity.ISRC)
+					if song.ID != "" {
+						e.setReady(song, now)
+						return nil
+					}
+					recording, reason = chooseRecordingWithISRC(e.Track, candidates, identity)
+				}
+			}
+		}
 		if reason != "" {
 			if ambiguous {
 				reason = "Multiple Navidrome recordings match. " + reason
 			}
-			e.State, e.Reason, e.NextAttempt = "needs_review", reason, now.Add(retryTrack)
+			e.State, e.Reason, e.NextAttempt = "needs_review", reason, nextAttempt
 			return nil
 		}
 		e.Recording = recording
-		if err := m.remember(ctx, e.SpotifyID, recording); err != nil {
-			return err
+		if identity.ISRC == "" {
+			if err := m.remember(ctx, e.SpotifyID, recording); err != nil {
+				return err
+			}
 		}
-		song, ambiguous = chooseSong(e.Track, recording, songs)
+		song, ambiguous = chooseSongWithISRC(e.Track, recording, songs, identity.ISRC)
 		if song.ID != "" {
 			e.setReady(song, now)
 			return nil

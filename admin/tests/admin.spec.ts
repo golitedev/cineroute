@@ -373,9 +373,17 @@ test('admin routes survive refresh and browser history', async ({ page, requests
 test('admin chart playlists show sync progress and automatic import history', async ({ page, requests }) => {
 	let created = false;
 	let reviewing = false;
+	let confirmedISRC = '';
 	await page.route('**/api/music/charts**', async (route) => {
 		const request = route.request();
 		const { pathname } = new URL(request.url());
+		if (pathname === '/api/music/charts/colombia/tracks/2/isrc' && request.method() === 'PUT') {
+			expect(request.headers()['x-cineroute-csrf']).toBe('test-csrf');
+			const body = request.postDataJSON();
+			expect(body).toEqual({ isrc: confirmedISRC ? '' : 'USSM11300080' });
+			confirmedISRC = body.isrc;
+			return route.fulfill({ status: 202, json: { saved: true } });
+		}
 		if (pathname.endsWith('/imports')) {
 			return route.fulfill({
 				json: {
@@ -426,6 +434,7 @@ test('admin chart playlists show sync progress and automatic import history', as
 										artists: ['Example artist'],
 										state: reviewing ? 'needs_review' : 'indexing',
 										reason: reviewing ? 'No matching Qobuz track' : '',
+										confirmed_isrc: confirmedISRC || undefined,
 									},
 								],
 							},
@@ -451,5 +460,12 @@ test('admin chart playlists show sync progress and automatic import history', as
 	await expect(page.getByRole('progressbar', { name: 'Tracks processed' })).toHaveAttribute('value', '2');
 	await page.getByText('Track status', { exact: true }).click();
 	await expect(page.getByText('Needs review · No matching Qobuz track')).toBeVisible();
+	await page.getByRole('button', { name: 'Set ISRC', exact: true }).click();
+	await page.getByLabel('ISRC', { exact: true }).fill('USSM11300080');
+	await page.getByRole('button', { name: 'Save ISRC', exact: true }).click();
+	await expect(page.getByText('Confirmed ISRC USSM11300080', { exact: false })).toBeVisible();
+	await page.getByRole('button', { name: 'Edit ISRC', exact: true }).click();
+	await page.getByRole('button', { name: 'Use automatic match', exact: true }).click();
+	await expect(page.getByRole('button', { name: 'Set ISRC', exact: true })).toBeVisible();
 	await expect(page.getByRole('region', { name: 'Automatic imports' })).toContainText('Example release');
 });

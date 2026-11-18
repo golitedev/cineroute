@@ -848,6 +848,11 @@ matches. Pausing stops future syncs and leaves the current playlist available.
 Removing a playlist also removes it from Navidrome. Imported albums stay in
 the music library.
 
+When the usual match is unresolved, CineRoute tries the exact Spotify track
+link with the keyless Credits.fm API. Under **Track status**, use **Set ISRC**
+to confirm an unresolved recording. CineRoute saves the code for that Spotify
+track across playlists. **Use automatic match** clears the manual choice.
+
 Use a Navidrome administrator in `music.navidrome` for chart playlists. That
 account owns the playlists, and Navidrome's public playlist setting makes them
 visible to regular users who have access to the music library. For Navidrome

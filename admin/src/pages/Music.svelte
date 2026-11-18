@@ -8,7 +8,16 @@
 	import { date, message } from '../lib/utils';
 
 	type Settings = { country: string; limit: number; name: string; enabled: boolean };
-	type Track = { spotify_id: string; rank: number; title: string; artists: string[]; state: string; reason?: string; album?: string };
+	type Track = {
+		spotify_id: string;
+		rank: number;
+		title: string;
+		artists: string[];
+		state: string;
+		reason?: string;
+		album?: string;
+		confirmed_isrc?: string;
+	};
 	type Chart = {
 		id: string;
 		settings: Settings;
@@ -43,6 +52,8 @@
 	const charts = new Resource<Charts>();
 	const history = new Resource<History>();
 	let editor = $state('');
+	let isrcEditor = $state('');
+	let isrc = $state('');
 	let country = $state('global');
 	let limit = $state<number | undefined>(50);
 	let name = $state('');
@@ -131,7 +142,7 @@
 		success = '';
 	}
 
-	async function mutate(path: string, method: string, notice: string, settings?: Settings) {
+	async function mutate(path: string, method: string, notice: string, body?: Settings | { isrc: string }) {
 		busy = true;
 		error = '';
 		success = '';
@@ -139,7 +150,7 @@
 			await api(chartsPath + path, {
 				method,
 				signal: charts.signal,
-				...(settings ? { headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(settings) } : {}),
+				...(body ? { headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) } : {}),
 			});
 			success = notice;
 			await charts.load(chartsPath);
@@ -162,6 +173,12 @@
 		if (await mutate(adding ? '' : '/' + editor, adding ? 'POST' : 'PUT', 'Playlist settings saved.', { country, limit, name, enabled })) {
 			editor = '';
 		}
+	}
+
+	async function saveISRC(chart: Chart, track: Track, code: string) {
+		const path = `/${chart.id}/tracks/${track.spotify_id}/isrc`;
+		if (await mutate(path, 'PUT', code ? 'ISRC saved. Track check queued.' : 'Automatic matching restored.', { isrc: code }))
+			isrcEditor = '';
 	}
 
 	function remove(chart: Chart) {
@@ -264,6 +281,7 @@
 					<summary>Track status</summary>
 					<ol class="chart-tracks">
 						{#each chart.tracks as track (track.spotify_id)}
+							{@const trackKey = `${chart.id}/${track.spotify_id}`}
 							<li value={track.rank} class="history-line">
 								<a href={`https://open.spotify.com/track/${track.spotify_id}`} target="_blank" rel="noreferrer">
 									<strong>{track.title}</strong>
@@ -272,7 +290,43 @@
 								<p class="muted">
 									{statusLabels[track.state] || track.state}{track.reason ? ' · ' + track.reason : ''}
 									{track.album ? ' · ' + track.album : ''}
+									{track.confirmed_isrc ? ' · Confirmed ISRC ' + track.confirmed_isrc : ''}
 								</p>
+								{#if isrcEditor === trackKey}
+									<form
+										onsubmit={(event) => {
+											event.preventDefault();
+											void saveISRC(chart, track, isrc.trim());
+										}}
+									>
+										<div class="actions">
+											<label>ISRC <input bind:value={isrc} required maxlength="24" disabled={busy} /></label>
+											<button type="submit" disabled={busy || !isrc.trim()}>Save ISRC</button>
+											{#if track.confirmed_isrc}<button type="button" disabled={busy} onclick={() => saveISRC(chart, track, '')}
+													>Use automatic match</button
+												>{/if}
+											<button type="button" disabled={busy} onclick={() => (isrcEditor = '')}>Cancel</button>
+										</div>
+										<p class="muted">
+											Paste the Spotify track link into the <a
+												href="https://www.unchainedmusic.io/tools/isrc-checker/"
+												target="_blank"
+												rel="noreferrer">ISRC checker</a
+											> to find the code.
+										</p>
+									</form>
+								{:else if track.state === 'needs_review' || (track.confirmed_isrc && !downloadStates.has(track.state) && track.state !== 'indexing')}
+									<button
+										type="button"
+										disabled={busy}
+										onclick={() => {
+											isrcEditor = trackKey;
+											isrc = track.confirmed_isrc || '';
+										}}
+									>
+										{track.confirmed_isrc ? 'Edit ISRC' : 'Set ISRC'}
+									</button>
+								{/if}
 							</li>
 						{/each}
 					</ol>

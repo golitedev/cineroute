@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"time"
 	"unicode/utf8"
@@ -20,10 +21,11 @@ import (
 )
 
 var (
-	ErrNotFound = errors.New("chart playlist not found")
-	ErrStale    = errors.New("chart playlist settings changed")
-	ErrPaused   = errors.New("enable this playlist before syncing it")
-	ErrSettings = errors.New("invalid playlist settings")
+	ErrNotFound  = errors.New("chart playlist not found")
+	ErrStale     = errors.New("chart playlist settings changed")
+	ErrPaused    = errors.New("enable this playlist before syncing it")
+	ErrSettings  = errors.New("invalid playlist settings")
+	ErrTrackBusy = errors.New("this track is still downloading or indexing")
 )
 
 type Settings struct {
@@ -84,9 +86,10 @@ type PlaylistView struct {
 
 type TrackView struct {
 	Track
-	State  string `json:"state"`
-	Reason string `json:"reason,omitempty"`
-	Album  string `json:"album,omitempty"`
+	State         string `json:"state"`
+	Reason        string `json:"reason,omitempty"`
+	Album         string `json:"album,omitempty"`
+	ConfirmedISRC string `json:"confirmed_isrc,omitempty"`
 }
 
 type playlist struct {
@@ -156,6 +159,7 @@ func openStore(dataDir string) (*sql.DB, error) {
 		PRAGMA busy_timeout = 5000;
 		CREATE TABLE IF NOT EXISTS chart_playlist (id TEXT PRIMARY KEY, revision INTEGER NOT NULL, state TEXT NOT NULL);
 		CREATE TABLE IF NOT EXISTS chart_recording (spotify_id TEXT PRIMARY KEY, metadata TEXT NOT NULL);
+		CREATE TABLE IF NOT EXISTS chart_identity (spotify_id TEXT PRIMARY KEY, isrc TEXT NOT NULL, album TEXT NOT NULL, manual INTEGER NOT NULL, checked_at INTEGER NOT NULL);
 		CREATE TABLE IF NOT EXISTS chart_import (job_id TEXT PRIMARY KEY, imported_at INTEGER NOT NULL, receipt TEXT NOT NULL);
 		CREATE INDEX IF NOT EXISTS chart_import_date ON chart_import(imported_at DESC, job_id DESC);
 	`)
@@ -166,8 +170,17 @@ func openStore(dataDir string) (*sql.DB, error) {
 	return db, nil
 }
 
+type playlistStore interface {
+	QueryContext(context.Context, string, ...any) (*sql.Rows, error)
+	ExecContext(context.Context, string, ...any) (sql.Result, error)
+}
+
 func (m *Manager) playlists(ctx context.Context) ([]playlist, error) {
-	rows, err := m.db.QueryContext(ctx, "SELECT state FROM chart_playlist ORDER BY rowid")
+	return loadPlaylists(ctx, m.db)
+}
+
+func loadPlaylists(ctx context.Context, db playlistStore) ([]playlist, error) {
+	rows, err := db.QueryContext(ctx, "SELECT state FROM chart_playlist ORDER BY rowid")
 	if err != nil {
 		return nil, err
 	}
@@ -201,15 +214,19 @@ func (m *Manager) playlist(ctx context.Context, id string) (playlist, error) {
 }
 
 func (m *Manager) save(ctx context.Context, p playlist, previousRevision int64) error {
+	return savePlaylist(ctx, m.db, p, previousRevision)
+}
+
+func savePlaylist(ctx context.Context, db playlistStore, p playlist, previousRevision int64) error {
 	raw, err := json.Marshal(p)
 	if err != nil {
 		return err
 	}
 	if previousRevision == 0 {
-		_, err := m.db.ExecContext(ctx, "INSERT INTO chart_playlist(id, revision, state) VALUES (?, ?, ?)", p.ID, p.Revision, raw)
+		_, err := db.ExecContext(ctx, "INSERT INTO chart_playlist(id, revision, state) VALUES (?, ?, ?)", p.ID, p.Revision, raw)
 		return err
 	}
-	result, err := m.db.ExecContext(ctx, "UPDATE chart_playlist SET revision = ?, state = ? WHERE id = ? AND revision = ?",
+	result, err := db.ExecContext(ctx, "UPDATE chart_playlist SET revision = ?, state = ? WHERE id = ? AND revision = ?",
 		p.Revision, raw, p.ID, previousRevision)
 	if err != nil {
 		return err
@@ -223,6 +240,13 @@ func (m *Manager) save(ctx context.Context, p playlist, previousRevision int64) 
 
 func (m *Manager) Views(ctx context.Context) ([]PlaylistView, error) {
 	playlists, err := m.playlists(ctx)
+	if err != nil {
+		return nil, err
+	}
+	manual, err := m.confirmedISRCs(ctx)
+	if err != nil {
+		return nil, err
+	}
 	views := make([]PlaylistView, 0, len(playlists))
 	for _, p := range playlists {
 		view := p.view()
@@ -232,6 +256,8 @@ func (m *Manager) Views(ctx context.Context) ([]PlaylistView, error) {
 			}
 		}
 		for i, entry := range p.Entries {
+			track := &view.Tracks[i]
+			track.ConfirmedISRC = manual[entry.SpotifyID]
 			if entry.JobID == "" {
 				continue
 			}
@@ -239,7 +265,6 @@ func (m *Manager) Views(ctx context.Context) ([]PlaylistView, error) {
 			if err != nil {
 				continue
 			}
-			track := &view.Tracks[i]
 			switch job.Status {
 			case jobs.StatusCompleted, jobs.StatusSkipped:
 				track.State, track.Reason = "indexing", "Waiting for Navidrome to index the track"
@@ -251,7 +276,7 @@ func (m *Manager) Views(ctx context.Context) ([]PlaylistView, error) {
 		}
 		views = append(views, view)
 	}
-	return views, err
+	return views, nil
 }
 
 func (m *Manager) Configure(ctx context.Context, id string, settings Settings) (PlaylistView, error) {
@@ -313,6 +338,107 @@ func (m *Manager) SyncNow(ctx context.Context, id string) error {
 	}
 	p.Revision++
 	if err := m.save(ctx, p, p.Revision-1); err != nil {
+		return err
+	}
+	m.Wake()
+	return nil
+}
+
+type trackIdentity struct {
+	ISRC      string
+	Album     string
+	CheckedAt int64
+}
+
+func (m *Manager) identity(ctx context.Context, spotifyID string) (trackIdentity, error) {
+	var result trackIdentity
+	err := m.db.QueryRowContext(ctx, "SELECT isrc, album, checked_at FROM chart_identity WHERE spotify_id = ?", spotifyID).Scan(&result.ISRC, &result.Album, &result.CheckedAt)
+	if errors.Is(err, sql.ErrNoRows) {
+		return trackIdentity{}, nil
+	}
+	return result, err
+}
+
+func (m *Manager) cacheIdentity(ctx context.Context, spotifyID string, identity trackIdentity, now time.Time) error {
+	_, err := m.db.ExecContext(ctx, `INSERT INTO chart_identity VALUES (?, ?, ?, 0, ?)
+		ON CONFLICT(spotify_id) DO UPDATE SET isrc = excluded.isrc, album = excluded.album, checked_at = excluded.checked_at
+		WHERE chart_identity.manual = 0`, spotifyID, identity.ISRC, identity.Album, now.Unix())
+	return err
+}
+
+func (m *Manager) confirmedISRCs(ctx context.Context) (map[string]string, error) {
+	rows, err := m.db.QueryContext(ctx, "SELECT spotify_id, isrc FROM chart_identity WHERE manual = 1")
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	result := make(map[string]string)
+	for rows.Next() {
+		var id, code string
+		if err := rows.Scan(&id, &code); err != nil {
+			return nil, err
+		}
+		result[id] = code
+	}
+	return result, rows.Err()
+}
+
+// SetTrackISRC updates all playlists that include the Spotify track. An empty
+// code returns it to automatic matching.
+func (m *Manager) SetTrackISRC(ctx context.Context, playlistID, spotifyID, input string) error {
+	code := normalizeISRC(input)
+	if strings.TrimSpace(input) != "" && !validISRC.MatchString(code) {
+		return fmt.Errorf("%w: enter a valid 12-character ISRC", ErrSettings)
+	}
+	m.mutations.Lock()
+	defer m.mutations.Unlock()
+	tx, err := m.db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	playlists, err := loadPlaylists(ctx, tx)
+	if err != nil {
+		return err
+	}
+	selected := slices.IndexFunc(playlists, func(p playlist) bool { return p.ID == playlistID })
+	if selected < 0 || !slices.ContainsFunc(playlists[selected].Entries, func(e entry) bool { return e.SpotifyID == spotifyID }) {
+		return ErrNotFound
+	}
+	for _, p := range playlists {
+		i := slices.IndexFunc(p.Entries, func(e entry) bool { return e.SpotifyID == spotifyID })
+		if i < 0 {
+			continue
+		}
+		e := &p.Entries[i]
+		if e.JobID != "" {
+			job, err := m.jobs.Get(e.JobID)
+			if err != nil && !errors.Is(err, jobs.ErrNotFound) {
+				return err
+			}
+			if err == nil && !job.Status.Finished() {
+				return ErrTrackBusy
+			}
+		}
+		e.Recording = qobuz.Recording{}
+		e.SongID, e.SongAlbum = "", nil
+		e.JobID, e.IndexSince = "", time.Time{}
+		e.State, e.Reason, e.NextAttempt = "pending", "", time.Time{}
+		p.Revision++
+		if err := savePlaylist(ctx, tx, p, p.Revision-1); err != nil {
+			return err
+		}
+	}
+	if code == "" {
+		_, err = tx.ExecContext(ctx, "DELETE FROM chart_identity WHERE spotify_id = ? AND manual = 1", spotifyID)
+	} else {
+		_, err = tx.ExecContext(ctx, `INSERT INTO chart_identity VALUES (?, ?, '', 1, 0)
+			ON CONFLICT(spotify_id) DO UPDATE SET isrc = excluded.isrc, album = '', manual = 1, checked_at = 0`, spotifyID, code)
+	}
+	if err != nil {
+		return err
+	}
+	if err := tx.Commit(); err != nil {
 		return err
 	}
 	m.Wake()

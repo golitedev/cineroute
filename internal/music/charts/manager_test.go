@@ -385,6 +385,7 @@ func TestDailyChartSyncPublishesVerifiedTracksAndKeepsImportHistory(t *testing.T
 	if err != nil {
 		t.Fatal(err)
 	}
+	manager.lookupIdentity = func(context.Context, string) (trackIdentity, error) { return trackIdentity{}, nil }
 	defer func() { manager.Close() }()
 	colombia := Snapshot{Date: "2026-11-16", Tracks: []Track{download, existing, ambiguous}}
 	sweden := Snapshot{Date: "2026-11-16", Tracks: []Track{download}}
@@ -472,6 +473,7 @@ func TestDailyChartSyncPublishesVerifiedTracksAndKeepsImportHistory(t *testing.T
 	if err != nil {
 		t.Fatal(err)
 	}
+	manager.lookupIdentity = func(context.Context, string) (trackIdentity, error) { return trackIdentity{}, nil }
 	manager.fetch = fetch
 	mu.Lock()
 	local[download.Title] = append(local[download.Title],
