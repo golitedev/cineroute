@@ -387,6 +387,21 @@ func TestDailyChartSyncPublishesVerifiedTracksAndKeepsImportHistory(t *testing.T
 		t.Fatalf("imports %+v more=%v error=%v", imports, more, err)
 	}
 
+	mu.Lock()
+	legacy := remote[colombiaRemoteID]
+	legacy.Comment = "Managed by CineRoute. Kworb chart date: " + colombia.Date
+	remote[colombiaRemoteID] = legacy
+	mu.Unlock()
+	if err := manager.SyncNow(ctx, co.ID); err != nil {
+		t.Fatal(err)
+	}
+	manager.runOnce(ctx, now)
+	updated, err := nav.Playlist(ctx, colombiaRemoteID)
+	if err != nil || updated.Comment != "Spotify chart date: "+colombia.Date {
+		t.Fatalf("playlist comment = %q, error = %v", updated.Comment, err)
+	}
+	checkRemote(colombiaRemoteID, "nd-downloaded", "nd-existing")
+
 	colombia.Date = "2026-11-17"
 	existing.Rank, download.Rank = 1, 2
 	colombia.Tracks = []Track{existing, download, ambiguous}

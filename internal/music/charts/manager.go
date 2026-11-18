@@ -463,7 +463,7 @@ func (m *Manager) writePlaylist(ctx context.Context, p *playlist, songs []string
 			return err
 		}
 	}
-	comment := "Managed by CineRoute. Kworb chart date: " + p.ChartDate
+	comment := "Spotify chart date: " + p.ChartDate
 	metadataChanged := !remote.Public || remote.Name != name || remote.Comment != comment
 	if metadataChanged {
 		if err := m.nav.MakePublic(ctx, p.NavidromeID, name, comment); err != nil {
