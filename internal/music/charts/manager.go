@@ -332,7 +332,7 @@ func (m *Manager) resolve(ctx context.Context, p playlist, e *entry, now time.Ti
 	if e.JobID == "" && e.Recording.ID != "" && catalogMatch(e.Track, e.Recording) == 0 {
 		e.Recording = qobuz.Recording{}
 	}
-	title := titleWithoutCredit(e.Title, e.Artists)
+	title := trackSearchTitle(e.Track)
 	songs, err := m.nav.Search(ctx, title)
 	if err != nil {
 		return err

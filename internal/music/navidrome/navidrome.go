@@ -54,14 +54,22 @@ type response struct {
 }
 
 type Song struct {
-	ID       string   `json:"id"`
-	Title    string   `json:"title"`
-	Artist   string   `json:"artist"`
-	Album    string   `json:"album"`
-	ISRC     []string `json:"isrc"`
-	Track    int      `json:"track"`
-	Disc     int      `json:"discNumber"`
-	Duration int      `json:"duration"`
+	ID           string        `json:"id"`
+	Title        string        `json:"title"`
+	Artist       string        `json:"artist"`
+	Album        string        `json:"album"`
+	ISRC         []string      `json:"isrc"`
+	Track        int           `json:"track"`
+	Disc         int           `json:"discNumber"`
+	Duration     int           `json:"duration"`
+	Contributors []Contributor `json:"contributors"`
+}
+
+type Contributor struct {
+	Role   string `json:"role"`
+	Artist struct {
+		Name string `json:"name"`
+	} `json:"artist"`
 }
 
 type Playlist struct {

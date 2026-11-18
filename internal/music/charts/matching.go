@@ -18,6 +18,7 @@ var (
 	artistDivider        = regexp.MustCompile(`(?i)\s*(?:,|;)\s*|\s+(?:&|and|x|with|feat\.?|ft\.?|featuring)\s+`)
 	releaseVersionSuffix = regexp.MustCompile(`(?i)\s*(?:\(` + releaseLabel + `\)|\[` + releaseLabel + `\]|[-–—]\s+` + releaseLabel + `)\s*$`)
 	acousticLabel        = regexp.MustCompile(`\bacoustic(?: version| sessions?)?$`)
+	remixSuffix          = regexp.MustCompile(`(?i)(?:(?:\s+|\s*[-–—]\s*)(?:rmx|remix)|\s*\(\s*(?:rmx|remix)\s*\)|\s*\[\s*(?:rmx|remix)\s*\])+\s*$`)
 )
 
 func normalize(value string) string {
@@ -73,6 +74,23 @@ func titleWithoutCredit(title string, artists []string) string {
 	return base
 }
 
+func canonicalRemixTitle(title string) string {
+	match := remixSuffix.FindStringIndex(title)
+	if match == nil || match[0] == 0 {
+		return title
+	}
+	return strings.TrimSpace(title[:match[0]]) + " (Remix)"
+}
+
+func trackSearchTitle(track Track) string {
+	title := titleWithoutCredit(track.Title, track.Artists)
+	remix := canonicalRemixTitle(title)
+	if normalize(remix) != normalize(title) {
+		return remix
+	}
+	return title
+}
+
 func splitReleaseLabel(title string, artists []string) (string, string) {
 	trimmed := strings.TrimSpace(title)
 	base := titleWithoutCredit(trimmed, artists)
@@ -94,17 +112,27 @@ func normalizeArtists(artists []string) []string {
 // Return the number of corroborated artist credits. Some services provide only
 // the lead artist, so prefer fuller credits without requiring them everywhere.
 func trackMatch(track Track, title, artist string) int {
+	return trackMatchWithContributors(track, title, artist, nil)
+}
+
+func trackMatchWithContributors(track Track, title, artist string, contributors []navidrome.Contributor) int {
 	known := normalizeArtists(track.Artists)
 	if len(known) == 0 || known[0] == "" {
 		return 0
 	}
 	chartTitle, _ := splitFeaturedCredit(track.Title, known)
 	candidateTitle, featured := splitFeaturedCredit(title, known)
-	if normalized := normalize(chartTitle); normalized == "" || normalized != normalize(candidateTitle) {
+	if normalized := normalize(canonicalRemixTitle(chartTitle)); normalized == "" || normalized != normalize(canonicalRemixTitle(candidateTitle)) {
 		return 0
 	}
-	names := artistNames(artist, known)
-	if !slices.Contains(names, known[0]) || slices.ContainsFunc(names, func(name string) bool { return !slices.Contains(known, name) }) {
+	var producers []string
+	for _, contributor := range contributors {
+		if strings.EqualFold(contributor.Role, "producer") {
+			producers = append(producers, artistKey(contributor.Artist.Name))
+		}
+	}
+	names := artistNames(artist, append(slices.Clone(known), producers...))
+	if !slices.Contains(names, known[0]) {
 		return 0
 	}
 	for _, name := range featured {
@@ -112,7 +140,21 @@ func trackMatch(track Track, title, artist string) int {
 			names = append(names, name)
 		}
 	}
-	return len(names)
+	score := 0
+	for _, name := range names {
+		if slices.Contains(known, name) {
+			score++
+		} else if !slices.Contains(producers, name) {
+			return 0
+		}
+	}
+	// Providers sometimes include a producer in the artist field. Accept that
+	// extra credit only when the library separately identifies it and also
+	// credits all chart artists.
+	if score != len(names) && slices.ContainsFunc(known, func(name string) bool { return !slices.Contains(names, name) }) {
+		return 0
+	}
+	return score
 }
 
 func acousticConflict(track Track, title, album string) bool {
@@ -211,7 +253,7 @@ func chooseSong(track Track, recording qobuz.Recording, songs []navidrome.Song) 
 		if song.ID == "" || acousticConflict(track, song.Title, song.Album) || (recording.ID != "" && !matchesRecording(recording, song)) {
 			continue
 		}
-		score := trackMatch(track, song.Title, song.Artist)
+		score := trackMatchWithContributors(track, song.Title, song.Artist, song.Contributors)
 		identified := sharesISRC([]string{recording.ISRC}, song.ISRC)
 		if score == 0 || (verified && !identified) {
 			continue
@@ -267,7 +309,7 @@ func chooseSong(track Track, recording qobuz.Recording, songs []navidrome.Song) 
 		if chosen.ID != "" && label != "single version" && label != "original version" {
 			continue
 		}
-		score := trackMatch(baseTrack, title, song.Artist)
+		score := trackMatchWithContributors(baseTrack, title, song.Artist, song.Contributors)
 		if score == 0 || score < best {
 			continue
 		}
