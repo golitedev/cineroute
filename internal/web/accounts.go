@@ -13,6 +13,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"slices"
 	"strconv"
 	"strings"
 	"sync"
@@ -23,9 +24,26 @@ import (
 )
 
 type account struct {
-	Name string `json:"name"`
-	Role string `json:"role"`
+	Name         string   `json:"name"`
+	Role         string   `json:"role"`
+	AllowedMedia []string `json:"allowed_media"`
 }
+
+func userAccount(u *config.User) account {
+	return account{Name: u.Name, Role: u.Role, AllowedMedia: append([]string{}, u.AllowedMedia...)}
+}
+
+func (a account) canRequest(kind string) bool {
+	if kind == "movie" {
+		kind = "movies"
+	}
+	return a.Role == "admin" || slices.Contains(a.AllowedMedia, kind)
+}
+
+func denyMedia(w http.ResponseWriter) {
+	writeErr(w, http.StatusForbidden, "Your account does not have access to this media type.")
+}
+
 type accountContext struct{}
 type accounts struct {
 	key      []byte
@@ -106,7 +124,7 @@ func (s *Server) authenticate(r *http.Request) (account, bool) {
 		if name == "" {
 			name = "admin"
 		}
-		a := account{name, "admin"}
+		a := account{Name: name, Role: "admin"}
 		if s.cfg.AuthPassword == "" || audience(r) == publicListener {
 			return account{}, false
 		}
@@ -130,7 +148,7 @@ func (s *Server) authenticate(r *http.Request) (account, bool) {
 		expires, parseErr := strconv.ParseInt(stamp, 10, 64)
 		if ok && found && decodeErr == nil && parseErr == nil && expires > time.Now().Unix() && expires <= time.Now().Add(cookieTTL(r)+time.Minute).Unix() {
 			if u := s.findAccount(string(name)); u != nil && hmac.Equal([]byte(sig), []byte(s.accountSignature(u, payload, audience(r)))) {
-				return account{u.Name, u.Role}, accountAllowed(r, u.Role)
+				return userAccount(u), accountAllowed(r, u.Role)
 			}
 		}
 	}
@@ -141,7 +159,7 @@ func (s *Server) authenticate(r *http.Request) (account, bool) {
 		}
 		if u := s.findAccount(name); u != nil && accountAllowed(r, u.Role) && passwordMatches(u, pass) {
 			s.passwordSucceeded(r)
-			return account{u.Name, u.Role}, true
+			return userAccount(u), true
 		}
 	}
 	return account{}, false
@@ -171,6 +189,10 @@ func (s *Server) auth(next http.Handler) http.Handler {
 		}
 		if !accountAllowed(r, a.Role) || (a.Role != "admin" && !userPath(r)) {
 			writeErr(w, http.StatusForbidden, "access denied")
+			return
+		}
+		if strings.HasPrefix(r.URL.Path, "/api/music/") && !a.canRequest("music") {
+			denyMedia(w)
 			return
 		}
 		// Cookie-authenticated mutations require a token fetched from this listener.
@@ -236,7 +258,11 @@ func (s *Server) login(w http.ResponseWriter, r *http.Request) {
 		token = s.accountToken(u, expires, audience(r))
 	}
 	http.SetCookie(w, &http.Cookie{Name: cookieName(r), Value: token, Path: "/", HttpOnly: true, Secure: secureRequest(r), SameSite: sessionSameSite(r), Expires: expires, MaxAge: int(cookieTTL(r).Seconds())})
-	writeJSON(w, 200, map[string]any{"account": account{name, role}})
+	a := account{Name: name, Role: role}
+	if u != nil {
+		a = userAccount(u)
+	}
+	writeJSON(w, 200, map[string]any{"account": a})
 }
 
 // HashPassword is shared by the CLI and config validation examples.

@@ -87,6 +87,7 @@ users:
   - name: "alice"
     role: "user"
     password: "replace-with-a-different-password"
+    allowed_media: [movies, tv, music]
 
 tmdb:
   api_key: ""              # v3 API key or v4 read access token, or CINEROUTE_TMDB_API_KEY
@@ -319,6 +320,12 @@ Create accounts in the YAML `users` list, using `name`, `role` (`admin` or
 `user`), and either `password` or bcrypt `password_hash`. Roles default to
 `user`; at least one enabled administrator is required. Names are unique
 ignoring case. Set `disabled: true` to disable an account. Restart after edits.
+Set `allowed_media` on each regular user to choose which types they can see
+and request in the portal. The supported values are `movies`, `tv`, and
+`music`. For example, `allowed_media: [movies, music]` enables movies and
+music. An omitted or empty list grants no request types, including for
+existing accounts. Administrator access is independent of this list.
+
 To generate a hash without putting the password in a shell command:
 
 ```sh

@@ -56,11 +56,12 @@ type Requests struct {
 
 // User configures an account with an explicit CineRoute role.
 type User struct {
-	Name         string `yaml:"name"`
-	Role         string `yaml:"role"`
-	Password     string `yaml:"password"`
-	PasswordHash string `yaml:"password_hash"`
-	Disabled     bool   `yaml:"disabled"`
+	Name         string   `yaml:"name"`
+	Role         string   `yaml:"role"`
+	Password     string   `yaml:"password"`
+	PasswordHash string   `yaml:"password_hash"`
+	Disabled     bool     `yaml:"disabled"`
+	AllowedMedia []string `yaml:"allowed_media"`
 }
 
 type Library struct {

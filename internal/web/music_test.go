@@ -40,7 +40,7 @@ func (musicFixture) ArtistReleases(context.Context, string, string, int, int, in
 func musicServer(t *testing.T) *Server {
 	t.Helper()
 	s := securityServer(t)
-	s.cfg.Users = append(s.cfg.Users, config.User{Name: "bob", Role: "user", Password: "bob-secret"})
+	s.cfg.Users = append(s.cfg.Users, config.User{Name: "bob", Role: "user", Password: "bob-secret", AllowedMedia: []string{"movies", "tv", "music"}})
 	cfg := musicconfig.Default()
 	root := t.TempDir()
 	cfg.Paths.Library = filepath.Join(root, "library")

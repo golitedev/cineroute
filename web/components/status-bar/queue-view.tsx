@@ -4,7 +4,18 @@ import { useState } from 'react';
 import { LoaderCircle, X } from 'lucide-react';
 import { useT } from '@/lib/i18n';
 import { useStatusBar } from '@/lib/status-bar/context';
-import { type Job, type Media, isPending, cancelRequest, retryJob, retryLyrics, dismissJob, formatJobMessage, formatProblem } from '@/lib/cineroute-api';
+import {
+    type Job,
+    type Media,
+    type RequestKind,
+    isPending,
+    cancelRequest,
+    retryJob,
+    retryLyrics,
+    dismissJob,
+    formatJobMessage,
+    formatProblem
+} from '@/lib/cineroute-api';
 import { Button } from '../ui/button';
 import { Input } from '../ui/input';
 import { Card, CardHeader } from '../ui/card';
@@ -14,9 +25,11 @@ import { cn } from '@/lib/utils';
 
 export default function QueueView() {
     const t = useT();
-    const { jobs, act } = useStatusBar();
+    const { jobs, mediaKinds, act } = useStatusBar();
     const [search, setSearch] = useState('');
-    const [filter, setFilter] = useState('all');
+    const [filter, setFilter] = useState<RequestKind | 'all'>('all');
+    const labels = { all: t('all'), movie: t('movies'), tv: t('tv'), music: t('music') };
+    const filters = ['all' as const, ...(mediaKinds ?? [])];
     const [selected, setSelected] = useState<Media | null>(null);
     const [busy, setBusy] = useState<string | null>(null);
     const filtered = jobs.filter(
@@ -129,12 +142,7 @@ export default function QueueView() {
         <div className='queue-view space-y-4'>
             <Input aria-label={t('queueSearch')} placeholder={t('queueSearch')} value={search} onChange={(e) => setSearch(e.target.value)} />
             <div className='flex gap-1 flex-wrap'>
-                {[
-                    ['all', t('all')],
-                    ['movie', t('movies')],
-                    ['tv', t('tv')],
-                    ['music', t('music')]
-                ].map(([value, label]) => (
+                {filters.map((value) => (
                     <Button
                         key={value}
                         size='sm'
@@ -142,7 +150,7 @@ export default function QueueView() {
                         onClick={() => setFilter(value)}
                         aria-pressed={filter === value}
                     >
-                        {label}
+                        {labels[value]}
                     </Button>
                 ))}
             </div>

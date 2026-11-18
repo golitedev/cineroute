@@ -15,10 +15,6 @@ import (
 )
 
 func (s *Server) catalogSearch(w http.ResponseWriter, r *http.Request) {
-	if s.tmdb == nil {
-		writeErr(w, 503, "Movie search is not configured yet.")
-		return
-	}
 	query := strings.TrimSpace(r.URL.Query().Get("q"))
 	kind := r.URL.Query().Get("type")
 	page, _ := strconv.Atoi(r.URL.Query().Get("page"))
@@ -27,6 +23,29 @@ func (s *Server) catalogSearch(w http.ResponseWriter, r *http.Request) {
 	}
 	if len(query) < 2 || len(query) > 200 || page < 1 || page > 500 || (kind != "" && kind != "all" && kind != "movie" && kind != "tv") {
 		writeErr(w, 400, "Enter a search between 2 and 200 characters.")
+		return
+	}
+	a := actor(r)
+	movies, tv := a.canRequest("movie"), a.canRequest("tv")
+	switch kind {
+	case "", "all":
+		switch {
+		case !movies && !tv:
+			denyMedia(w)
+			return
+		case !tv:
+			kind = "movie"
+		case !movies:
+			kind = "tv"
+		}
+	default:
+		if !a.canRequest(kind) {
+			denyMedia(w)
+			return
+		}
+	}
+	if s.tmdb == nil {
+		writeErr(w, 503, "Movie search is not configured yet.")
 		return
 	}
 	settings, err := s.requests.Load()
@@ -41,7 +60,7 @@ func (s *Server) catalogSearch(w http.ResponseWriter, r *http.Request) {
 	}
 	filtered := []catalogMedia{}
 	for _, item := range result.Results {
-		if (item.MediaType == "movie" && settings.AllowMovies) || (item.MediaType == "tv" && settings.AllowTV) {
+		if (item.MediaType == "movie" && movies && settings.AllowMovies) || (item.MediaType == "tv" && tv && settings.AllowTV) {
 			filtered = append(filtered, catalogMedia{Result: item, InLibrary: s.catalogInLibrary(item)})
 		}
 	}
@@ -51,14 +70,19 @@ func (s *Server) catalogSearch(w http.ResponseWriter, r *http.Request) {
 	}{result, filtered})
 }
 func (s *Server) catalogDetails(w http.ResponseWriter, r *http.Request) {
-	if s.tmdb == nil {
-		writeErr(w, 503, "Movie search is not configured yet.")
-		return
-	}
 	kind := r.PathValue("type")
 	id, _ := strconv.Atoi(r.PathValue("id"))
 	if (kind != "movie" && kind != "tv") || id <= 0 {
 		writeErr(w, 400, "invalid title")
+		return
+	}
+	a := actor(r)
+	if !a.canRequest(kind) {
+		denyMedia(w)
+		return
+	}
+	if s.tmdb == nil {
+		writeErr(w, 503, "Movie search is not configured yet.")
 		return
 	}
 	details, err := s.tmdb.Details(r.Context(), kind, id)
@@ -71,7 +95,6 @@ func (s *Server) catalogDetails(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, 503, "Request settings are temporarily unavailable.")
 		return
 	}
-	a := actor(r)
 	if (kind == "movie" && !settings.AllowMovies) || (kind == "tv" && !settings.AllowTV) {
 		writeErr(w, 403, "Requests for this media type are disabled.")
 		return
@@ -101,22 +124,25 @@ func jobView(job requests.Job) publicJob {
 	return publicJob{SpanishAudio: job.SpanishAudio, ID: job.ID, Media: job.Media.Result, Status: job.Status, Message: job.Message, Progress: job.Progress, Seasons: job.Seasons, CreatedAt: job.CreatedAt}
 }
 func (s *Server) userRequests(w http.ResponseWriter, r *http.Request) {
-	jobs, err := s.requests.Jobs(actor(r).Name)
+	a := actor(r)
+	view := []publicJob{}
+	if !a.canRequest("movie") && !a.canRequest("tv") {
+		writeJSON(w, 200, map[string]any{"requests": view})
+		return
+	}
+	jobs, err := s.requests.Jobs(a.Name)
 	if err != nil {
 		writeErr(w, 503, "Your requests could not be loaded.")
 		return
 	}
-	view := []publicJob{}
 	for _, job := range jobs {
-		view = append(view, jobView(job))
+		if a.canRequest(job.Media.MediaType) {
+			view = append(view, jobView(job))
+		}
 	}
 	writeJSON(w, 200, map[string]any{"requests": view})
 }
 func (s *Server) createUserRequest(w http.ResponseWriter, r *http.Request) {
-	if s.tmdb == nil {
-		writeErr(w, 503, "Movie search is not configured yet.")
-		return
-	}
 	var body struct {
 		SpanishAudio bool   `json:"spanish_audio"`
 		MediaType    string `json:"media_type"`
@@ -128,6 +154,15 @@ func (s *Server) createUserRequest(w http.ResponseWriter, r *http.Request) {
 	decoder.DisallowUnknownFields()
 	if err := decoder.Decode(&body); err != nil || body.TMDBID <= 0 || (body.MediaType != "movie" && body.MediaType != "tv") || len(body.Seasons) > 100 {
 		writeErr(w, 400, "Choose a movie or show and its seasons.")
+		return
+	}
+	a := actor(r)
+	if !a.canRequest(body.MediaType) {
+		denyMedia(w)
+		return
+	}
+	if s.tmdb == nil {
+		writeErr(w, 503, "Movie search is not configured yet.")
 		return
 	}
 	settings, err := s.requests.Load()
@@ -145,7 +180,6 @@ func (s *Server) createUserRequest(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	profile := profileFor(settings, body.MediaType)
-	a := actor(r)
 	now := time.Now().UTC()
 	job := requests.Job{SpanishAudio: body.SpanishAudio, Owner: a.Name, Media: media, Target: profile.Destination, PreferredDrive: profile.NewTitleDrive, Seasons: []int{}, Episodes: []string{}, Status: "pending", Message: "Waiting for administrator approval"}
 	if body.MediaType == "tv" {
@@ -197,7 +231,16 @@ func (s *Server) createUserRequest(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, 201, map[string]any{"request": jobView(created)})
 }
 func (s *Server) cancelUserRequest(w http.ResponseWriter, r *http.Request) {
-	job, err := s.requests.Action(r.PathValue("id"), actor(r).Name, "cancel")
+	a := actor(r)
+	id := r.PathValue("id")
+	job, err := s.requests.Job(id)
+	if errors.Is(err, requests.ErrNotFound) || (err == nil && (!strings.EqualFold(job.Owner, a.Name) || !a.canRequest(job.Media.MediaType))) {
+		writeErr(w, 404, "request not found")
+		return
+	}
+	if err == nil {
+		job, err = s.requests.Action(id, a.Name, "cancel")
+	}
 	if errors.Is(err, requests.ErrNotFound) {
 		writeErr(w, 404, "request not found")
 		return

@@ -4,12 +4,14 @@ import "testing"
 
 func TestUserConfigurationValidation(t *testing.T) {
 	for name, users := range map[string][]User{
-		"no admin":       {{Name: "alice", Password: "secret", Role: "user"}},
-		"duplicate":      {{Name: "admin", Password: "secret", Role: "admin"}, {Name: "ADMIN", Password: "secret", Role: "user"}},
-		"bad role":       {{Name: "admin", Password: "secret", Role: "root"}},
-		"empty password": {{Name: "admin", Role: "admin"}},
-		"disabled admin": {{Name: "admin", Password: "secret", Role: "admin", Disabled: true}},
-		"bad hash":       {{Name: "admin", PasswordHash: "not-bcrypt", Role: "admin"}},
+		"no admin":        {{Name: "alice", Password: "secret", Role: "user"}},
+		"duplicate":       {{Name: "admin", Password: "secret", Role: "admin"}, {Name: "ADMIN", Password: "secret", Role: "user"}},
+		"bad role":        {{Name: "admin", Password: "secret", Role: "root"}},
+		"empty password":  {{Name: "admin", Role: "admin"}},
+		"disabled admin":  {{Name: "admin", Password: "secret", Role: "admin", Disabled: true}},
+		"bad hash":        {{Name: "admin", PasswordHash: "not-bcrypt", Role: "admin"}},
+		"unknown media":   {{Name: "admin", Password: "secret", Role: "admin"}, {Name: "alice", Password: "secret", AllowedMedia: []string{"audio"}}},
+		"duplicate media": {{Name: "admin", Password: "secret", Role: "admin"}, {Name: "alice", Password: "secret", AllowedMedia: []string{"music", "music"}}},
 	} {
 		t.Run(name, func(t *testing.T) {
 			cfg := Default()

@@ -24,6 +24,16 @@ func (c *Config) validateUsers() error {
 		if u.Role != "admin" && u.Role != "user" {
 			return fmt.Errorf("users: %s role must be admin or user", u.Name)
 		}
+		media := map[string]bool{}
+		for _, kind := range u.AllowedMedia {
+			if kind != "movies" && kind != "tv" && kind != "music" {
+				return fmt.Errorf("users: %s allowed_media entry %q must be movies, tv or music", u.Name, kind)
+			}
+			if media[kind] {
+				return fmt.Errorf("users: %s allowed_media lists %q more than once", u.Name, kind)
+			}
+			media[kind] = true
+		}
 		if (u.Password == "") == (u.PasswordHash == "") {
 			return fmt.Errorf("users: %s needs exactly one of password and password_hash", u.Name)
 		}

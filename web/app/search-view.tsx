@@ -8,7 +8,8 @@ import { DropdownMenu, DropdownMenuContent, DropdownMenuRadioGroup, DropdownMenu
 import ReleaseCard from '@/components/release-card';
 import VideoDetail from '@/components/video-detail';
 import { useT } from '@/lib/i18n';
-import { catalog, type Media, mediaTitle, mediaYear, posterURL, portalRequest, getInfo, formatApiError } from '@/lib/cineroute-api';
+import { useStatusBar } from '@/lib/status-bar/context';
+import { catalog, type Media, type RequestKind, mediaTitle, mediaYear, posterURL, portalRequest, getInfo, formatApiError } from '@/lib/cineroute-api';
 import { type FilterDataType, type QobuzSearchResults, type QobuzSearchFilters, filterExplicit } from '@/lib/qobuz-dl';
 
 // Kept for the native artist and release dialogs.
@@ -17,12 +18,14 @@ export const filterData: (Omit<FilterDataType[number], 'value'> & { value: Qobuz
     { label: 'Tracks', value: 'tracks', icon: Disc3 },
     { label: 'Artists', value: 'artists', icon: Users }
 ];
-type Kind = 'music' | 'movie' | 'tv';
 type VideoResults = { results: Media[]; page: number; total_pages: number; similar_matches?: boolean };
 
 export default function SearchView() {
     const t = useT();
-    const [kind, setKind] = useState<Kind>('movie');
+    const { mediaKinds } = useStatusBar();
+    const [selectedKind, setKind] = useState<RequestKind>('movie');
+    const kind = mediaKinds?.includes(selectedKind) ? selectedKind : mediaKinds?.[0];
+    const canMusic = mediaKinds?.includes('music') ?? false;
     const [field, setField] = useState<QobuzSearchFilters>('albums');
     const [query, setQuery] = useState('');
     const [searched, setSearched] = useState('');
@@ -35,15 +38,23 @@ export default function SearchView() {
     const token = useRef(0);
     const controller = useRef<AbortController | null>(null);
     useEffect(() => {
-        void getInfo()
-            .then((info) => setEnabled(info.enabled))
-            .catch(() => {});
-        return () => controller.current?.abort();
-    }, []);
+        if (canMusic) {
+            let active = true;
+            void getInfo()
+                .then((info) => {
+                    if (active) setEnabled(info.enabled);
+                })
+                .catch(() => {});
+            return () => {
+                active = false;
+            };
+        }
+    }, [canMusic]);
+    useEffect(() => () => controller.current?.abort(), []);
     const hasResults = !!music || !!video;
     async function search(value = query, more = false) {
         const trimmed = value.trim();
-        if (trimmed.length < 2) return;
+        if (!kind || trimmed.length < 2) return;
         const current = ++token.current;
         controller.current?.abort();
         const abort = new AbortController();
@@ -84,7 +95,7 @@ export default function SearchView() {
             if (current === token.current) setLoading(false);
         }
     }
-    function changeKind(next: Kind) {
+    function changeKind(next: RequestKind) {
         if (next === kind) return;
         token.current++;
         controller.current?.abort();
@@ -121,93 +132,104 @@ export default function SearchView() {
                         <img src='/favicon.svg' alt='' className='h-11 w-11 sm:h-12 sm:w-12' />
                         <img src='/logo.svg' alt='CineRoute' className='h-10 sm:h-12 w-auto max-w-[240px]' />
                     </h1>
-                    <p className='text-sm sm:text-base text-muted-foreground font-medium text-center'>{t('tagline')}</p>
+                    {mediaKinds?.length === 3 && <p className='text-sm sm:text-base text-muted-foreground font-medium text-center'>{t('tagline')}</p>}
                 </button>
-                <form
-                    className='search-bar flex w-full items-center gap-2'
-                    onSubmit={(e) => {
-                        e.preventDefault();
-                        void search();
-                    }}
-                    role='search'
-                >
-                    <div className='flex flex-1 items-center border rounded-md bg-background px-3 py-1 min-w-0'>
-                        <Search className='size-5 shrink-0 text-muted-foreground' aria-hidden='true' />
-                        <Input
-                            className='border-0 focus-visible:ring-0 shadow-none font-medium'
-                            value={query}
-                            onChange={(e) => setQuery(e.target.value)}
-                            aria-label={t('search')}
-                            placeholder={t('searchPlaceholder')}
-                            minLength={2}
-                            maxLength={200}
-                            autoComplete='off'
-                        />
-                    </div>
-                    <Button type='submit' size='icon' className='size-12 shrink-0' disabled={loading || query.trim().length < 2} aria-label={t('search')}>
-                        {loading ? <LoaderCircle className='animate-spin' /> : <ArrowRight />}
-                    </Button>
-                </form>
-                <nav className='flex items-center justify-center gap-1 sm:gap-2 flex-wrap' aria-label={t('search')}>
-                    <Button
-                        variant={kind === 'movie' ? 'secondary' : 'outline'}
-                        className='border px-2 aria-[pressed=true]:border-transparent sm:px-4'
-                        aria-pressed={kind === 'movie'}
-                        onClick={() => changeKind('movie')}
+                {kind && (
+                    <form
+                        className='search-bar flex w-full items-center gap-2'
+                        onSubmit={(e) => {
+                            e.preventDefault();
+                            void search();
+                        }}
+                        role='search'
                     >
-                        <Film className='size-4' />
-                        {t('movies')}
-                    </Button>
-                    <Button
-                        variant={kind === 'tv' ? 'secondary' : 'outline'}
-                        className='border px-2 aria-[pressed=true]:border-transparent sm:px-4'
-                        aria-pressed={kind === 'tv'}
-                        onClick={() => changeKind('tv')}
-                    >
-                        <Tv className='size-4' />
-                        {t('tv')}
-                    </Button>
-                    <div className='contents sm:relative sm:inline-flex sm:shrink-0 sm:items-center'>
-                        <Button
-                            variant={kind === 'music' ? 'secondary' : 'outline'}
-                            className='border px-2 aria-[pressed=true]:border-transparent sm:px-4'
-                            aria-pressed={kind === 'music'}
-                            onClick={() => changeKind('music')}
-                        >
-                            <Music2 className='size-4' />
-                            {t('music')}
-                        </Button>
-                        <div className='flex min-h-10 basis-full items-center justify-center sm:contents'>
-                            {kind === 'music' && (
-                                <DropdownMenu>
-                                    <DropdownMenuTrigger asChild>
-                                        <Button
-                                            variant='ghost'
-                                            size='sm'
-                                            className='gap-1 px-1 text-muted-foreground sm:absolute sm:left-full sm:top-1/2 sm:ml-2 sm:-translate-y-1/2 sm:gap-2 sm:px-3'
-                                            aria-label={`${t('music')} · ${t(field)}`}
-                                        >
-                                            <MusicIcon className='size-4' />
-                                            {t(field)}
-                                            <ChevronDown className='size-3' />
-                                        </Button>
-                                    </DropdownMenuTrigger>
-                                    <DropdownMenuContent align='end'>
-                                        <DropdownMenuRadioGroup value={field} onValueChange={(value) => setField(value as QobuzSearchFilters)}>
-                                            {filterData.map((f) => (
-                                                <DropdownMenuRadioItem key={f.value} value={f.value}>
-                                                    <f.icon className='size-4 mr-2' />
-                                                    {t(f.value)}
-                                                </DropdownMenuRadioItem>
-                                            ))}
-                                        </DropdownMenuRadioGroup>
-                                    </DropdownMenuContent>
-                                </DropdownMenu>
-                            )}
+                        <div className='flex flex-1 items-center border rounded-md bg-background px-3 py-1 min-w-0'>
+                            <Search className='size-5 shrink-0 text-muted-foreground' aria-hidden='true' />
+                            <Input
+                                className='border-0 focus-visible:ring-0 shadow-none font-medium'
+                                value={query}
+                                onChange={(e) => setQuery(e.target.value)}
+                                aria-label={t('search')}
+                                placeholder={t('searchPlaceholder')}
+                                minLength={2}
+                                maxLength={200}
+                                autoComplete='off'
+                            />
                         </div>
-                    </div>
-                </nav>
+                        <Button type='submit' size='icon' className='size-12 shrink-0' disabled={loading || query.trim().length < 2} aria-label={t('search')}>
+                            {loading ? <LoaderCircle className='animate-spin' /> : <ArrowRight />}
+                        </Button>
+                    </form>
+                )}
+                {kind && (
+                    <nav className='flex items-center justify-center gap-1 sm:gap-2 flex-wrap' aria-label={t('search')}>
+                        {mediaKinds?.includes('movie') && (
+                            <Button
+                                variant={kind === 'movie' ? 'secondary' : 'outline'}
+                                className='border px-2 aria-[pressed=true]:border-transparent sm:px-4'
+                                aria-pressed={kind === 'movie'}
+                                onClick={() => changeKind('movie')}
+                            >
+                                <Film className='size-4' />
+                                {t('movies')}
+                            </Button>
+                        )}
+                        {mediaKinds?.includes('tv') && (
+                            <Button
+                                variant={kind === 'tv' ? 'secondary' : 'outline'}
+                                className='border px-2 aria-[pressed=true]:border-transparent sm:px-4'
+                                aria-pressed={kind === 'tv'}
+                                onClick={() => changeKind('tv')}
+                            >
+                                <Tv className='size-4' />
+                                {t('tv')}
+                            </Button>
+                        )}
+                        {canMusic && (
+                            <div className='contents sm:relative sm:inline-flex sm:shrink-0 sm:items-center'>
+                                <Button
+                                    variant={kind === 'music' ? 'secondary' : 'outline'}
+                                    className='border px-2 aria-[pressed=true]:border-transparent sm:px-4'
+                                    aria-pressed={kind === 'music'}
+                                    onClick={() => changeKind('music')}
+                                >
+                                    <Music2 className='size-4' />
+                                    {t('music')}
+                                </Button>
+                                <div className='flex min-h-10 basis-full items-center justify-center sm:contents'>
+                                    {kind === 'music' && (
+                                        <DropdownMenu>
+                                            <DropdownMenuTrigger asChild>
+                                                <Button
+                                                    variant='ghost'
+                                                    size='sm'
+                                                    className='gap-1 px-1 text-muted-foreground sm:absolute sm:left-full sm:top-1/2 sm:ml-2 sm:-translate-y-1/2 sm:gap-2 sm:px-3'
+                                                    aria-label={`${t('music')} · ${t(field)}`}
+                                                >
+                                                    <MusicIcon className='size-4' />
+                                                    {t(field)}
+                                                    <ChevronDown className='size-3' />
+                                                </Button>
+                                            </DropdownMenuTrigger>
+                                            <DropdownMenuContent align='end'>
+                                                <DropdownMenuRadioGroup value={field} onValueChange={(value) => setField(value as QobuzSearchFilters)}>
+                                                    {filterData.map((f) => (
+                                                        <DropdownMenuRadioItem key={f.value} value={f.value}>
+                                                            <f.icon className='size-4 mr-2' />
+                                                            {t(f.value)}
+                                                        </DropdownMenuRadioItem>
+                                                    ))}
+                                                </DropdownMenuRadioGroup>
+                                            </DropdownMenuContent>
+                                        </DropdownMenu>
+                                    )}
+                                </div>
+                            </div>
+                        )}
+                    </nav>
+                )}
                 <div role='status' aria-live='polite' className='text-sm text-center text-muted-foreground'>
+                    {mediaKinds?.length === 0 ? t('noMediaAccess') : ''}
                     {kind === 'music' && enabled === false ? t('musicUnavailable') : ''}
                     {video?.similar_matches ? t('similarTitles') : ''}
                     {video && !video.results.length ? t('noTitles') : ''}

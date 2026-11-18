@@ -17,7 +17,7 @@ func TestConfigAccountsEnforceRolesAndInvalidateSessions(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	cfg.Users = []config.User{{Name: "admin", Role: "admin", Password: "admin-secret"}, {Name: "Alice", Role: "user", PasswordHash: string(hash)}, {Name: "bob", Role: "user", Password: "bob-secret"}}
+	cfg.Users = []config.User{{Name: "admin", Role: "admin", Password: "admin-secret"}, {Name: "Alice", Role: "user", PasswordHash: string(hash), AllowedMedia: []string{"movies", "tv", "music"}}, {Name: "bob", Role: "user", Password: "bob-secret", AllowedMedia: []string{"movies", "tv", "music"}}}
 	srv := New(cfg, nil, nil)
 	handler := srv.PublicHandler()
 	login := httptest.NewRecorder()

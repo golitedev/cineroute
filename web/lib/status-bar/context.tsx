@@ -2,7 +2,18 @@
 import { useT } from '@/lib/i18n';
 import React, { createContext, useCallback, useContext, useEffect, useRef, useState, ReactNode } from 'react';
 import type { StatusBarProps } from '@/components/status-bar/status-bar';
-import { cancelRequest, getJobs, isUnauthorized, isActive, isPending, formatApiError, formatJobMessage, Job } from '@/lib/cineroute-api';
+import {
+    cancelRequest,
+    getJobs,
+    getMe,
+    isUnauthorized,
+    isActive,
+    isPending,
+    formatApiError,
+    formatJobMessage,
+    type Job,
+    type RequestKind
+} from '@/lib/cineroute-api';
 import { toast } from '@/hooks/use-toast';
 
 const StatusBarContext = createContext<
@@ -10,6 +21,7 @@ const StatusBarContext = createContext<
           statusBar: StatusBarProps;
           setStatusBar: React.Dispatch<React.SetStateAction<StatusBarProps>>;
           jobs: Job[];
+          mediaKinds: RequestKind[] | null;
           refresh: () => Promise<void>;
           act: (action: () => Promise<unknown>) => Promise<void>;
       }
@@ -19,6 +31,7 @@ const StatusBarContext = createContext<
 export const StatusBarProvider = ({ children }: { children: ReactNode }) => {
     const t = useT();
     const [jobs, setJobs] = useState<Job[]>([]);
+    const [mediaKinds, setMediaKinds] = useState<RequestKind[] | null>(null);
     const [statusBar, setStatusBar] = useState<StatusBarProps>({
         title: '',
         open: false,
@@ -31,7 +44,10 @@ export const StatusBarProvider = ({ children }: { children: ReactNode }) => {
     const sequence = useRef(0);
     const refresh = useCallback(async () => {
         const current = ++sequence.current;
-        const { jobs } = await getJobs();
+        const { mediaKinds } = await getMe();
+        if (current !== sequence.current) return;
+        setMediaKinds(mediaKinds);
+        const { jobs } = await getJobs(mediaKinds);
         if (current !== sequence.current) return;
         for (const job of jobs) {
             const before = previous.current?.get(job.id);
@@ -109,7 +125,7 @@ export const StatusBarProvider = ({ children }: { children: ReactNode }) => {
                 : undefined
         }));
     }, [jobs, act, t]);
-    return <StatusBarContext.Provider value={{ statusBar, setStatusBar, jobs, refresh, act }}>{children}</StatusBarContext.Provider>;
+    return <StatusBarContext.Provider value={{ statusBar, setStatusBar, jobs, mediaKinds, refresh, act }}>{children}</StatusBarContext.Provider>;
 };
 
 export const useStatusBar = () => {

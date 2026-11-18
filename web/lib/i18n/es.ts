@@ -39,6 +39,7 @@ export const es: Dictionary = {
     openQueue: 'Abrir mis solicitudes',
     queueDescription: 'Tus descargas, solicitudes y resultados recientes',
     queue: 'Mis solicitudes',
+    noMediaAccess: 'Tu cuenta no tiene permisos para solicitar contenido.',
     tagline: 'Películas, Series y Música. Todo en un lugar.',
     downloadProgress: 'Progreso de descarga',
     samplingRate: '{khz} kHz',

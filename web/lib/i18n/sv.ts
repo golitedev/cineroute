@@ -37,6 +37,7 @@ export const sv: Dictionary = {
     openQueue: 'Öppna mina önskemål',
     queueDescription: 'Dina nedladdningar, önskemål och senaste resultat',
     queue: 'Mina önskemål',
+    noMediaAccess: 'Ditt konto har inte behörighet att begära något innehåll.',
     tagline: 'Film, Serier och Musik. Allt på ett ställe.',
     downloadProgress: 'Nedladdningsförlopp',
     samplingRate: '{khz} kHz',

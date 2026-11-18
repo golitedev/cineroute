@@ -1,15 +1,13 @@
 'use client';
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useEffect, useRef } from 'react';
 import StatusBar from './status-bar';
 import { cn } from '@/lib/utils';
+import { useStatusBar } from '@/lib/status-bar/context';
 
 const StatusBarContainer = () => {
     const containerRef = useRef<HTMLDivElement>(null);
-    const [isMounted, setIsMounted] = useState(false);
-
-    useEffect(() => {
-        setIsMounted(true);
-    }, []);
+    const { mediaKinds } = useStatusBar();
+    const hasRequests = !!mediaKinds?.length;
 
     useEffect(() => {
         const element = containerRef.current;
@@ -29,9 +27,9 @@ const StatusBarContainer = () => {
             mutations.disconnect();
             document.documentElement.style.removeProperty('--status-bar-space');
         };
-    }, [isMounted]);
+    }, [hasRequests]);
 
-    if (!isMounted) return null;
+    if (!hasRequests) return null;
     return (
         <div
             ref={containerRef}

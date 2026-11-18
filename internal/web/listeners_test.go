@@ -21,7 +21,7 @@ import (
 func securityServer(t *testing.T) *Server {
 	t.Helper()
 	cfg := requestTestConfig(t)
-	cfg.Users = []config.User{{Name: "admin", Role: "admin", Password: "admin-secret"}, {Name: "alice", Role: "user", Password: "alice-secret"}}
+	cfg.Users = []config.User{{Name: "admin", Role: "admin", Password: "admin-secret"}, {Name: "alice", Role: "user", Password: "alice-secret", AllowedMedia: []string{"movies", "tv", "music"}}}
 	return New(cfg, nil, nil)
 }
 func securityRequest(method, path string) *http.Request {

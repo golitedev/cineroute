@@ -8,6 +8,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"sync"
 	"testing"
@@ -45,7 +46,7 @@ func newWorkflowFixture(t *testing.T, tv bool) *workflowFixture {
 			}
 		}
 	}
-	cfg.Users = []config.User{{Name: "admin", Role: "admin", Password: "admin-secret"}, {Name: "alice", Role: "user", Password: "alice-secret"}, {Name: "bob", Role: "user", Password: "bob-secret"}}
+	cfg.Users = []config.User{{Name: "admin", Role: "admin", Password: "admin-secret"}, {Name: "alice", Role: "user", Password: "alice-secret", AllowedMedia: []string{"movies", "tv", "music"}}, {Name: "bob", Role: "user", Password: "bob-secret", AllowedMedia: []string{"movies", "tv", "music"}}}
 	f := &workflowFixture{cfg: cfg, qb: newFakeQB(), title: "Example.Movie.2024.1080p.WEB-DL.x264"}
 	f.torrent = singleFileTorrent(f.title+".mkv", 512)
 	if tv {
@@ -68,6 +69,8 @@ func newWorkflowFixture(t *testing.T, tv bool) *workflowFixture {
 			fmt.Fprint(w, `{"episodes":[{"season_number":1,"episode_number":1,"air_date":"2024-01-01"},{"season_number":1,"episode_number":2,"air_date":"2024-01-08"}]}`)
 		case "/search/multi":
 			fmt.Fprint(w, `{"page":1,"total_pages":1,"results":[{"id":101,"title":"Example Movie","media_type":"movie","release_date":"2024-01-01","poster_path":"/movie.jpg"},{"id":202,"name":"Example Show","media_type":"tv"},{"id":999,"name":"A Person","media_type":"person"}]}`)
+		case "/search/movie":
+			fmt.Fprint(w, `{"page":1,"total_pages":1,"results":[{"id":101,"title":"Example Movie","release_date":"2024-01-01","poster_path":"/movie.jpg"}]}`)
 		default:
 			http.NotFound(w, r)
 		}
@@ -602,5 +605,70 @@ func TestCompletedMovieRequestStopsScanningQBittorrent(t *testing.T) {
 	current, err = f.s.requests.Job(job.ID)
 	if err != nil || current.Status != "complete" {
 		t.Fatalf("removing the torrent changed the request: %+v %v", current, err)
+	}
+}
+
+func TestPublicMediaPermissions(t *testing.T) {
+	f := newWorkflowFixture(t, false)
+	movie := createWorkflowJob(t, f, "alice", false)
+	show := createWorkflowJob(t, f, "alice", true)
+	cookie := securityLogin(t, f.s, publicListener, "alice", "alice-secret")
+	f.cfg.Users[1].AllowedMedia = []string{"movies", "music"}
+	f.cfg.Users[2].AllowedMedia = []string{"music"}
+
+	session := securityRequest("GET", "/api/session")
+	session.AddCookie(cookie)
+	resp := securityCall(f.s.PublicHandler(), session)
+	var view struct {
+		Account account `json:"account"`
+	}
+	if err := json.Unmarshal(resp.Body.Bytes(), &view); resp.Code != 200 || err != nil ||
+		!slices.Equal(view.Account.AllowedMedia, []string{"movies", "music"}) {
+		t.Fatalf("session did not report updated permissions: %d %s", resp.Code, resp.Body.String())
+	}
+
+	for _, tc := range []struct {
+		user, method, path, body string
+		want                     int
+	}{
+		{"alice", "GET", "/api/catalog/search?q=example&type=movie", "", 200},
+		{"alice", "GET", "/api/catalog/search?q=example&type=tv", "", 403},
+		{"alice", "GET", "/api/catalog/movie/101", "", 200},
+		{"alice", "GET", "/api/catalog/tv/202", "", 403},
+		{"alice", "POST", "/api/user/requests", `{"media_type":"tv","tmdb_id":202,"seasons":[1]}`, 403},
+		{"alice", "POST", "/api/user/requests/" + show.ID + "/cancel", "", 404},
+		{"alice", "GET", "/api/music/info", "", 200},
+		{"bob", "GET", "/api/catalog/search?q=example&type=all", "", 403},
+		{"bob", "POST", "/api/user/requests", `{"media_type":"movie","tmdb_id":101}`, 403},
+		{"bob", "GET", "/api/music/jobs", "", 200},
+		{"admin", "GET", "/api/catalog/tv/202", "", 200},
+	} {
+		out := userWorkflowCall(t, f.s, tc.user, tc.method, tc.path, tc.body)
+		if out.Code != tc.want {
+			t.Errorf("%s %s %s = %d, want %d: %s", tc.user, tc.method, tc.path, out.Code, tc.want, out.Body.String())
+		}
+	}
+	results := userWorkflowCall(t, f.s, "alice", "GET", "/api/catalog/search?q=example&type=all", "")
+	if results.Code != 200 || !strings.Contains(results.Body.String(), "Example Movie") || strings.Contains(results.Body.String(), "Example Show") {
+		t.Fatalf("mixed search returned %d %s", results.Code, results.Body.String())
+	}
+	history := userWorkflowCall(t, f.s, "alice", "GET", "/api/user/requests", "")
+	if history.Code != 200 || !strings.Contains(history.Body.String(), movie.ID) || strings.Contains(history.Body.String(), show.ID) {
+		t.Fatalf("filtered history returned %d %s", history.Code, history.Body.String())
+	}
+
+	f.cfg.Users[2].AllowedMedia = nil
+	for _, tc := range []struct{ method, path, body string }{
+		{"GET", "/api/music/info", ""},
+		{"GET", "/api/music/get-music?q=test", ""},
+		{"POST", "/api/music/jobs", `{"album_id":"a1"}`},
+		{"POST", "/api/music/jobs/one/retry", ""},
+		{"DELETE", "/api/music/jobs/one", ""},
+		{"GET", "/api/catalog/search?q=example", ""},
+	} {
+		out := userWorkflowCall(t, f.s, "bob", tc.method, tc.path, tc.body)
+		if out.Code != 403 {
+			t.Errorf("omitted permissions: %s %s = %d: %s", tc.method, tc.path, out.Code, out.Body.String())
+		}
 	}
 }

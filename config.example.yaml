@@ -34,6 +34,7 @@ admin:
 #   - name: "alice"
 #     role: "user"
 #     password_hash: "$2a$...replace-with-generated-bcrypt-hash..."
+#     allowed_media: [movies, tv, music] # list only the types this user can request
 #     disabled: false
 
 # Legacy single-admin login, used only when users is empty.

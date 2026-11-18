@@ -159,8 +159,11 @@ export function videoJob(job: VideoJob): Job {
         finished_at: null
     };
 }
-export const getJobs = async () => {
-    const [music, video] = await Promise.all([request<{ jobs: Job[] }>('jobs'), portalRequest<{ requests: VideoJob[] }>('/api/user/requests')]);
+export const getJobs = async (mediaKinds: RequestKind[]) => {
+    const [music, video] = await Promise.all([
+        mediaKinds.includes('music') ? request<{ jobs: Job[] }>('jobs') : { jobs: [] },
+        mediaKinds.some((kind) => kind !== 'music') ? portalRequest<{ requests: VideoJob[] }>('/api/user/requests') : { requests: [] }
+    ]);
     return {
         jobs: [...music.jobs.map((job) => ({ ...job, kind: 'music' as const })), ...video.requests.map(videoJob)].sort((a, b) =>
             b.created_at.localeCompare(a.created_at)
@@ -176,14 +179,17 @@ export const cancelRequest = (job: Job) =>
 export const dismissJob = (id: string) => request<null>(`jobs/${encodeURIComponent(id)}`, 'DELETE');
 export const getInfo = () => request<{ enabled: boolean; qobuz_ok: boolean; qobuz_error: string; qobuz_error_code?: string }>('info');
 export const refreshJobs = () => window.dispatchEvent(new Event('cineroute:jobs'));
-export type Session = { user: string; auth: boolean; role: string };
+export type RequestKind = 'movie' | 'tv' | 'music';
+export type Session = { user: string; auth: boolean; role: string; mediaKinds: RequestKind[] };
 export function getMe(): Promise<Session> {
     if (!sessionPromise)
-        sessionPromise = portalRequest<{ account: { name: string; role: string }; csrf_token: string }>('/api/session')
+        sessionPromise = portalRequest<{ account: { name: string; role: string; allowed_media: string[] }; csrf_token: string }>('/api/session')
             .then((result) => {
                 csrf = result.csrf_token;
                 if (result.account.role !== 'user') throw new ApiError('Use a user account.', 403);
-                return { user: result.account.name, auth: true, role: result.account.role };
+                const allowed = result.account.allowed_media || [];
+                const mediaKinds = (['movie', 'tv', 'music'] as const).filter((kind) => allowed.includes(kind === 'movie' ? 'movies' : kind));
+                return { user: result.account.name, auth: true, role: result.account.role, mediaKinds };
             })
             .catch((error) => {
                 sessionPromise = null;

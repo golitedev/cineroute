@@ -50,7 +50,8 @@ const albumJob = {
 async function fixtures(
     page: Page,
     authenticated = true,
-    lyrics?: { status: string; attempts: number; saved: number; missing: number; deferred: number; errors: number; skipped: number }
+    lyrics?: { status: string; attempts: number; saved: number; missing: number; deferred: number; errors: number; skipped: number },
+    allowedMedia = ['movies', 'tv', 'music']
 ) {
     let loggedIn = authenticated;
     const created: any[] = [];
@@ -91,7 +92,7 @@ async function fixtures(
         }
         if (!loggedIn) return respond({ error: 'unauthorized' }, 401);
         if (req.method() !== 'GET') expect(req.headers()['x-cineroute-csrf']).toBe('test-csrf');
-        if (url.pathname === '/api/session') return respond({ account: { name: 'alice', role: 'user' }, csrf_token: 'test-csrf' });
+        if (url.pathname === '/api/session') return respond({ account: { name: 'alice', role: 'user', allowed_media: allowedMedia }, csrf_token: 'test-csrf' });
         if (url.pathname === '/api/music/info') return respond({ success: true, data: { enabled: true, qobuz_ok: true } });
         if (url.pathname === '/api/music/jobs' && req.method() === 'POST') {
             queuedAlbums.push(req.postDataJSON().album_id);
@@ -147,7 +148,9 @@ async function fixtures(
             else jobs.push(job);
             return respond({ request: job }, 201);
         }
-        if (url.pathname === '/api/user/requests') return respond({ requests: jobs });
+        if (url.pathname === '/api/user/requests') {
+            return respond({ requests: jobs.filter((job) => allowedMedia.includes(job.media.media_type === 'movie' ? 'movies' : 'tv')) });
+        }
         if (url.pathname.endsWith('/cancel')) {
             cancelled.push(url.pathname);
             return respond({});
@@ -625,4 +628,41 @@ test('incomplete imports show saved counts and missing tracks in history', async
     await expect(page.getByText('Added INCOMPLETE album to your library: 8 of 10 tracks verified.')).toBeVisible();
     await page.locator('summary').filter({ hasText: 'Track problems' }).click();
     await expect(page.getByText(/Missing song.*Qobuz does not offer/)).toBeVisible();
+});
+
+for (const { name, allowed, buttons, initial } of [
+    { name: 'music only', allowed: ['music'], buttons: ['Music'], initial: 'Music' },
+    { name: 'TV only', allowed: ['tv'], buttons: ['TV'], initial: 'TV' },
+    { name: 'movies and music', allowed: ['movies', 'music'], buttons: ['Movies', 'Music'], initial: 'Movies' }
+]) {
+    test(`portal shows only allowed media for ${name}`, async ({ page }) => {
+        await fixtures(page, true, undefined, allowed);
+        const paths: string[] = [];
+        page.on('request', (request) => paths.push(new URL(request.url()).pathname));
+        await page.goto('/');
+        const nav = page.getByRole('navigation', { name: 'Search', exact: true });
+        await expect(nav.getByRole('button', { name: initial, exact: true })).toHaveAttribute('aria-pressed', 'true');
+        for (const kind of ['Movies', 'TV', 'Music']) {
+            await expect(nav.getByRole('button', { name: kind, exact: true })).toHaveCount(buttons.includes(kind) ? 1 : 0);
+        }
+        await page.getByRole('textbox', { name: 'Search', exact: true }).fill('Example');
+        await page.getByRole('textbox', { name: 'Search', exact: true }).press('Enter');
+        await expect.poll(() => paths.includes(initial === 'Music' ? '/api/music/get-music' : '/api/catalog/search')).toBe(true);
+        await page.getByRole('button', { name: 'Open my requests', exact: true }).click();
+        const queue = page.getByRole('dialog');
+        for (const kind of ['Movies', 'TV', 'Music']) {
+            await expect(queue.getByRole('button', { name: kind, exact: true })).toHaveCount(buttons.includes(kind) ? 1 : 0);
+        }
+        if (!allowed.includes('music')) expect(paths.some((path) => path.startsWith('/api/music/'))).toBe(false);
+        if (allowed.length === 1 && allowed[0] === 'music') expect(paths).not.toContain('/api/user/requests');
+    });
+}
+
+test('account without media permissions still has its account menu', async ({ page }) => {
+    await fixtures(page, true, undefined, []);
+    await page.goto('/');
+    await expect(page.getByText('Your account has no media request permissions.')).toBeVisible();
+    await expect(page.getByRole('navigation', { name: 'Search' })).toHaveCount(0);
+    await expect(page.getByRole('button', { name: 'Open my requests', exact: true })).toHaveCount(0);
+    await expect(page.getByRole('button', { name: 'User menu', exact: true })).toBeVisible();
 });

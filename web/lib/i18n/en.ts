@@ -35,6 +35,7 @@ export const en = {
     openQueue: 'Open my requests',
     queueDescription: 'Your downloads, requests and recent results',
     queue: 'My requests',
+    noMediaAccess: 'Your account has no media request permissions.',
     tagline: 'Movies, TV and Music. All in one place.',
     downloadProgress: 'Download progress',
     samplingRate: '{khz} kHz',
