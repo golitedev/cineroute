@@ -1,26 +1,23 @@
 #!/usr/bin/env python3
-"""Render one path-labeled spectrogram per track in the flaccheck report."""
+"""Render path-labeled spectrograms for the music library."""
 
 import fcntl
 import hashlib
 import json
 import os
-import re
 import signal
+import stat
 import subprocess
 import textwrap
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from pathlib import Path, PurePosixPath
+from pathlib import Path
 from tempfile import NamedTemporaryFile, TemporaryDirectory
 
 LIBRARY = Path("/mnt/disk4/media/music-main")
-REPORT = Path("/srv/scripts/flaccheck/lossy-tracks.txt")
 OUTPUT = Path("/srv/scripts/flaccheck/specs")
 FONT = "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf"
 PNG_SIGNATURE = b"\x89PNG\r\n\x1a\n"
-TRACK_LINE = re.compile(
-    r"  (.+\.(?:flac|wav|wave|aiff|aif|m4a|alac|ape|wv|opus))(?: \((.+)\))?", re.IGNORECASE
-)
+AUDIO_EXTENSIONS = {".flac", ".wav", ".wave", ".aiff", ".aif", ".m4a", ".alac", ".ape", ".wv", ".opus"}
 SANDBOX = """
 root=$1
 mount --bind "$root" "$root"
@@ -40,37 +37,26 @@ exec /usr/sbin/chroot . /usr/bin/setpriv --no-new-privs \\
 """
 
 
-def read_report(report, name_limit):
-    header, *albums = report.read_text(encoding="utf-8").rstrip("\n").split("\n\n")
-    total = re.search(r"^Tracks flagged as lossy: (\d+) across \d+ album\(s\)$", header, re.M)
-    if not total:
-        raise ValueError("The report has no flagged-track count.")
+def raise_walk_error(error):
+    raise error
 
+
+def list_tracks(library, name_limit):
     entries = []
-    seen = set()
-    for block in albums:
-        album, *tracks = block.split("\n")
-        for line in tracks:
-            match = TRACK_LINE.fullmatch(line)
-            if not match:
-                raise ValueError(f"Unrecognized track in report: {line!r}")
-            track, codec = match.groups()
-            relative = track if album == "(Library root)" else f"{album}/{track}"
-            path = PurePosixPath(relative)
-            if path.is_absolute() or ".." in path.parts or str(path) != relative or relative in seen:
-                raise ValueError(f"Invalid or duplicate track path: {relative!r}")
+    for directory, _, names in os.walk(library, onerror=raise_walk_error):
+        for name in names:
+            source = Path(directory) / name
+            if source.suffix.lower() not in AUDIO_EXTENSIONS or not stat.S_ISREG(source.lstat().st_mode):
+                continue
 
-            # Keep the original extension so files with the same stem remain distinct.
+            path = source.relative_to(library)
+            # Keep existing image paths and distinguish files with the same stem.
             filename = path.name + ".png"
             if len(os.fsencode(filename)) > name_limit:
                 digest = hashlib.sha256(os.fsencode(path.name)).hexdigest()
                 filename = f"spectrogram-{digest}.png"
-            entries.append({"track": relative, "image": str(path.with_name(filename)), "codec_guess": codec})
-            seen.add(relative)
-
-    if len(entries) != int(total.group(1)):
-        raise ValueError(f"Read {len(entries)} tracks, but the report lists {total.group(1)}.")
-    return entries
+            entries.append({"track": str(path), "image": str(path.with_name(filename))})
+    return sorted(entries, key=lambda entry: (entry["track"].casefold(), entry["track"]))
 
 
 def signature(status):
@@ -81,7 +67,7 @@ def render(entry, library, output):
     track = entry["track"]
     source = library / track
     if source.resolve(strict=True) != source or not source.is_file():
-        raise ValueError("Source is not a regular file at the report path.")
+        raise ValueError("Source is not a regular file at the library path.")
     before = source.stat()
     dest = output / entry["image"]
     if dest.parent.resolve() != dest.parent:
@@ -143,8 +129,7 @@ def write_manifest(output, library, entries):
         Path(temporary.name).replace(output / "manifest.json")
 
 
-def run(library, report, output):
-    entries = read_report(report, os.pathconf(output.parent, "PC_NAME_MAX"))
+def run(library, output):
     output.mkdir(exist_ok=True)
     if output.resolve() != output:
         raise ValueError("The output directory is a symlink.")
@@ -154,8 +139,11 @@ def run(library, report, output):
         except BlockingIOError:
             raise ValueError("A spectrogram batch is already running.") from None
 
+        entries = list_tracks(library, os.pathconf(output, "PC_NAME_MAX"))
+        if not entries:
+            raise ValueError(f"No supported audio files found in {library}.")
         write_manifest(output, library, entries)
-        print(f"Rendering {len(entries)} flagged tracks into {output}", flush=True)
+        print(f"Checking {len(entries)} library tracks; rendering missing or stale PNGs into {output}", flush=True)
         counts = {"created": 0, "reused": 0, "failed": 0}
         with ThreadPoolExecutor(max_workers=2) as workers:
             jobs = {workers.submit(render, entry, library, output): entry for entry in entries}
@@ -182,7 +170,7 @@ if __name__ == "__main__":
     os.umask(0o027)
     signal.signal(signal.SIGTERM, stop)
     try:
-        raise SystemExit(run(LIBRARY, REPORT, OUTPUT))
+        raise SystemExit(run(LIBRARY, OUTPUT))
     except KeyboardInterrupt:
         raise SystemExit("Stopped. Run the same command to reuse completed PNGs.")
     except (OSError, ValueError) as error:
