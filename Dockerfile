@@ -69,10 +69,10 @@ RUN --mount=type=cache,target=/lyrics/target \
     cargo build --release --locked && cp target/release/lrcscript-engine /usr/local/bin/lyrics-fetch
 
 # The music downloader is an in-process worker calling this bundled CLI.
-# Follow the latest dev branch of our fork, including Qobuz lyrics support.
+# CI resolves our dev branch to an immutable commit for each image build.
 FROM --platform=$TARGETPLATFORM alpine:3.22 AS streamrip
-ARG STREAMRIP_REF=dev
 RUN apk add --no-cache python3 py3-pip git build-base python3-dev libffi-dev openssl-dev
+ARG STREAMRIP_REF=f804fcc73d3f7da4816aaf9dcdc80d03ed8da28a
 RUN python3 -m venv /opt/streamrip && /opt/streamrip/bin/pip install --no-cache-dir \
     "streamrip @ git+https://github.com/golitedev/streamrip.git@${STREAMRIP_REF}"
 
