@@ -69,7 +69,7 @@ RUN --mount=type=cache,target=/lyrics/target \
     cargo build --release --locked && cp target/release/lrcscript-engine /usr/local/bin/lyrics-fetch
 
 # The music downloader is an in-process worker calling this bundled CLI.
-# CI resolves our dev branch to an immutable commit for each image build.
+# Update this commit to upgrade the bundled Streamrip. CI verifies this pin.
 FROM --platform=$TARGETPLATFORM alpine:3.22 AS streamrip
 RUN apk add --no-cache python3 py3-pip git build-base python3-dev libffi-dev openssl-dev
 ARG STREAMRIP_REF=f804fcc73d3f7da4816aaf9dcdc80d03ed8da28a

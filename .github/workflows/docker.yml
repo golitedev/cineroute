@@ -55,12 +55,11 @@ jobs:
             type=sha
             type=raw,value=latest,enable={{is_default_branch}}
 
-      - name: Resolve Streamrip dev commit
+      - name: Read pinned Streamrip commit
         id: streamrip
         run: |
           set -euo pipefail
-          revision="$(git ls-remote --exit-code https://github.com/golitedev/streamrip.git refs/heads/dev)"
-          commit="${revision%%$'\t'*}"
+          commit="$(sed -n 's/^ARG STREAMRIP_REF=//p' Dockerfile)"
           [[ "$commit" =~ ^[0-9a-f]{40}$ ]]
           echo "commit=$commit" >> "$GITHUB_OUTPUT"
 
@@ -72,7 +71,6 @@ jobs:
           context: .
           platforms: ${{ env.PLATFORMS }}
           outputs: type=image,name=${{ env.IMAGE }},push-by-digest=true,name-canonical=true,push=true
-          build-args: STREAMRIP_REF=${{ steps.streamrip.outputs.commit }}
           labels: ${{ steps.meta.outputs.labels }}
           cache-from: type=gha,scope=cineroute
           cache-to: type=gha,mode=max,scope=cineroute
