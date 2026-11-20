@@ -316,6 +316,37 @@ func TestRetrySucceedsOnSecondAttempt(t *testing.T) {
 	}
 }
 
+func TestRestoreVerifiedIntoQualityRenamedRetry(t *testing.T) {
+	staging := filepath.Join(t.TempDir(), "staging")
+	retained := filepath.Join(staging+".verified", "Artist", "Album [24B-192kHz]")
+	current := filepath.Join(staging, "Artist", "Album [24B-96kHz]")
+	for _, file := range []struct{ dir, name, data string }{
+		{retained, "01.flac", "retained duplicate"},
+		{retained, "02.flac", "retained track"},
+		{retained, "cover.jpg", "retained artwork"},
+		{current, "01.flac", "latest track"},
+	} {
+		if err := os.MkdirAll(file.dir, 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(file.dir, file.name), []byte(file.data), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := restoreVerified(staging); err != nil {
+		t.Fatal(err)
+	}
+	if dir, err := verify.FindAlbumDir(staging); err != nil || dir != current {
+		t.Fatalf("found album directory %q, err %v, want %q", dir, err, current)
+	}
+	for name, want := range map[string]string{"01.flac": "latest track", "02.flac": "retained track", "cover.jpg": "retained artwork"} {
+		data, err := os.ReadFile(filepath.Join(current, name))
+		if err != nil || string(data) != want {
+			t.Fatalf("%s = %q, err %v, want %q", name, data, err, want)
+		}
+	}
+}
+
 func TestPreviewSamplesAreRejected(t *testing.T) {
 	a := testAlbum("a1", 1)
 	a.Tracks[0].DurationSec = 200

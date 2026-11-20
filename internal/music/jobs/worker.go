@@ -672,9 +672,30 @@ func retainVerified(staging string, vr verify.Result, fixes []ProblemItem) error
 }
 
 func restoreVerified(staging string) error {
+	staging, err := filepath.Abs(staging)
+	if err != nil {
+		return err
+	}
 	root := staging + ".verified"
 	if _, err := os.Stat(root); os.IsNotExist(err) {
 		return nil
+	}
+	target := staging
+	// A complete retry can be named by its audio quality while the retained
+	// tracks still sit under the catalog name used by the incomplete attempt.
+	// Restore into the current album so verification sees a single release.
+	savedAlbum, savedErr := verify.FindAlbumDir(root)
+	currentAlbum, currentErr := verify.FindAlbumDir(staging)
+	renamed := false
+	if savedErr == nil && currentErr == nil {
+		savedRel, err := filepath.Rel(root, savedAlbum)
+		if err != nil {
+			return err
+		}
+		if filepath.Join(staging, savedRel) != currentAlbum {
+			root, target = savedAlbum, currentAlbum
+			renamed = true
+		}
 	}
 	return filepath.WalkDir(root, func(path string, d os.DirEntry, err error) error {
 		if err != nil {
@@ -687,7 +708,15 @@ func restoreVerified(staging string) error {
 		if err != nil || !withinLibrary(root, path) {
 			return fmt.Errorf("invalid retained track path")
 		}
-		dst := filepath.Join(staging, rel)
+		dst := filepath.Join(target, rel)
+		if renamed {
+			// Keep the completed retry's files, whose headers determined its name.
+			if _, err := os.Lstat(dst); err == nil {
+				return nil
+			} else if !os.IsNotExist(err) {
+				return err
+			}
+		}
 		if err = os.MkdirAll(filepath.Dir(dst), 0755); err != nil {
 			return err
 		}
