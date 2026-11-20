@@ -855,6 +855,13 @@ track across playlists. Add a **Preferred album** when the same ISRC appears
 on multiple editions, using the exact album name. **Use automatic match**
 clears the manual choice.
 
+For ongoing matching triage, look for `chart track needs review` in the
+CineRoute logs. New or changed review reasons include the playlist, chart
+date, Spotify track ID, title, and artists. Use **Track status** to compare the
+Spotify link with the Navidrome or Qobuz result. When changing matching rules,
+record the provider titles, artists, ISRCs, and durations in regression tests
+under `internal/music/charts`, including nearby versions that should be skipped.
+
 Use a Navidrome administrator in `music.navidrome` for chart playlists. That
 account owns the playlists, and Navidrome's public playlist setting makes them
 visible to regular users who have access to the music library. For Navidrome

@@ -12,12 +12,14 @@ import (
 )
 
 const releaseLabel = `(?:(?:single|original|album|lp)\s+version|bonus\s+track)`
+const soundtrackLabel = `from\s+[^()\[\]]+:\s*(?:original score|original soundtrack|the album)`
 const ambiguousCatalogRecording = "Multiple Qobuz recordings match this title and artist"
 
 var (
 	featureCredit        = regexp.MustCompile(`(?i)\s+(?:[(\[]\s*)?\b(?:feat\.?|ft\.?|featuring)\s+([^\])]+)[\])]?$`)
 	artistDivider        = regexp.MustCompile(`(?i)\s*(?:,|;)\s*|\s+(?:&|and|x|with|feat\.?|ft\.?|featuring)\s+`)
 	releaseVersionSuffix = regexp.MustCompile(`(?i)\s*(?:\(` + releaseLabel + `\)|\[` + releaseLabel + `\]|[-–—]\s+` + releaseLabel + `)\s*$`)
+	soundtrackSuffix     = regexp.MustCompile(`(?i)\s*(?:\(` + soundtrackLabel + `\)|\[` + soundtrackLabel + `\])\s*$`)
 	acousticLabel        = regexp.MustCompile(`\bacoustic(?: version| sessions?)?$`)
 	remixSuffix          = regexp.MustCompile(`(?i)(?:(?:\s+|\s*[-–—]\s*)(?:rmx|remix)|\s*\(\s*(?:rmx|remix)\s*\)|\s*\[\s*(?:rmx|remix)\s*\])+\s*$`)
 )
@@ -84,12 +86,20 @@ func canonicalRemixTitle(title string) string {
 }
 
 func trackSearchTitle(track Track) string {
-	title := titleWithoutCredit(track.Title, track.Artists)
+	base, _ := splitSoundtrackLabel(track.Title)
+	title := titleWithoutCredit(base, track.Artists)
 	remix := canonicalRemixTitle(title)
 	if normalize(remix) != normalize(title) {
 		return remix
 	}
 	return title
+}
+
+func splitSoundtrackLabel(title string) (string, string) {
+	if suffix := soundtrackSuffix.FindStringIndex(title); suffix != nil && suffix[0] > 0 {
+		return strings.TrimSpace(title[:suffix[0]]), normalize(title[suffix[0]:])
+	}
+	return title, ""
 }
 
 func splitReleaseLabel(title string, artists []string) (string, string) {
@@ -121,8 +131,13 @@ func trackMatchWithContributors(track Track, title, artist string, contributors 
 	if len(known) == 0 || known[0] == "" {
 		return 0
 	}
-	chartTitle, _ := splitFeaturedCredit(track.Title, known)
-	candidateTitle, featured := splitFeaturedCredit(title, known)
+	chartTitle, chartSoundtrack := splitSoundtrackLabel(track.Title)
+	candidateTitle, candidateSoundtrack := splitSoundtrackLabel(title)
+	if chartSoundtrack != "" && candidateSoundtrack != "" && chartSoundtrack != candidateSoundtrack {
+		return 0
+	}
+	chartTitle, _ = splitFeaturedCredit(chartTitle, known)
+	candidateTitle, featured := splitFeaturedCredit(candidateTitle, known)
 	if normalized := normalize(canonicalRemixTitle(chartTitle)); normalized == "" || normalized != normalize(canonicalRemixTitle(candidateTitle)) {
 		return 0
 	}
@@ -159,7 +174,10 @@ func trackMatchWithContributors(track Track, title, artist string, contributors 
 }
 
 func acousticConflict(track Track, title, album string) bool {
-	return !acousticLabel.MatchString(normalize(titleWithoutCredit(track.Title, track.Artists))) &&
+	chartTitle, _ := splitSoundtrackLabel(track.Title)
+	title, _ = splitSoundtrackLabel(title)
+	album, _ = splitSoundtrackLabel(album)
+	return !acousticLabel.MatchString(normalize(titleWithoutCredit(chartTitle, track.Artists))) &&
 		(acousticLabel.MatchString(normalize(titleWithoutCredit(title, track.Artists))) || acousticLabel.MatchString(normalize(album)))
 }
 

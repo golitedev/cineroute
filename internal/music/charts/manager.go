@@ -240,6 +240,7 @@ func (m *Manager) syncPlaylist(ctx context.Context, p playlist, now time.Time, f
 			m.phases.Store(p.ID, syncPhase{p.Revision, "matching"})
 		}
 		lookups++
+		previousState, previousReason := e.State, e.Reason
 		if err := m.resolve(ctx, p, e, now); err != nil {
 			if errors.Is(err, ErrStale) {
 				return err
@@ -248,6 +249,10 @@ func (m *Manager) syncPlaylist(ctx context.Context, p playlist, now time.Time, f
 			e.NextAttempt = now.Add(retryFetch)
 			dirty = true
 			break
+		}
+		if e.State == "needs_review" && (previousState != e.State || previousReason != e.Reason) {
+			slog.Info("chart track needs review", "playlist", p.Settings.displayName(), "chart_date", p.ChartDate,
+				"spotify_id", e.SpotifyID, "track", e.Title, "artists", e.Artists, "reason", e.Reason)
 		}
 		dirty = true
 	}
@@ -333,7 +338,7 @@ func (m *Manager) resolve(ctx context.Context, p playlist, e *entry, now time.Ti
 		e.Recording = qobuz.Recording{}
 	}
 	title := trackSearchTitle(e.Track)
-	songs, err := m.nav.Search(ctx, title)
+	songs, err := m.nav.Search(ctx, title, e.Artists[0])
 	if err != nil {
 		return err
 	}

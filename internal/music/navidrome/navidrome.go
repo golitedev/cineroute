@@ -13,6 +13,7 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -157,8 +158,34 @@ func (c *Client) CheckAdmin(ctx context.Context) error {
 	return err
 }
 
-func (c *Client) Search(ctx context.Context, query string) ([]Song, error) {
-	q := url.Values{"query": {query}, "artistCount": {"0"}, "albumCount": {"0"}, "songCount": {"50"}}
+const songSearchLimit = 50
+
+func (c *Client) Search(ctx context.Context, title, artist string) ([]Song, error) {
+	songs, err := c.searchSongs(ctx, title)
+	if err != nil || len(songs) < songSearchLimit || artist == "" {
+		return songs, err
+	}
+	// Broad searches can fill the result window before finding the exact title.
+	// Keep both result sets so that narrowing cannot hide conflicting recordings.
+	narrowed, err := c.searchSongs(ctx, title+" "+artist)
+	if err != nil {
+		return nil, err
+	}
+	seen := make(map[string]bool, len(songs)+len(narrowed))
+	for _, song := range songs {
+		seen[song.ID] = true
+	}
+	for _, song := range narrowed {
+		if !seen[song.ID] {
+			songs = append(songs, song)
+			seen[song.ID] = true
+		}
+	}
+	return songs, nil
+}
+
+func (c *Client) searchSongs(ctx context.Context, query string) ([]Song, error) {
+	q := url.Values{"query": {query}, "artistCount": {"0"}, "albumCount": {"0"}, "songCount": {strconv.Itoa(songSearchLimit)}}
 	if c.MusicFolderID != "" {
 		q.Set("musicFolderId", c.MusicFolderID)
 	}
