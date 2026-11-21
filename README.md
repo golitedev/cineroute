@@ -844,7 +844,10 @@ quality `4` requests the highest tier including 192 kHz.
 In **Resources → Music**, administrators can configure multiple daily Spotify
 chart playlists from Kworb. Choose Global or a country, and 1–200 tracks per
 playlist. **Sync now** checks the latest published chart and retries unresolved
-matches. Pausing stops future syncs and leaves the current playlist available.
+matches. Automatic matching checks unresolved tracks at most once a day after
+a successful Qobuz search. If the Qobuz search fails, retries start after an
+hour and double up to 24 hours. Pausing stops future syncs and leaves the
+current playlist available.
 Removing a playlist also removes it from Navidrome. Imported albums stay in
 the music library.
 

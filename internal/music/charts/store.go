@@ -103,14 +103,15 @@ type playlist struct {
 
 type entry struct {
 	Track
-	State       string
-	Reason      string
-	SongID      string
-	SongAlbum   *string // nil for older entries whose Navidrome album was not stored
-	JobID       string
-	Recording   qobuz.Recording
-	NextAttempt time.Time
-	IndexSince  time.Time
+	State         string
+	Reason        string
+	SongID        string
+	SongAlbum     *string // nil for older entries whose Navidrome album was not stored
+	JobID         string
+	Recording     qobuz.Recording
+	NextAttempt   time.Time
+	IndexSince    time.Time
+	QobuzFailures int `json:",omitempty"`
 }
 
 func (p playlist) view() PlaylistView {
@@ -418,6 +419,7 @@ func (m *Manager) SetTrackISRC(ctx context.Context, playlistID, spotifyID, input
 			}
 		}
 		e.Recording = qobuz.Recording{}
+		e.QobuzFailures = 0
 		e.SongID, e.SongAlbum = "", nil
 		e.JobID, e.IndexSince = "", time.Time{}
 		e.State, e.Reason, e.NextAttempt = "pending", "", time.Time{}

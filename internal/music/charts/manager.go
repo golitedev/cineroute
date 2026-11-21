@@ -255,6 +255,10 @@ func (m *Manager) syncPlaylist(ctx context.Context, p playlist, now time.Time, f
 				"spotify_id", e.SpotifyID, "track", e.Title, "artists", e.Artists, "reason", e.Reason)
 		}
 		dirty = true
+		if e.State == "retrying" && e.QobuzFailures > 0 {
+			// Avoid making the rest of this batch's Qobuz requests after a failure.
+			break
+		}
 	}
 	if dirty {
 		if err := m.save(ctx, p, p.Revision); err != nil {
@@ -369,19 +373,21 @@ func (m *Manager) resolve(ctx context.Context, p playlist, e *entry, now time.Ti
 		query := title + " " + e.Artists[0]
 		candidates, err := m.catalog.SearchRecordings(ctx, query)
 		if err != nil {
-			return fmt.Errorf("Qobuz track search failed")
+			if ctx.Err() != nil {
+				return ctx.Err()
+			}
+			e.retryQobuz(now, "Qobuz track search failed")
+			return nil
 		}
+		e.QobuzFailures = 0
 		recording, reason := chooseRecordingWithISRC(e.Track, candidates, identity)
-		nextAttempt := now.Add(retryTrack)
 		if identity.ISRC == "" && (reason != "" || ambiguous) && now.Sub(time.Unix(identity.CheckedAt, 0)) >= retryTrack {
 			resolved, lookupErr := m.lookupIdentity(ctx, e.SpotifyID)
-			if lookupErr != nil {
-				if ctx.Err() != nil {
-					return ctx.Err()
-				}
-				// A third-party outage must not hold up the rest of the playlist.
-				nextAttempt = now.Add(retryFetch)
-			} else {
+			if ctx.Err() != nil {
+				return ctx.Err()
+			}
+			// Keep the daily schedule if the optional lookup fails.
+			if lookupErr == nil {
 				if err := m.cacheIdentity(ctx, e.SpotifyID, resolved, now); err != nil {
 					return err
 				}
@@ -400,7 +406,7 @@ func (m *Manager) resolve(ctx context.Context, p playlist, e *entry, now time.Ti
 			if ambiguous {
 				reason = "Multiple Navidrome recordings match. " + reason
 			}
-			e.State, e.Reason, e.NextAttempt = "needs_review", reason, nextAttempt
+			e.State, e.Reason, e.NextAttempt = "needs_review", reason, now.Add(retryTrack)
 			return nil
 		}
 		e.Recording = recording
@@ -424,12 +430,20 @@ func (m *Manager) resolve(ctx context.Context, p playlist, e *entry, now time.Ti
 	job, err := m.enqueue(ctx, p, e)
 	switch {
 	case errors.Is(err, jobs.ErrQueueFull):
+		e.QobuzFailures = 0
 		e.State, e.Reason, e.NextAttempt = "waiting", "Waiting for room in the automatic download queue", now.Add(workInterval)
 	case errors.Is(err, jobs.ErrNotStreamable):
+		e.QobuzFailures = 0
 		e.State, e.Reason, e.NextAttempt = "needs_review", "The album is unavailable for this Qobuz account", now.Add(retryTrack)
-	case err != nil:
+	case errors.Is(err, ErrStale):
 		return err
+	case err != nil:
+		if ctx.Err() != nil {
+			return ctx.Err()
+		}
+		e.retryQobuz(now, err.Error())
 	default:
+		e.QobuzFailures = 0
 		e.State, e.Reason, e.JobID, e.NextAttempt = string(job.Status), "", job.ID, now.Add(workInterval)
 		if job.Status.Finished() {
 			e.State = "indexing"
@@ -438,10 +452,18 @@ func (m *Manager) resolve(ctx context.Context, p playlist, e *entry, now time.Ti
 	return nil
 }
 
+func (e *entry) retryQobuz(now time.Time, reason string) {
+	const maxFailures = 6 // 1, 2, 4, 8, 16, then 24 hours.
+	e.QobuzFailures = min(e.QobuzFailures+1, maxFailures)
+	delay := min(time.Hour<<(e.QobuzFailures-1), retryTrack)
+	e.State, e.Reason, e.NextAttempt = "retrying", reason, now.Add(delay)
+}
+
 func (e *entry) setReady(song navidrome.Song, now time.Time) {
 	album := song.Album
 	e.State, e.Reason, e.SongID, e.SongAlbum = "ready", "", song.ID, &album
 	e.JobID, e.IndexSince, e.NextAttempt = "", time.Time{}, now.Add(retryTrack)
+	e.QobuzFailures = 0
 }
 
 func (m *Manager) enqueue(ctx context.Context, p playlist, e *entry) (jobs.Job, error) {

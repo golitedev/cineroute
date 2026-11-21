@@ -256,6 +256,7 @@ func (m *Manager) Enqueue(ctx context.Context, albumID, requestedBy string, limi
 
 // EnqueueChart shares an active release across charts and existing user jobs.
 func (m *Manager) EnqueueChart(ctx context.Context, albumID string, source ChartSource) (Job, error) {
+	const chartLimit = 6
 	m.mu.Lock()
 	existing := m.pendingLocked(albumID)
 	if existing != nil {
@@ -263,8 +264,12 @@ func (m *Manager) EnqueueChart(ctx context.Context, albumID string, source Chart
 		m.mu.Unlock()
 		return job, err
 	}
+	full := m.queueFullLocked("", []int{chartLimit})
 	m.mu.Unlock()
-	return m.enqueue(ctx, albumID, "", &source, []int{6})
+	if full {
+		return Job{}, ErrQueueFull
+	}
+	return m.enqueue(ctx, albumID, "", &source, []int{chartLimit})
 }
 
 func (m *Manager) attachChartLocked(job *Job, source ChartSource) (Job, error) {
