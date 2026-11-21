@@ -428,6 +428,10 @@ instead of starting downloads.
   before seeders. This is a selection preference, not an upgrade trigger for
   existing conforming copies. Request history and selection logs show reported
   video bitrate for newly selected releases.
+* **Release selection history:** expand **Release selection** on an admin
+  request history entry to see the last three completed rankings. The report
+  shows search terms, tracker filter counts, ranking scores for the first ten
+  eligible candidates, and what happened when CineRoute tried each candidate.
 * **Language priorities (Movies / TV):** admin-only checkboxes prefer audio and
   full subtitle languages independently for each profile. Each distinct
   preferred audio or full-subtitle match adds one language point. Where language

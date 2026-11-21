@@ -464,11 +464,13 @@ func (e *Engine) process(ctx context.Context, job *Job, settings Settings, downl
 	}
 	ids := []int{}
 	priorities := map[int]int{}
+	indexerNames := map[int]string{}
 	for _, tracker := range trackers {
 		for _, indexer := range indexers {
 			if indexer.ID == tracker.ID && indexer.Enable && indexer.Protocol == "torrent" {
 				ids = append(ids, indexer.ID)
 				priorities[indexer.ID] = tracker.Priority
+				indexerNames[indexer.ID] = indexer.Name
 			}
 		}
 	}
@@ -569,7 +571,10 @@ func (e *Engine) process(ctx context.Context, job *Job, settings Settings, downl
 			accepted[release.IndexerID]++
 		}
 	}
+	trackerReports := make([]SelectionTracker, 0, len(ids))
 	for _, id := range ids {
+		trackerReports = append(trackerReports, SelectionTracker{IndexerID: id, Name: indexerNames[id],
+			Priority: priorities[id], Accepted: accepted[id], Rejected: trackerRejected[id]})
 		// Log policy decisions without tracker credentials, proxy URLs or paths.
 		slog.Info("request tracker results", "request_id", job.ID, "indexer_id", id, "priority", priorities[id], "accepted", accepted[id], "rejected", trackerRejected[id])
 	}
@@ -577,23 +582,22 @@ func (e *Engine) process(ctx context.Context, job *Job, settings Settings, downl
 	sort.SliceStable(candidates, func(i, j int) bool {
 		return Better(candidates[i], candidates[j], settings.SelectionOrder, settings.PreferSeasonPacks)
 	})
-	for i, candidate := range candidates {
-		if i >= 10 {
-			break
-		}
+	report := recordSelection(job, queries, trackerReports, candidates, settings)
+	for i, candidate := range candidates[:len(report.Candidates)] {
+		decision := &report.Candidates[i]
 		if err = e.pace(ctx, settings.SearchIntervalSeconds); err != nil {
 			return err
 		}
 		raw, err := e.Prowlarr.DownloadTorrent(ctx, candidate.Release.DownloadURL)
 		if err != nil {
 			rejected["torrent metadata unavailable"]++
-			slog.Info("request candidate skipped", "request_id", job.ID, "indexer_id", candidate.Release.IndexerID, "reason", "torrent metadata unavailable")
+			decision.recordFailure(job.ID, "metadata unavailable", diagnosticReason(err))
 			continue
 		}
 		meta, err := torrentmeta.Parse(raw)
 		if err != nil {
 			rejected["invalid torrent metadata"]++
-			slog.Info("request candidate skipped", "request_id", job.ID, "indexer_id", candidate.Release.IndexerID, "reason", "invalid torrent metadata")
+			decision.recordFailure(job.ID, "invalid metadata", err.Error())
 			continue
 		}
 		covered := map[string]bool{}
@@ -608,7 +612,7 @@ func (e *Engine) process(ctx context.Context, job *Job, settings Settings, downl
 		keys, err := ValidateTorrent(meta, candidate, *job, p, wanted, covered)
 		if err != nil {
 			rejected[err.Error()]++
-			slog.Info("request candidate skipped", "request_id", job.ID, "indexer_id", candidate.Release.IndexerID, "reason", err.Error())
+			decision.recordFailure(job.ID, "validation rejected", err.Error())
 			continue
 		}
 		// Recheck lease ownership immediately before a filesystem/download write.
@@ -645,22 +649,25 @@ func (e *Engine) process(ctx context.Context, job *Job, settings Settings, downl
 		})
 		if err != nil {
 			if planned {
+				decision.recordFailure(job.ID, "awaiting verification", diagnosticReason(err))
 				job.Status = "error"
 				job.Message = "A download is awaiting verification"
 				job.AdminError = err.Error()
 				return nil
 			}
+			decision.recordFailure(job.ID, "submission failed", diagnosticReason(err))
 			rejected[err.Error()]++
 			continue
 		}
 		download = recordSource(download)
+		decision.Outcome = "selected"
 		if err = e.Store.SaveDownload(download); err != nil {
 			return err
 		}
 		if e.LibraryChanged != nil {
 			e.LibraryChanged()
 		}
-		slog.Info("request release selected", "request_id", job.ID, "indexer_id", candidate.Release.IndexerID, "priority", candidate.Priority, "quality", candidate.Quality, "codec", Codec(candidate.Release.Title), "codec_rank", candidate.CodecRank, "language_score", candidate.LanguageScore, "text_subtitle_score", candidate.SubtitleFormatScore, "keyword_score", candidate.Score, "video_bitrate_bps", candidate.Release.Languages.VideoBitrateBPS, "video_bitrate_rank", candidate.videoBitrateRank, "season_pack", candidate.Pack)
+		slog.Info("request release selected", "request_id", job.ID, "rank", decision.Rank, "title", decision.Title, "indexer_id", candidate.Release.IndexerID, "priority", candidate.Priority, "quality", candidate.Quality, "codec", Codec(candidate.Release.Title), "codec_rank", candidate.CodecRank, "language_score", candidate.LanguageScore, "text_subtitle_score", candidate.SubtitleFormatScore, "keyword_score", candidate.Score, "video_bitrate_bps", candidate.Release.Languages.VideoBitrateBPS, "video_bitrate_rank", candidate.videoBitrateRank, "season_pack", candidate.Pack)
 		*downloads = append(*downloads, download)
 		job.Status = "downloading"
 		job.Message = "Download started"

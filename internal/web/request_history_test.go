@@ -12,6 +12,7 @@ import (
 
 	"cineroute/internal/requests"
 	"cineroute/internal/tmdb"
+	"cineroute/internal/torrentmeta"
 )
 
 type historyResponse struct {
@@ -20,6 +21,45 @@ type historyResponse struct {
 	TotalPages int                   `json:"total_pages"`
 	Total      int                   `json:"total"`
 	Counts     map[string]int        `json:"counts"`
+}
+
+func TestRequestHistoryRetainsSubmissionFailureBeforeFallback(t *testing.T) {
+	f := newWorkflowFixture(t, false)
+	f.mu.Lock()
+	f.preferredTorrent = singleFileTorrent(f.title+"-Preferred.mkv", 512)
+	f.mu.Unlock()
+	meta, err := torrentmeta.Parse(f.preferredTorrent)
+	if err != nil {
+		t.Fatal(err)
+	}
+	f.qb.mu.Lock()
+	f.qb.torrents[meta.PrimaryHash()] = &qbTorrent{hash: meta.PrimaryHash(), name: meta.Name, state: "downloading"}
+	f.qb.mu.Unlock()
+	job := createWorkflowJob(t, f, "alice", false)
+	if err := f.s.engine.Tick(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	finishWorkflowDownload(t, f)
+	if err := f.s.engine.Tick(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	history := readHistory(t, f.s, "?status=complete")
+	if len(history.Entries) != 1 || len(history.Entries[0].SelectionReports) != 1 {
+		t.Fatalf("missing report after completion: %+v", history.Entries)
+	}
+	candidates := history.Entries[0].SelectionReports[0].Candidates
+	if len(candidates) != 2 || candidates[0].Outcome != "submission failed" || !strings.Contains(candidates[0].Reason, "already downloading") ||
+		candidates[0].Scores["seeders"] != 20 || candidates[1].Outcome != "selected" || candidates[1].Title != f.title {
+		t.Fatalf("unexpected ranking or outcomes: %+v", candidates)
+	}
+	stored, err := requests.NewStore(f.cfg.Requests.StatePath).Job(job.ID)
+	if err != nil || len(stored.SelectionReports) != 1 || stored.SelectionReports[0].Candidates[0].Reason != candidates[0].Reason {
+		t.Fatalf("fallback reason did not survive store reload: %v", err)
+	}
+	public := userWorkflowCall(t, f.s, "alice", "GET", "/api/user/requests", "")
+	if strings.Contains(public.Body.String(), "selection_reports") || strings.Contains(public.Body.String(), candidates[0].Reason) {
+		t.Fatal("public request response exposed the admin report")
+	}
 }
 
 func readHistory(t *testing.T, s *Server, query string) historyResponse {

@@ -46,6 +46,8 @@ type requestHistoryEntry struct {
 	Diagnostic  string                   `json:"diagnostic,omitempty"`
 	NextSearch  time.Time                `json:"next_search"`
 	Downloads   []requestHistoryDownload `json:"downloads"`
+
+	SelectionReports []requests.SelectionReport `json:"selection_reports,omitempty"`
 }
 
 // Only tracker details links supplied by Prowlarr are used, never its download
@@ -193,7 +195,8 @@ func (s *Server) requestHistory(w http.ResponseWriter, r *http.Request) {
 				continue
 			}
 		}
-		entries = append(entries, requestHistoryEntry{Request: jobView(job), Owner: job.Owner, Destination: job.Target, Status: status, Diagnostic: job.AdminError, NextSearch: job.NextSearch, Downloads: related})
+		entries = append(entries, requestHistoryEntry{Request: jobView(job), Owner: job.Owner, Destination: job.Target,
+			Status: status, Diagnostic: job.AdminError, NextSearch: job.NextSearch, Downloads: related, SelectionReports: job.SelectionReports})
 	}
 	total := len(entries)
 	const pageSize = 50

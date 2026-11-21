@@ -36,6 +36,8 @@ type Job struct {
 	ApprovedAt     time.Time    `json:"approved_at"`
 	NextSearch     time.Time    `json:"next_search"`
 	RetryAt        time.Time    `json:"retry_at"`
+
+	SelectionReports []SelectionReport `json:"selection_reports,omitempty"`
 }
 
 type Download struct {

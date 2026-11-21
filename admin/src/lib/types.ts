@@ -149,6 +149,24 @@ export interface RequestRow {
 	diagnostic?: string;
 	next_search?: string;
 	downloads?: Download[];
+	selection_reports?: SelectionReport[];
+}
+export interface SelectionReport {
+	at: string;
+	queries: string[];
+	order: string[];
+	trackers: { indexer_id: number; name: string; priority: number; accepted: number; rejected?: Record<string, number> }[];
+	candidates: {
+		rank: number;
+		indexer_id: number;
+		title: string;
+		quality: string;
+		codec: string;
+		size: number;
+		scores: Record<string, number>;
+		outcome: string;
+		reason?: string;
+	}[];
 }
 export interface Download {
 	title: string;

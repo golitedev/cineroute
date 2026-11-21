@@ -23,13 +23,14 @@ import (
 )
 
 type workflowFixture struct {
-	s        *Server
-	qb       *fakeQB
-	cfg      *config.Config
-	mu       sync.Mutex
-	torrent  []byte
-	title    string
-	searches int
+	s                *Server
+	qb               *fakeQB
+	cfg              *config.Config
+	mu               sync.Mutex
+	torrent          []byte
+	preferredTorrent []byte
+	title            string
+	searches         int
 }
 
 func newWorkflowFixture(t *testing.T, tv bool) *workflowFixture {
@@ -92,7 +93,14 @@ func newWorkflowFixture(t *testing.T, tv bool) *workflowFixture {
 				t.Errorf("search used unselected trackers: %v", ids)
 			}
 			seeders := 10
-			json.NewEncoder(w).Encode([]prowlarr.Release{{Guid: "release-one", IndexerID: 7, Indexer: "Selected tracker", InfoURL: "https://tracker.example/torrents/42", Title: f.title, Seeders: &seeders, Size: 512, DownloadURL: indexers.URL + "/download?apikey=private-download-key"}})
+			releases := []prowlarr.Release{{Guid: "release-one", IndexerID: 7, Indexer: "Selected tracker", InfoURL: "https://tracker.example/torrents/42", Title: f.title, Seeders: &seeders, Size: 512, DownloadURL: indexers.URL + "/download?apikey=private-download-key"}}
+			if f.preferredTorrent != nil {
+				moreSeeders := 20
+				releases = append(releases, prowlarr.Release{Guid: "preferred", IndexerID: 7, Title: f.title + "-Preferred", Seeders: &moreSeeders, Size: 512, DownloadURL: indexers.URL + "/preferred"})
+			}
+			json.NewEncoder(w).Encode(releases)
+		case "/preferred":
+			w.Write(f.preferredTorrent)
 		case "/download":
 			w.Write(f.torrent)
 		default:
