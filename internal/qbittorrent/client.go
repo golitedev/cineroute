@@ -63,6 +63,10 @@ func (c *Client) login(ctx context.Context) error {
 		return err
 	}
 	defer resp.Body.Close()
+	// qBittorrent 5.2+ sets the session cookie on a successful 204 login.
+	if resp.StatusCode == http.StatusNoContent {
+		return nil
+	}
 	body, _ := io.ReadAll(resp.Body)
 	if resp.StatusCode != http.StatusOK || !strings.Contains(string(body), "Ok.") {
 		return fmt.Errorf("qBittorrent login failed (status %d): %s", resp.StatusCode, truncate(string(body), 200))
@@ -149,7 +153,7 @@ func (c *Client) postBody(ctx context.Context, path string, rebuild func() (io.R
 			c.authed = true
 			continue
 		}
-		if resp.StatusCode != http.StatusOK {
+		if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusNoContent {
 			return nil, fmt.Errorf("qBittorrent POST %s returned %d: %s", path, resp.StatusCode, truncate(string(body2), 300))
 		}
 		c.authed = true
