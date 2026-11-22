@@ -870,12 +870,14 @@ multiple tracks. **Use this track** saves the selected recording across all
 chart playlists that include that Spotify track. **Use automatic match**
 clears the saved choice.
 
-For ongoing matching triage, look for `chart track needs review` in the
-CineRoute logs. New or changed review reasons include the playlist, chart
-date, Spotify track ID, title, and artists. Use **Track status** to compare the
-Spotify link with the Navidrome or Qobuz result. When changing matching rules,
-record the provider titles, artists, ISRCs, and durations in regression tests
-under `internal/music/charts`, including nearby versions that should be skipped.
+For matching details, search the CineRoute logs for the Spotify track ID or
+`chart Qobuz search evaluated`. Each Qobuz search logs the query, verified
+identity lookup, candidates, and why they were selected or rejected. Candidates
+include Qobuz track and album IDs, titles, artists, ISRCs, durations, match
+scores, and streamability. When eligible releases conflict, the log names the
+conflicting track IDs. Failed searches log the HTTP status when available and
+the next retry time. Navidrome ambiguity and chart album jobs have their own
+entries under the same Spotify track ID.
 
 Use a Navidrome administrator in `music.navidrome` for chart playlists. That
 account owns the playlists, and Navidrome's public playlist setting makes them

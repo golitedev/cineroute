@@ -185,7 +185,7 @@ func TestVerifiedAlbumDistinguishesSameISRCDifferentDurations(t *testing.T) {
 	differentISRC.ID, differentISRC.ISRC = "different", "USUV71705179"
 	candidates := []qobuz.Recording{shorter, differentISRC, original}
 	identity := trackIdentity{ISRC: original.ISRC}
-	if _, reason := chooseRecordingWithISRC(track, candidates, identity); !strings.Contains(reason, "Set a preferred album") {
+	if _, reason := chooseRecordingWithISRC(track, candidates, identity); !strings.Contains(reason, "Use Qobuz link") {
 		t.Fatalf("ISRC without edition evidence gave %q", reason)
 	}
 	identity.Album = original.Album

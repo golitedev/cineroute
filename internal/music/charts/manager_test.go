@@ -85,9 +85,9 @@ func TestChooseRecordingChecksCreditsAndConflictingCopies(t *testing.T) {
 	unavailable.Streamable = false
 	equivalent := complete
 	equivalent.ID, equivalent.ISRC, equivalent.Duration = "equivalent", " us-aaa-12-34567 ", 201
-	conflicting := unavailable
+	conflicting := complete
 	conflicting.ID, conflicting.Duration = "conflicting", 220
-	wrongCode := unavailable
+	wrongCode := complete
 	wrongCode.ID, wrongCode.ISRC = "wrong-code", "USAAA7654321"
 	for _, tt := range []struct {
 		name       string
@@ -98,7 +98,7 @@ func TestChooseRecordingChecksCreditsAndConflictingCopies(t *testing.T) {
 		{"prefer all credits", []qobuz.Recording{partial, complete}, "complete", ""},
 		{"use an available copy of the same recording", []qobuz.Recording{unavailable, equivalent}, "equivalent", ""},
 		{"keep the better match when unavailable", []qobuz.Recording{partial, unavailable}, "", "unavailable"},
-		{"detect a different ISRC even when unavailable", []qobuz.Recording{complete, wrongCode}, "", "Multiple"},
+		{"detect a different ISRC between available recordings", []qobuz.Recording{complete, wrongCode}, "", "Multiple"},
 		{"detect inconsistent duration even with the same ISRC", []qobuz.Recording{complete, conflicting}, "", "Multiple"},
 	} {
 		t.Run(tt.name, func(t *testing.T) {

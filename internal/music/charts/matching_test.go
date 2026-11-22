@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 
@@ -13,6 +14,28 @@ import (
 	"cineroute/internal/music/navidrome"
 	"cineroute/internal/music/qobuz"
 )
+
+func TestDameHombroIgnoresUnstreamableConflict(t *testing.T) {
+	track := Track{Title: "Dame Hombro", Artists: []string{"Bulin 47", "Kevin Wai", "Breyco En Producidera"}}
+	single := qobuz.Recording{ID: "458011979", AlbumID: "awgtw0gl4yq5i", Title: track.Title, Album: track.Title,
+		Artist: "Bulin 47", ISRC: "QZWDD2692615", Duration: 124, Streamable: true}
+	other := qobuz.Recording{ID: "458094428", AlbumID: "apz1gdny5yxhc", Title: track.Title, Album: track.Title,
+		Artist: "Bulin 47", ISRC: "GXLEW2625799", Duration: 122}
+	candidates := []qobuz.Recording{single, other}
+	got, reason, evaluation := evaluateRecordings(track, candidates, trackIdentity{})
+	if got.ID != single.ID || reason != "" || evaluation.Conflict != "" {
+		t.Fatalf("recording = %q, reason = %q, evaluation = %+v", got.ID, reason, evaluation)
+	}
+	if first, second := evaluation.Candidates[0], evaluation.Candidates[1]; first.Decision != "selected" ||
+		second.Decision != "not streamable on this account" || second.ISRC != other.ISRC || second.Score != first.Score {
+		t.Fatalf("candidate decisions = %+v", evaluation.Candidates)
+	}
+	candidates[1].Streamable = true
+	got, reason, evaluation = evaluateRecordings(track, candidates, trackIdentity{})
+	if got.ID != "" || reason != ambiguousCatalogRecording || !strings.Contains(evaluation.Conflict, single.ID+" and "+other.ID) {
+		t.Fatalf("expected both available tracks to conflict, got %q, %q, %+v", got.ID, reason, evaluation)
+	}
+}
 
 func TestChartMatchesSoundtrackCredits(t *testing.T) {
 	track := Track{Title: "Flower In A Hurricane", Artists: []string{
