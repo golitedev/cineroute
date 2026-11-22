@@ -86,6 +86,7 @@ users:
     password: "replace-with-your-admin-password"
   - name: "alice"
     role: "user"
+    language: es
     password: "replace-with-a-different-password"
     allowed_media: [movies, tv, music]
 
@@ -107,6 +108,12 @@ drives:
     anime_root: "/disk1/media/anime"
   # Repeat the same layout below /disk2/media, /disk3/media and /disk4/media.
 ```
+
+Set `language` on a user to choose the portal language at sign-in (`en`, `es`,
+or `sv`). Changes made in the language menu apply in that browser until the
+next sign-in, when the configured default is restored. If `language` is omitted
+or unsupported, the portal uses the browser's saved language choice, then its
+preferred language if supported, then English.
 
 Run:
 

@@ -180,16 +180,18 @@ export const dismissJob = (id: string) => request<null>(`jobs/${encodeURICompone
 export const getInfo = () => request<{ enabled: boolean; qobuz_ok: boolean; qobuz_error: string; qobuz_error_code?: string }>('info');
 export const refreshJobs = () => window.dispatchEvent(new Event('cineroute:jobs'));
 export type RequestKind = 'movie' | 'tv' | 'music';
-export type Session = { user: string; auth: boolean; role: string; mediaKinds: RequestKind[] };
+export type Session = { user: string; auth: boolean; role: string; language?: string; mediaKinds: RequestKind[] };
 export function getMe(): Promise<Session> {
     if (!sessionPromise)
-        sessionPromise = portalRequest<{ account: { name: string; role: string; allowed_media: string[] }; csrf_token: string }>('/api/session')
+        sessionPromise = portalRequest<{ account: { name: string; role: string; language?: string; allowed_media: string[] }; csrf_token: string }>(
+            '/api/session'
+        )
             .then((result) => {
                 csrf = result.csrf_token;
                 if (result.account.role !== 'user') throw new ApiError('Use a user account.', 403);
                 const allowed = result.account.allowed_media || [];
                 const mediaKinds = (['movie', 'tv', 'music'] as const).filter((kind) => allowed.includes(kind === 'movie' ? 'movies' : kind));
-                return { user: result.account.name, auth: true, role: result.account.role, mediaKinds };
+                return { user: result.account.name, auth: true, role: result.account.role, language: result.account.language, mediaKinds };
             })
             .catch((error) => {
                 sessionPromise = null;

@@ -26,11 +26,12 @@ import (
 type account struct {
 	Name         string   `json:"name"`
 	Role         string   `json:"role"`
+	Language     string   `json:"language,omitempty"`
 	AllowedMedia []string `json:"allowed_media"`
 }
 
 func userAccount(u *config.User) account {
-	return account{Name: u.Name, Role: u.Role, AllowedMedia: append([]string{}, u.AllowedMedia...)}
+	return account{Name: u.Name, Role: u.Role, Language: u.Language, AllowedMedia: append([]string{}, u.AllowedMedia...)}
 }
 
 func (a account) canRequest(kind string) bool {

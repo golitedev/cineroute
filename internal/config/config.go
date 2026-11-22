@@ -58,6 +58,7 @@ type Requests struct {
 type User struct {
 	Name         string   `yaml:"name"`
 	Role         string   `yaml:"role"`
+	Language     string   `yaml:"language"`
 	Password     string   `yaml:"password"`
 	PasswordHash string   `yaml:"password_hash"`
 	Disabled     bool     `yaml:"disabled"`

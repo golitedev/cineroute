@@ -33,6 +33,7 @@ admin:
 #     password: "replace-with-your-admin-password"
 #   - name: "alice"
 #     role: "user"
+#     language: es # optional portal language at sign-in: en, es, or sv
 #     password_hash: "$2a$...replace-with-generated-bcrypt-hash..."
 #     allowed_media: [movies, tv, music] # list only the types this user can request
 #     disabled: false

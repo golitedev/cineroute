@@ -51,7 +51,8 @@ async function fixtures(
     page: Page,
     authenticated = true,
     lyrics?: { status: string; attempts: number; saved: number; missing: number; deferred: number; errors: number; skipped: number },
-    allowedMedia = ['movies', 'tv', 'music']
+    allowedMedia = ['movies', 'tv', 'music'],
+    language?: string
 ) {
     let loggedIn = authenticated;
     const created: any[] = [];
@@ -92,7 +93,8 @@ async function fixtures(
         }
         if (!loggedIn) return respond({ error: 'unauthorized' }, 401);
         if (req.method() !== 'GET') expect(req.headers()['x-cineroute-csrf']).toBe('test-csrf');
-        if (url.pathname === '/api/session') return respond({ account: { name: 'alice', role: 'user', allowed_media: allowedMedia }, csrf_token: 'test-csrf' });
+        if (url.pathname === '/api/session')
+            return respond({ account: { name: 'alice', role: 'user', language, allowed_media: allowedMedia }, csrf_token: 'test-csrf' });
         if (url.pathname === '/api/music/info') return respond({ success: true, data: { enabled: true, qobuz_ok: true } });
         if (url.pathname === '/api/music/jobs' && req.method() === 'POST') {
             queuedAlbums.push(req.postDataJSON().album_id);
@@ -268,6 +270,29 @@ test('login uses CineRoute user session and returns to search', async ({ page })
     await page.getByRole('button', { name: 'Sign in', exact: true }).click();
     await expect(page).toHaveURL(/\/$/);
     await expect(page.getByRole('button', { name: 'Movies', exact: true })).toBeVisible();
+});
+
+test('the configured language is restored on sign-in after a browser override', async ({ page }) => {
+    await fixtures(page, false, undefined, ['movies'], 'es');
+    const signIn = async () => {
+        await page.getByLabel('Username', { exact: true }).fill('alice');
+        await page.getByLabel('Password', { exact: true }).fill('secret');
+        await page.getByRole('button', { name: 'Sign in', exact: true }).click();
+        await expect(page.getByRole('button', { name: 'Pelis', exact: true })).toBeVisible();
+        await expect(page.locator('html')).toHaveAttribute('lang', 'es');
+    };
+
+    await page.goto('/login');
+    await signIn();
+    await page.getByRole('button', { name: 'Idioma', exact: true }).click();
+    await page.getByRole('menuitemcheckbox', { name: 'Svenska', exact: true }).click();
+    await expect(page.getByRole('button', { name: 'Filmer', exact: true })).toBeVisible();
+    await page.reload();
+    await expect(page.getByRole('button', { name: 'Filmer', exact: true })).toBeVisible();
+    await page.getByRole('button', { name: 'Användarmeny', exact: true }).click();
+    await page.getByRole('menuitem', { name: 'Logga ut', exact: true }).click();
+    await expect(page).toHaveURL(/\/login$/);
+    await signIn();
 });
 
 test('album requests use the same login, CSRF token, and progress bar', async ({ page }) => {

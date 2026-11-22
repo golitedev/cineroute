@@ -14,6 +14,7 @@ func (c *Config) validateUsers() error {
 	for i := range c.Users {
 		u := &c.Users[i]
 		u.Name = strings.TrimSpace(u.Name)
+		u.Language = strings.ToLower(strings.TrimSpace(u.Language))
 		if u.Role == "" {
 			u.Role = "user"
 		}

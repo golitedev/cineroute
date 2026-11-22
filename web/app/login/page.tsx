@@ -1,6 +1,6 @@
 'use client';
 
-import { useT } from '@/lib/i18n';
+import { resetAccountLanguage, useT } from '@/lib/i18n';
 import { useEffect, useState, type FormEvent } from 'react';
 import { LoaderCircle } from 'lucide-react';
 import { Button } from '@/components/ui/button';
@@ -34,7 +34,7 @@ export default function Login() {
         setSubmitting(true);
         setError(null);
         try {
-            await login(username, password);
+            resetAccountLanguage(await login(username, password));
             window.location.replace(loginDestination());
         } catch (error) {
             setError(error);

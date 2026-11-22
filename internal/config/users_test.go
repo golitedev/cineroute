@@ -1,6 +1,10 @@
 package config
 
-import "testing"
+import (
+	"os"
+	"path/filepath"
+	"testing"
+)
 
 func TestUserConfigurationValidation(t *testing.T) {
 	for name, users := range map[string][]User{
@@ -28,5 +32,27 @@ func TestUserConfigurationValidation(t *testing.T) {
 	}
 	if cfg.Users[1].Role != "user" {
 		t.Fatal("unspecified role must default to user")
+	}
+}
+
+func TestLoadUserLanguage(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "config.yaml")
+	data := []byte(`users:
+  - name: admin
+    role: admin
+    password: secret
+  - name: alice
+    password: secret
+    language: " SV "
+`)
+	if err := os.WriteFile(path, data, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	cfg, err := Load(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := cfg.Users[1].Language; got != "sv" {
+		t.Fatalf("user language = %q, want sv", got)
 	}
 }

@@ -17,7 +17,11 @@ func TestConfigAccountsEnforceRolesAndInvalidateSessions(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	cfg.Users = []config.User{{Name: "admin", Role: "admin", Password: "admin-secret"}, {Name: "Alice", Role: "user", PasswordHash: string(hash), AllowedMedia: []string{"movies", "tv", "music"}}, {Name: "bob", Role: "user", Password: "bob-secret", AllowedMedia: []string{"movies", "tv", "music"}}}
+	cfg.Users = []config.User{
+		{Name: "admin", Role: "admin", Password: "admin-secret"},
+		{Name: "Alice", Role: "user", Language: "es", PasswordHash: string(hash), AllowedMedia: []string{"movies", "tv", "music"}},
+		{Name: "bob", Role: "user", Password: "bob-secret", AllowedMedia: []string{"movies", "tv", "music"}},
+	}
 	srv := New(cfg, nil, nil)
 	handler := srv.PublicHandler()
 	login := httptest.NewRecorder()
@@ -47,7 +51,7 @@ func TestConfigAccountsEnforceRolesAndInvalidateSessions(t *testing.T) {
 	if err := json.Unmarshal(session.Body.Bytes(), &identity); err != nil {
 		t.Fatal(err)
 	}
-	if identity.Account.Role != "user" || identity.Account.Name != "Alice" {
+	if identity.Account.Role != "user" || identity.Account.Name != "Alice" || identity.Account.Language != "es" {
 		t.Fatalf("identity: %+v", identity)
 	}
 	for _, path := range []string{"/api/requests/settings", "/api/requests/indexers", "/api/requests/queue", "/api/status", "/api/intakes", "/api/hardlinks", "/api/subtitles", "/api/copies"} {
