@@ -460,6 +460,20 @@ test('admin chart playlists show sync progress and automatic import history', as
 										reason: reviewing ? 'No matching Qobuz track' : '',
 										manual_match: !!confirmedTrack,
 										qobuz_match: confirmedTrack,
+										candidates:
+											reviewing && !confirmedTrack
+												? [
+														{
+															track_id: '20',
+															title: 'Live version',
+															artist: 'Example artist',
+															album: 'Example release',
+															duration_seconds: 190,
+															isrc: 'USAT21704212',
+															decision: 'duration differs from chart recording',
+														},
+													]
+												: undefined,
 									},
 								],
 							},
@@ -485,6 +499,9 @@ test('admin chart playlists show sync progress and automatic import history', as
 	await expect(page.getByRole('progressbar', { name: 'Tracks processed' })).toHaveAttribute('value', '2');
 	await page.getByText('Track status', { exact: true }).click();
 	await expect(page.getByText('Needs review · No matching Qobuz track')).toBeVisible();
+	await page.getByText('Qobuz candidates (1)', { exact: true }).click();
+	await expect(page.getByText('190 sec · USAT21704212 · duration differs from chart recording', { exact: false })).toBeVisible();
+	await expect(page.getByRole('link', { name: 'Example release' })).toHaveAttribute('href', trackLink);
 	await page.getByRole('button', { name: 'Use Qobuz link', exact: true }).click();
 	await page.getByLabel('Qobuz link or album ID').fill('album123');
 	await page.getByRole('button', { name: 'Find tracks', exact: true }).click();

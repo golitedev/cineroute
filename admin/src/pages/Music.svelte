@@ -19,8 +19,19 @@
 		album?: string;
 		manual_match?: boolean;
 		qobuz_match?: QobuzTrack;
+		candidates?: RecordingCandidate[];
 	};
 	type QobuzTrack = { id: string; title: string; artist: string; album: string; disc: number; number: number; duration: number };
+	type RecordingCandidate = {
+		track_id: string;
+		title: string;
+		artist: string;
+		album: string;
+		duration_seconds: number;
+		isrc: string;
+		decision: string;
+		navidrome?: boolean;
+	};
 	type Chart = {
 		id: string;
 		settings: Settings;
@@ -305,6 +316,42 @@
 									{track.album ? ' · ' + track.album : ''}
 									{track.qobuz_match ? ' · Qobuz match: ' + track.qobuz_match.title : track.manual_match ? ' · Saved manual match' : ''}
 								</p>
+								{#if track.candidates?.length}
+									<details class="chart-candidates">
+										<summary
+											>{track.candidates.some((candidate) => candidate.navidrome) ? 'Recording candidates' : 'Qobuz candidates'} ({track
+												.candidates.length})</summary
+										>
+										<ul>
+											{#each track.candidates as candidate}
+												<li>
+													{#if candidate.navidrome}
+														{candidate.album || candidate.title}
+													{:else}
+														<a
+															href={`https://play.qobuz.com/track/${encodeURIComponent(candidate.track_id)}`}
+															target="_blank"
+															rel="noreferrer"
+														>
+															{candidate.album || candidate.title}
+														</a>
+													{/if}
+													<p class="muted">
+														{[
+															candidate.title,
+															candidate.artist,
+															candidate.duration_seconds > 0 ? `${candidate.duration_seconds} sec` : 'Duration unavailable',
+															candidate.isrc || 'ISRC unavailable',
+															candidate.navidrome ? 'Navidrome' : candidate.decision,
+														]
+															.filter(Boolean)
+															.join(' · ')}
+													</p>
+												</li>
+											{/each}
+										</ul>
+									</details>
+								{/if}
 								{#if qobuzEditor === trackKey}
 									<form
 										class="qobuz-match-form"
@@ -381,6 +428,13 @@
 	.chart-tracks {
 		list-style: decimal;
 		padding-inline-start: 2.5rem;
+	}
+	.chart-candidates {
+		margin-block-end: 0.5rem;
+	}
+	.chart-candidates ul {
+		list-style: disc;
+		padding-inline-start: 1.25rem;
 	}
 	.qobuz-match-form {
 		width: min(100%, 36rem);

@@ -61,15 +61,18 @@ func New(paths config.Paths, catalog catalog, nav *navidrome.Client, queue downl
 	if err != nil {
 		return nil, err
 	}
-	credits := &creditsClient{client: &http.Client{Timeout: 5 * time.Second, CheckRedirect: func(*http.Request, []*http.Request) error {
-		return http.ErrUseLastResponse
-	}}}
+	metadata := &identityClient{
+		spotify: spotifyTrackURL, musicBrainz: musicBrainzURL,
+		client: &http.Client{Timeout: 5 * time.Second, CheckRedirect: func(*http.Request, []*http.Request) error {
+			return http.ErrUseLastResponse
+		}},
+	}
 	importRoot := paths.HostLibrary
 	if importRoot == "" {
 		importRoot = paths.Library
 	}
 	m := &Manager{db: db, catalog: catalog, nav: nav, jobs: queue, importRoot: importRoot,
-		fetch: fetchKworb, lookupIdentity: credits.lookup, wake: make(chan struct{}, 1)}
+		fetch: fetchKworb, lookupIdentity: metadata.lookup, wake: make(chan struct{}, 1)}
 	if err := m.restoreImportPaths(context.Background()); err != nil {
 		db.Close()
 		return nil, err
@@ -332,6 +335,7 @@ func (m *Manager) resolve(ctx context.Context, p playlist, e *entry, now time.Ti
 	}
 	searchTrack, artist := e.Track, e.Artists[0]
 	var identity trackIdentity
+	e.Candidates = nil
 	if selected.ID != "" {
 		e.Recording = selected
 		searchTrack.Title = selected.Title
@@ -353,9 +357,43 @@ func (m *Manager) resolve(ctx context.Context, p playlist, e *entry, now time.Ti
 			e.Recording = qobuz.Recording{}
 			e.JobID, e.IndexSince = "", time.Time{}
 		}
-		if e.JobID == "" && e.Recording.ID != "" && catalogMatch(e.Track, e.Recording) == 0 {
+		if e.JobID == "" && e.Recording.ID != "" && (catalogScore(e.Track, e.Recording, identity) == 0 ||
+			!compatibleDurations(identity.Duration, e.Recording.Duration)) {
 			e.Recording = qobuz.Recording{}
 		}
+	}
+	refreshIdentity := func() (bool, error) {
+		delay := retryTrack
+		if identity.ISRC != "" || identity.Album != "" || identity.Duration > 0 {
+			delay = 7 * 24 * time.Hour
+		}
+		if identity.Manual || now.Sub(time.Unix(identity.CheckedAt, 0)) < delay {
+			return false, nil
+		}
+		resolved, lookupErr := m.lookupIdentity(ctx, e.SpotifyID)
+		if ctx.Err() != nil {
+			return false, ctx.Err()
+		}
+		// Keep useful evidence across partial responses or provider outages.
+		if resolved.ISRC == "" {
+			resolved.ISRC = identity.ISRC
+		}
+		if resolved.Album == "" {
+			resolved.Album, resolved.Number = identity.Album, identity.Number
+		}
+		if resolved.Duration == 0 {
+			resolved.Duration = identity.Duration
+		}
+		if err := m.cacheIdentity(ctx, e.SpotifyID, resolved, now); err != nil {
+			return false, err
+		}
+		resolved.CheckedAt = now.Unix()
+		log.Info("chart recording metadata lookup", "isrc", resolved.ISRC, "album", resolved.Album,
+			"track_number", resolved.Number, "duration_seconds", resolved.Duration, "lookup_error", lookupErr)
+		changed := identity.ISRC != resolved.ISRC || identity.Album != resolved.Album ||
+			identity.Duration != resolved.Duration || identity.Number != resolved.Number
+		identity = resolved
+		return changed, nil
 	}
 	title := trackSearchTitle(searchTrack)
 	songs, err := m.nav.Search(ctx, title, artist)
@@ -368,6 +406,18 @@ func (m *Manager) resolve(ctx context.Context, p playlist, e *entry, now time.Ti
 		song = chooseQobuzMatch(selected, songs)
 	} else {
 		song, ambiguous = chooseSongWithIdentity(e.Track, e.Recording, songs, identity)
+		if song.ID == "" && e.JobID == "" && e.Recording.ID == "" && (ambiguous || slices.ContainsFunc(songs, func(song navidrome.Song) bool {
+			return song.ID != "" && !acousticConflict(e.Track, song.Title, song.Album) && matchesLead(e.Track, song.Title, song.Artist)
+		})) {
+			// Try to resolve existing library copies before making a Qobuz request.
+			changed, err := refreshIdentity()
+			if err != nil {
+				return err
+			}
+			if changed {
+				song, ambiguous = chooseSongWithIdentity(e.Track, e.Recording, songs, identity)
+			}
+		}
 	}
 	if song.ID != "" {
 		log.Debug("chart track reused from Navidrome", "song_id", song.ID, "album", song.Album, "isrc", song.ISRC, "duration_seconds", song.Duration)
@@ -413,45 +463,29 @@ func (m *Manager) resolve(ctx context.Context, p playlist, e *entry, now time.Ti
 		e.QobuzFailures = 0
 		recording, reason, evaluation := evaluateRecordings(e.Track, candidates, identity)
 		initialReason := reason
-		creditsStatus := "not needed"
-		creditsError := ""
-		if identity.ISRC != "" {
-			creditsStatus = "saved ISRC"
-		}
 		logSearch := func(result string) {
 			// A JSON field preserves the field names even with the default text logger.
 			details, _ := json.Marshal(evaluation)
 			log.Info("chart Qobuz search evaluated", "query", query, "result", result, "reason", reason,
-				"initial_reason", initialReason, "verified_isrc", identity.ISRC, "verified_album", identity.Album,
-				"credits_lookup", creditsStatus, "credits_error", creditsError,
+				"initial_reason", initialReason, "verified_isrc", identity.ISRC, "chart_album", identity.Album,
+				"chart_duration_seconds", identity.Duration, "chart_track_number", identity.Number,
+				"metadata_checked_at", identity.CheckedAt,
 				"navidrome_results", len(songs), "navidrome_ambiguous", ambiguous,
 				"qobuz_results", len(candidates), "selected_track_id", recording.ID, "selected_album_id", recording.AlbumID,
 				"evaluation", string(details))
 		}
-		if identity.ISRC == "" && (reason != "" || ambiguous) && now.Sub(time.Unix(identity.CheckedAt, 0)) >= retryTrack {
-			resolved, lookupErr := m.lookupIdentity(ctx, e.SpotifyID)
-			if ctx.Err() != nil {
-				return ctx.Err()
+		if reason != "" || ambiguous {
+			changed, err := refreshIdentity()
+			if err != nil {
+				return err
 			}
-			// Keep the daily schedule if the optional lookup fails.
-			creditsStatus = "lookup failed"
-			if lookupErr != nil {
-				creditsError = lookupErr.Error()
-			} else {
-				creditsStatus = "no verified ISRC"
-				if err := m.cacheIdentity(ctx, e.SpotifyID, resolved, now); err != nil {
-					return err
-				}
-				if resolved.ISRC != "" {
-					creditsStatus = "verified ISRC"
-					identity = resolved
-					recording, reason, evaluation = evaluateRecordings(e.Track, candidates, identity)
-					song, ambiguous = chooseSongWithIdentity(e.Track, qobuz.Recording{}, songs, identity)
-					if song.ID != "" {
-						logSearch("reused Navidrome track after verifying ISRC")
-						e.setReady(song, now)
-						return nil
-					}
+			if changed {
+				recording, reason, evaluation = evaluateRecordings(e.Track, candidates, identity)
+				song, ambiguous = chooseSongWithIdentity(e.Track, qobuz.Recording{}, songs, identity)
+				if song.ID != "" {
+					logSearch("reused Navidrome track using chart recording metadata")
+					e.setReady(song, now)
+					return nil
 				}
 			}
 		}
@@ -460,12 +494,16 @@ func (m *Manager) resolve(ctx context.Context, p playlist, e *entry, now time.Ti
 				reason = "Multiple Navidrome recordings match. " + reason
 			}
 			logSearch("needs review")
+			e.Candidates = evaluation.reviewCandidates(e.Track)
+			if ambiguous {
+				e.Candidates = append(e.Candidates, libraryReviewCandidates(e.Track, songs)...)
+			}
 			e.State, e.Reason, e.NextAttempt = "needs_review", reason, now.Add(retryTrack)
 			return nil
 		}
 		logSearch("catalog recording selected")
 		e.Recording = recording
-		if identity.ISRC == "" {
+		if !identity.Manual {
 			if err := m.remember(ctx, e.SpotifyID, recording); err != nil {
 				return err
 			}
@@ -481,6 +519,7 @@ func (m *Manager) resolve(ctx context.Context, p playlist, e *entry, now time.Ti
 		log.Info("chart Navidrome match ambiguous", "query", title, "qobuz_track_id", e.Recording.ID,
 			"verified_isrc", identity.ISRC, "candidates", string(details))
 		e.State, e.Reason = "needs_review", "Multiple Navidrome recordings match this track"
+		e.Candidates = libraryReviewCandidates(e.Track, songs)
 		e.NextAttempt = now.Add(retryTrack)
 		return nil
 	}

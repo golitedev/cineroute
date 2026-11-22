@@ -32,7 +32,7 @@ func TestChartQobuzRetryBackoff(t *testing.T) {
 	}
 	defer m.Close()
 	m.lookupIdentity = func(context.Context, string) (trackIdentity, error) {
-		return trackIdentity{}, errors.New("Credits.fm unavailable")
+		return trackIdentity{}, errors.New("chart metadata unavailable")
 	}
 	e := entry{Track: Track{SpotifyID: "track", Title: "Missing Song", Artists: []string{"Artist"}}}
 	now := time.Now()

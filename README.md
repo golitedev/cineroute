@@ -862,21 +862,25 @@ current playlist available.
 Removing a playlist also removes it from Navidrome. Imported albums stay in
 the music library.
 
-When the usual match is unresolved, CineRoute tries the exact Spotify track
-link with the keyless Credits.fm API. Under **Track status**, choose **Use Qobuz
-link** and paste a track link, album link, or album ID. CineRoute selects a
-single result automatically and shows a track picker when the album has
+When the usual match is unresolved, CineRoute caches the public Spotify track
+page's album, duration, and track number. It also checks MusicBrainz for an ISRC
+linked to the exact Spotify track. CineRoute uses this metadata with the
+Navidrome and Qobuz results it already has. Under **Track status**, expand the
+candidate list to see the releases and their match decisions. Choose
+**Use Qobuz link** and paste a track link, album link, or album ID. CineRoute
+selects a single result automatically and shows a track picker when the album has
 multiple tracks. **Use this track** saves the selected recording across all
 chart playlists that include that Spotify track. **Use automatic match**
 clears the saved choice.
 
 For matching details, search the CineRoute logs for the Spotify track ID or
-`chart Qobuz search evaluated`. Each Qobuz search logs the query, verified
-identity lookup, candidates, and why they were selected or rejected. Candidates
+`chart Qobuz search evaluated`. Each Qobuz search logs the query, chart recording
+metadata, candidates, and why they were selected or rejected. Candidates
 include Qobuz track and album IDs, titles, artists, ISRCs, durations, match
 scores, and streamability. When eligible releases conflict, the log names the
-conflicting track IDs. Failed searches log the HTTP status when available and
-the next retry time. Navidrome ambiguity and chart album jobs have their own
+conflicting track IDs. The `chart recording metadata lookup` entry shows the
+Spotify and MusicBrainz lookup results. Failed Qobuz searches log the HTTP
+status when available and the next retry time. Navidrome ambiguity and chart album jobs have their own
 entries under the same Spotify track ID.
 
 Use a Navidrome administrator in `music.navidrome` for chart playlists. That

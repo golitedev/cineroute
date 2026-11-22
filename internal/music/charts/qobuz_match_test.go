@@ -117,7 +117,7 @@ func TestQobuzMatchUsesTheSelectedTrackAcrossPlaylists(t *testing.T) {
 	}
 	defer m.Close()
 	m.lookupIdentity = func(context.Context, string) (trackIdentity, error) {
-		t.Fatal("an explicit match should not use Credits.fm")
+		t.Fatal("an explicit match should not look up automatic metadata")
 		return trackIdentity{}, nil
 	}
 	views, err := m.Views(ctx)

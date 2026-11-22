@@ -37,6 +37,53 @@ func TestDameHombroIgnoresUnstreamableConflict(t *testing.T) {
 	}
 }
 
+func TestPublicChartMetadataResolvesRecordingConflicts(t *testing.T) {
+	snowman := Track{Title: "Snowman", Artists: []string{"Sia"}}
+	snowmanSingle := qobuz.Recording{ID: "44701104", AlbumID: "0075679882912", Title: "Snowman", Artist: "Sia",
+		Album: "Snowman", ISRC: "USAT21704212", Number: 1, Duration: 165, Streamable: true}
+	snowmanOther := qobuz.Recording{ID: "280329637", AlbumID: "other", Title: "Snowman", Artist: "Sia",
+		Album: "Snowman", ISRC: "TCAHU2409784", Number: 1, Duration: 149, Streamable: true}
+	andy := Track{Title: "It's the Most Wonderful Time of the Year", Artists: []string{"Andy Williams"}}
+	christmasAlbum := qobuz.Recording{ID: "167196", AlbumID: "0827969271223", Title: andy.Title + " (Album Version)",
+		Artist: "Andy Williams with Robert Mersey & His Orchestra", Album: "The Andy Williams Christmas Album",
+		ISRC: "USSM16300086", Number: 4, Duration: 152, Streamable: true}
+	compilation := qobuz.Recording{ID: "compilation", AlbumID: "compilation-release", Title: andy.Title, Artist: "Andy Williams",
+		Album: "Classic Christmas Album", ISRC: christmasAlbum.ISRC, Number: 2, Duration: 151, Streamable: true}
+	personal := qobuz.Recording{ID: "personal", AlbumID: "personal-release", Title: andy.Title, Artist: "Andy Williams",
+		Album: "Personal Christmas Collection", ISRC: "USSM10022761", Number: 3, Duration: 150, Streamable: true}
+	for _, tt := range []struct {
+		track      Track
+		identity   trackIdentity
+		candidates []qobuz.Recording
+		want       qobuz.Recording
+	}{
+		{snowman, trackIdentity{Duration: 166, Number: 3, Album: "Everyday Is Christmas (Deluxe Edition)"},
+			[]qobuz.Recording{snowmanOther, snowmanSingle}, snowmanSingle},
+		{andy, trackIdentity{Duration: 151, Number: 4, Album: christmasAlbum.Album},
+			[]qobuz.Recording{compilation, personal, christmasAlbum}, christmasAlbum},
+	} {
+		t.Run(tt.track.Title, func(t *testing.T) {
+			if _, reason := chooseRecording(tt.track, tt.candidates); reason != ambiguousCatalogRecording {
+				t.Fatalf("expected the ordinary match to be ambiguous, got %q", reason)
+			}
+			got, reason, decisions := evaluateRecordings(tt.track, tt.candidates, tt.identity)
+			if got.ID != tt.want.ID || reason != "" {
+				t.Fatalf("metadata matched %q, reason %q, candidates %+v", got.ID, reason, decisions.Candidates)
+			}
+			song := navidrome.Song{ID: got.ID, Title: got.Title, Artist: got.Artist, Album: got.Album,
+				ISRC: []string{got.ISRC}, Track: got.Number, Duration: got.Duration}
+			if local, ambiguous := chooseSongWithIdentity(tt.track, qobuz.Recording{}, []navidrome.Song{song}, tt.identity); local.ID != got.ID || ambiguous {
+				t.Fatalf("library matched %q, ambiguous %t", local.ID, ambiguous)
+			}
+		})
+	}
+	christmasAlbum.Number++
+	if got, reason, _ := evaluateRecordings(andy, []qobuz.Recording{compilation, personal, christmasAlbum},
+		trackIdentity{Duration: 151, Number: 4, Album: christmasAlbum.Album}); got.ID != "" || reason != ambiguousCatalogRecording {
+		t.Fatalf("a wrong track position matched %q, reason %q", got.ID, reason)
+	}
+}
+
 func TestChartMatchesSoundtrackCredits(t *testing.T) {
 	track := Track{Title: "Flower In A Hurricane", Artists: []string{
 		"Justice", "Tame Impala", "SZA", "Grand Theft Auto VI", "King Gizzard & The Lizard Wizard",

@@ -17,33 +17,45 @@ import (
 
 const sweaterSpotifyID = "2QjOHCTQ1Jl3zawyYOpxh6"
 
-func TestCreditsLookupRequiresTheRequestedSpotifyTrack(t *testing.T) {
-	const trackURL = "https://open.spotify.com/track/" + sweaterSpotifyID
-	for _, tt := range []struct {
-		name, url, code, want string
-		status                int
-		wantError             bool
-	}{
-		{"exact", trackURL, "us-sm1-13-00080", "USSM11300080", http.StatusOK, false},
-		{"different Spotify ID", "https://open.spotify.com/track/other", "USSM11300080", "", http.StatusOK, false},
-		{"invalid ISRC", trackURL, "invalid", "", http.StatusOK, false},
-		{"not found", "", "", "", http.StatusNotFound, false},
-		{"rate limited", "", "", "", http.StatusTooManyRequests, true},
-	} {
-		t.Run(tt.name, func(t *testing.T) {
-			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-				if r.Method != http.MethodGet || r.URL.Query().Get("url") != trackURL || r.Header.Get("x-api-key") != "" {
-					t.Error("expected a keyless lookup of the exact Spotify track")
-				}
-				w.WriteHeader(tt.status)
-				_ = json.NewEncoder(w).Encode(map[string]string{"type": "track", "spotify_url": tt.url, "isrc": tt.code, "album_name": "I Love You."})
-			}))
-			defer server.Close()
-			got, err := lookupCreditsIdentity(t.Context(), server.Client(), server.URL, sweaterSpotifyID)
-			if got.ISRC != tt.want || (err != nil) != tt.wantError || (tt.want != "" && got.Album != "I Love You.") {
-				t.Fatalf("lookup = %+v, %v", got, err)
+func TestPublicTrackMetadata(t *testing.T) {
+	const trackURL = spotifyTrackURL + sweaterSpotifyID
+	const mbid = "dc8dad55-44ac-41d0-986b-c7a5ae3b09e5"
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/track/" + sweaterSpotifyID:
+			_, _ = w.Write([]byte(`<head>
+				<meta property="og:type" content="music.song">
+				<meta property="og:url" content="` + trackURL + `">
+				<meta property="og:description" content="The Neighbourhood · I Love You. · Song · 2013">
+				<meta name="music:album" content="https://open.spotify.com/album/id">
+				<meta name="music:album:track" content="4">
+				<meta name="music:duration" content="240">
+			</head>`))
+		case "/ws/2/url":
+			if r.Header.Get("User-Agent") != metadataUserAgent || r.URL.Query().Get("resource") != trackURL {
+				t.Errorf("MusicBrainz lookup used wrong track or User-Agent: %s", r.URL)
 			}
-		})
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"resource": trackURL, "relations": []any{map[string]any{"recording": map[string]string{"id": mbid}}},
+			})
+		case "/ws/2/recording/" + mbid:
+			_ = json.NewEncoder(w).Encode(map[string]any{"id": mbid, "length": 240001, "isrcs": []string{"us-sm1-13-00080"}})
+		default:
+			t.Errorf("unexpected public metadata request: %s", r.URL)
+			http.NotFound(w, r)
+		}
+	}))
+	defer server.Close()
+	provider := identityClient{client: server.Client(), spotify: server.URL + "/track/", musicBrainz: server.URL + "/ws/2"}
+	got, err := provider.lookup(t.Context(), sweaterSpotifyID)
+	want := trackIdentity{ISRC: "USSM11300080", Album: "I Love You.", Number: 4, Duration: 240}
+	if err != nil || got != want {
+		t.Fatalf("lookup = %+v, %v", got, err)
+	}
+	page := strings.NewReader(`<meta property="og:type" content="music.song"><meta property="og:url" content="` + trackURL +
+		`"><meta name="music:duration" content="240">`)
+	if _, err := parseSpotifyMetadata(page, spotifyTrackURL+"other"); err == nil {
+		t.Fatal("accepted metadata for a different Spotify track")
 	}
 }
 
@@ -51,6 +63,54 @@ type catalogRecordings []qobuz.Recording
 
 func (c catalogRecordings) SearchRecordings(context.Context, string) ([]qobuz.Recording, error) {
 	return c, nil
+}
+
+type noQobuzSearch struct{ t *testing.T }
+
+func (c noQobuzSearch) SearchRecordings(context.Context, string) ([]qobuz.Recording, error) {
+	c.t.Fatal("a resolved Navidrome match should not search Qobuz")
+	return nil, nil
+}
+
+func TestChartMetadataReusesNavidromeBeforeQobuz(t *testing.T) {
+	const title = "It's the Most Wonderful Time of the Year"
+	const artist = "Andy Williams"
+	const album = "The Andy Williams Christmas Album"
+	const spotifyID = "1IcR6RlgvDczfvoWJSSY2A"
+	songs := []navidrome.Song{
+		{ID: "compilation", Title: title, Artist: artist, Album: "Classic Christmas Album", ISRC: []string{"USSM16300086"}, Track: 10, Duration: 151},
+		{ID: "personal", Title: title, Artist: artist, Album: "Personal Christmas Collection", ISRC: []string{"USSM10022761"}, Track: 3, Duration: 150},
+		{ID: "christmas", Title: title + " (Album Version)", Artist: "Andy Williams with Robert Mersey & His Orchestra",
+			Album: album, ISRC: []string{"USSM16300086"}, Track: 4, Duration: 152},
+	}
+	nav := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/rest/search3" {
+			t.Errorf("unexpected Navidrome request %s", r.URL)
+		}
+		_ = json.NewEncoder(w).Encode(map[string]any{"subsonic-response": map[string]any{
+			"status": "ok", "searchResult3": map[string]any{"song": songs},
+		}})
+	}))
+	defer nav.Close()
+	manager, err := New(config.Paths{Data: t.TempDir()}, noQobuzSearch{t}, navidrome.New(nav.URL, "admin", "pass"), new(testQueue))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer manager.Close()
+	lookups := 0
+	manager.lookupIdentity = func(context.Context, string) (trackIdentity, error) {
+		lookups++
+		return trackIdentity{Album: album, Duration: 151, Number: 4}, errors.New("MusicBrainz unavailable")
+	}
+	for range 2 {
+		e := entry{Track: Track{SpotifyID: spotifyID, Title: title, Artists: []string{artist}}}
+		if err := manager.resolve(t.Context(), playlist{}, &e, time.Now()); err != nil || e.State != "ready" || e.SongID != "christmas" {
+			t.Fatalf("resolve = %+v, %v", e, err)
+		}
+	}
+	if lookups != 1 {
+		t.Fatalf("metadata lookups = %d, want 1", lookups)
+	}
 }
 
 func TestChartISRCSelectsAndRemembersTheRecording(t *testing.T) {
@@ -118,14 +178,14 @@ func TestChartISRCSelectsAndRemembersTheRecording(t *testing.T) {
 			t.Fatal(err)
 		}
 		if e.State != "queued" || e.Recording.ISRC != chartISRC || queue.job.AlbumID != "chart-album" {
-			t.Fatalf("Credits.fm selection: entry %+v, job %+v", e, queue.job)
+			t.Fatalf("metadata selection: entry %+v, job %+v", e, queue.job)
 		}
 		if err := m.save(ctx, p, p.Revision); err != nil {
 			t.Fatal(err)
 		}
 	}
 	if lookups != 1 {
-		t.Fatalf("Credits.fm lookups = %d, wanted one", lookups)
+		t.Fatalf("metadata lookups = %d, wanted one", lookups)
 	}
 	if err := m.ClearTrackMatch(ctx, first.ID, sweaterSpotifyID); !errors.Is(err, ErrTrackBusy) {
 		t.Fatalf("changing the match on an active job returned %v", err)
@@ -138,8 +198,7 @@ func TestChartISRCSelectsAndRemembersTheRecording(t *testing.T) {
 	}
 	const manualAlbum = "Other Edition"
 	// An override created by an older CineRoute version stays active.
-	if _, err := m.db.ExecContext(ctx, "UPDATE chart_identity SET isrc = ?, album = ?, manual = 1, checked_at = 0 WHERE spotify_id = ?",
-		otherISRC, manualAlbum, sweaterSpotifyID); err != nil {
+	if _, err := m.db.ExecContext(ctx, "INSERT INTO chart_identity VALUES (?, ?, ?, 1, 0)", sweaterSpotifyID, otherISRC, manualAlbum); err != nil {
 		t.Fatal(err)
 	}
 	if err := m.cacheIdentity(ctx, sweaterSpotifyID, trackIdentity{ISRC: chartISRC}, now); err != nil {
@@ -170,7 +229,7 @@ func TestChartISRCSelectsAndRemembersTheRecording(t *testing.T) {
 	if err := m.ClearTrackMatch(ctx, first.ID, sweaterSpotifyID); err != nil {
 		t.Fatal(err)
 	}
-	if got, err := m.identity(ctx, sweaterSpotifyID); err != nil || got.ISRC != "" {
+	if got, err := m.identity(ctx, sweaterSpotifyID); err != nil || got.Manual || got.ISRC != chartISRC || got.Album != album {
 		t.Fatalf("cleared ISRC %+v, error %v", got, err)
 	}
 }

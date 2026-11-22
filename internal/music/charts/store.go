@@ -76,11 +76,12 @@ type PlaylistView struct {
 
 type TrackView struct {
 	Track
-	State       string       `json:"state"`
-	Reason      string       `json:"reason,omitempty"`
-	Album       string       `json:"album,omitempty"`
-	ManualMatch bool         `json:"manual_match,omitempty"`
-	QobuzMatch  *QobuzChoice `json:"qobuz_match,omitempty"`
+	State       string             `json:"state"`
+	Reason      string             `json:"reason,omitempty"`
+	Album       string             `json:"album,omitempty"`
+	ManualMatch bool               `json:"manual_match,omitempty"`
+	QobuzMatch  *QobuzChoice       `json:"qobuz_match,omitempty"`
+	Candidates  []catalogCandidate `json:"candidates,omitempty"`
 }
 
 type playlist struct {
@@ -111,7 +112,8 @@ type entry struct {
 	Recording     qobuz.Recording
 	NextAttempt   time.Time
 	IndexSince    time.Time
-	QobuzFailures int `json:",omitempty"`
+	QobuzFailures int                `json:",omitempty"`
+	Candidates    []catalogCandidate `json:",omitempty"`
 }
 
 func (p playlist) view() PlaylistView {
@@ -132,7 +134,11 @@ func (p playlist) view() PlaylistView {
 				album = *track.SongAlbum
 			}
 		}
-		view.Tracks = append(view.Tracks, TrackView{Track: track.Track, State: track.State, Reason: track.Reason, Album: album})
+		row := TrackView{Track: track.Track, State: track.State, Reason: track.Reason, Album: album}
+		if track.State == "needs_review" {
+			row.Candidates = track.Candidates
+		}
+		view.Tracks = append(view.Tracks, row)
 	}
 	return view
 }
@@ -152,6 +158,10 @@ func openStore(dataDir string) (*sql.DB, error) {
 		CREATE TABLE IF NOT EXISTS chart_playlist (id TEXT PRIMARY KEY, revision INTEGER NOT NULL, state TEXT NOT NULL);
 		CREATE TABLE IF NOT EXISTS chart_recording (spotify_id TEXT PRIMARY KEY, metadata TEXT NOT NULL);
 		CREATE TABLE IF NOT EXISTS chart_identity (spotify_id TEXT PRIMARY KEY, isrc TEXT NOT NULL, album TEXT NOT NULL, manual INTEGER NOT NULL, checked_at INTEGER NOT NULL);
+		CREATE TABLE IF NOT EXISTS chart_track_metadata (
+			spotify_id TEXT PRIMARY KEY, isrc TEXT NOT NULL, album TEXT NOT NULL, duration_seconds INTEGER NOT NULL,
+			track_number INTEGER NOT NULL, checked_at INTEGER NOT NULL
+		);
 		CREATE TABLE IF NOT EXISTS chart_qobuz_match (spotify_id TEXT PRIMARY KEY, metadata TEXT NOT NULL);
 		CREATE TABLE IF NOT EXISTS chart_import (job_id TEXT PRIMARY KEY, imported_at INTEGER NOT NULL, receipt TEXT NOT NULL);
 		CREATE INDEX IF NOT EXISTS chart_import_date ON chart_import(imported_at DESC, job_id DESC);
@@ -340,12 +350,24 @@ func (m *Manager) SyncNow(ctx context.Context, id string) error {
 type trackIdentity struct {
 	ISRC      string
 	Album     string
+	Duration  int
+	Number    int
 	CheckedAt int64
+	Manual    bool
 }
 
 func (m *Manager) identity(ctx context.Context, spotifyID string) (trackIdentity, error) {
 	var result trackIdentity
-	err := m.db.QueryRowContext(ctx, "SELECT isrc, album, checked_at FROM chart_identity WHERE spotify_id = ?", spotifyID).Scan(&result.ISRC, &result.Album, &result.CheckedAt)
+	// Preserve legacy manual matches and reuse any old verified ISRC on a cache miss.
+	err := m.db.QueryRowContext(ctx, `SELECT isrc, album, duration_seconds, track_number, checked_at, manual
+		FROM (
+			SELECT isrc, album, duration_seconds, track_number, checked_at, 0 AS manual, 1 AS priority
+			FROM chart_track_metadata WHERE spotify_id = ?1
+			UNION ALL
+			SELECT isrc, album, 0, 0, checked_at, manual, CASE WHEN manual = 1 THEN 0 ELSE 2 END
+			FROM chart_identity WHERE spotify_id = ?1 AND (manual = 1 OR isrc <> '')
+		) ORDER BY priority LIMIT 1`, spotifyID).Scan(&result.ISRC, &result.Album, &result.Duration,
+		&result.Number, &result.CheckedAt, &result.Manual)
 	if errors.Is(err, sql.ErrNoRows) {
 		return trackIdentity{}, nil
 	}
@@ -353,9 +375,12 @@ func (m *Manager) identity(ctx context.Context, spotifyID string) (trackIdentity
 }
 
 func (m *Manager) cacheIdentity(ctx context.Context, spotifyID string, identity trackIdentity, now time.Time) error {
-	_, err := m.db.ExecContext(ctx, `INSERT INTO chart_identity VALUES (?, ?, ?, 0, ?)
-		ON CONFLICT(spotify_id) DO UPDATE SET isrc = excluded.isrc, album = excluded.album, checked_at = excluded.checked_at
-		WHERE chart_identity.manual = 0`, spotifyID, identity.ISRC, identity.Album, now.Unix())
+	_, err := m.db.ExecContext(ctx, `INSERT INTO chart_track_metadata
+		(spotify_id, isrc, album, duration_seconds, track_number, checked_at)
+		SELECT ?1, ?2, ?3, ?4, ?5, ?6 WHERE NOT EXISTS (SELECT 1 FROM chart_identity WHERE spotify_id = ?1 AND manual = 1)
+		ON CONFLICT(spotify_id) DO UPDATE SET isrc = excluded.isrc, album = excluded.album, checked_at = excluded.checked_at,
+			duration_seconds = excluded.duration_seconds, track_number = excluded.track_number`, spotifyID, identity.ISRC,
+		identity.Album, identity.Duration, identity.Number, now.Unix())
 	return err
 }
 
@@ -420,6 +445,7 @@ func (m *Manager) setTrackMatch(ctx context.Context, playlistID, spotifyID strin
 			}
 		}
 		e.Recording = qobuz.Recording{}
+		e.Candidates = nil
 		e.QobuzFailures = 0
 		e.SongID, e.SongAlbum = "", nil
 		e.JobID, e.IndexSince = "", time.Time{}

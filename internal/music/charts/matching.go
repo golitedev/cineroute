@@ -15,6 +15,7 @@ import (
 const releaseLabel = `(?:(?:single|original|album|lp)\s+version|bonus\s+track)`
 const soundtrackLabel = `from\s+[^()\[\]]+:\s*(?:original score|original soundtrack|the album)`
 const ambiguousCatalogRecording = "Multiple Qobuz recordings match this title and artist"
+const conflictingCandidate = "conflicting eligible recording"
 
 var (
 	featureCredit        = regexp.MustCompile(`(?i)\s+(?:[(\[]\s*)?\b(?:feat\.?|ft\.?|featuring)\s+([^\])]+)[\])]?$`)
@@ -194,6 +195,41 @@ func catalogMatch(track Track, recording qobuz.Recording) int {
 	return trackMatch(track, title, recording.Artist)
 }
 
+func matchesLead(track Track, title, artist string) bool {
+	known := normalizeArtists(track.Artists)
+	names := artistNames(artist, known)
+	if len(known) == 0 || len(names) == 0 || names[0] != known[0] {
+		return false
+	}
+	return catalogMatch(track, qobuz.Recording{Title: title, Artist: track.Artists[0]}) != 0
+}
+
+func (identity trackIdentity) matchesDuration(duration int) bool {
+	return identity.Duration > 0 && duration > 0 && compatibleDurations(identity.Duration, duration)
+}
+
+func (identity trackIdentity) matchesAlbum(album string) bool {
+	return identity.Album != "" && normalize(identity.Album) == normalize(album)
+}
+
+func (identity trackIdentity) matchesPosition(album string, number, duration int) bool {
+	return identity.matchesAlbum(album) && identity.Number > 0 && identity.Number == number && identity.matchesDuration(duration)
+}
+
+func catalogScore(track Track, recording qobuz.Recording, identity trackIdentity) int {
+	if score := catalogMatch(track, recording); score != 0 {
+		return score
+	}
+	// Services can add orchestra or other performer credits to the same recording.
+	// Require a compatible duration plus a verified ISRC or the album track position.
+	if (identity.matchesPosition(recording.Album, recording.Number, recording.Duration) ||
+		(equalISRC(recording.ISRC, identity.ISRC) && identity.matchesDuration(recording.Duration))) &&
+		!acousticConflict(track, recording.Title, recording.Album) && matchesLead(track, recording.Title, recording.Artist) {
+		return 1
+	}
+	return 0
+}
+
 func chooseRecording(track Track, candidates []qobuz.Recording) (qobuz.Recording, string) {
 	return chooseRecordingWithISRC(track, candidates, trackIdentity{})
 }
@@ -211,9 +247,11 @@ type catalogCandidate struct {
 	Album      string `json:"album"`
 	ISRC       string `json:"isrc"`
 	Duration   int    `json:"duration_seconds"`
+	Number     int    `json:"track_number,omitempty"`
 	Streamable bool   `json:"streamable"`
 	Score      int    `json:"score"`
 	Decision   string `json:"decision"`
+	Navidrome  bool   `json:"navidrome,omitempty"`
 }
 
 type catalogEvaluation struct {
@@ -224,14 +262,14 @@ type catalogEvaluation struct {
 
 func evaluateRecordings(track Track, candidates []qobuz.Recording, identity trackIdentity) (qobuz.Recording, string, catalogEvaluation) {
 	album := normalize(identity.Album)
-	if identity.ISRC != "" && album != "" {
-		// A verified album can settle conflicts between releases.
-		recording, reason, evaluation := evaluateRecordingsOnAlbum(track, candidates, identity.ISRC, album)
+	if album != "" && (identity.ISRC != "" || identity.Duration > 0) {
+		// Prefer the chart album when a recording ID or duration corroborates it.
+		recording, reason, evaluation := evaluateRecordingsOnAlbum(track, candidates, identity, album)
 		if recording.ID != "" || reason == ambiguousCatalogRecording {
 			return recording, reason, evaluation
 		}
 	}
-	recording, reason, evaluation := evaluateRecordingsOnAlbum(track, candidates, identity.ISRC, "")
+	recording, reason, evaluation := evaluateRecordingsOnAlbum(track, candidates, identity, "")
 	if identity.ISRC != "" {
 		switch {
 		case reason == "No matching Qobuz track":
@@ -243,7 +281,7 @@ func evaluateRecordings(track Track, candidates []qobuz.Recording, identity trac
 	return recording, reason, evaluation
 }
 
-func evaluateRecordingsOnAlbum(track Track, candidates []qobuz.Recording, isrc, album string) (qobuz.Recording, string, catalogEvaluation) {
+func evaluateRecordingsOnAlbum(track Track, candidates []qobuz.Recording, identity trackIdentity, album string) (qobuz.Recording, string, catalogEvaluation) {
 	// Qobuz can list the same acoustic recording with and without its version.
 	acousticCodes := make(map[string]bool)
 	for _, candidate := range candidates {
@@ -256,18 +294,25 @@ func evaluateRecordingsOnAlbum(track Track, candidates []qobuz.Recording, isrc, 
 	for i, candidate := range candidates {
 		d := &evaluation.Candidates[i]
 		*d = catalogCandidate{TrackID: candidate.ID, AlbumID: candidate.AlbumID, Title: candidate.Title,
-			Artist: candidate.Artist, Album: candidate.Album, ISRC: candidate.ISRC, Duration: candidate.Duration, Streamable: candidate.Streamable}
+			Artist: candidate.Artist, Album: candidate.Album, ISRC: candidate.ISRC, Duration: candidate.Duration,
+			Number: candidate.Number, Streamable: candidate.Streamable}
 		switch {
 		case candidate.ID == "" || candidate.AlbumID == "":
 			d.Decision = "missing Qobuz track or album ID"
-		case isrc != "" && !equalISRC(candidate.ISRC, isrc):
+		case identity.ISRC != "" && !equalISRC(candidate.ISRC, identity.ISRC):
 			d.Decision = "does not match verified ISRC"
 		case acousticCodes[normalizeISRC(candidate.ISRC)] || acousticConflict(track, candidate.Title, candidate.Album):
 			d.Decision = "acoustic recording does not match the chart version"
-		case album != "" && normalize(candidate.Album) != album:
-			d.Decision = "does not match verified album"
+		case !compatibleDurations(identity.Duration, candidate.Duration):
+			d.Decision = "duration differs from chart recording"
+		case identity.ISRC == "" && identity.matchesAlbum(candidate.Album) && identity.Number > 0 &&
+			candidate.Number > 0 && candidate.Number != identity.Number:
+			d.Decision = "different track position on the chart album"
+		case album != "" && (!identity.matchesAlbum(candidate.Album) ||
+			(identity.ISRC == "" && !identity.matchesDuration(candidate.Duration))):
+			d.Decision = "does not match chart album and recording evidence"
 		default:
-			d.Score = catalogMatch(track, candidate)
+			d.Score = catalogScore(track, candidate, identity)
 			if d.Score == 0 {
 				d.Decision = "title or artist credits do not match"
 			}
@@ -311,8 +356,8 @@ func evaluateRecordingsOnAlbum(track Track, candidates []qobuz.Recording, isrc, 
 			} else {
 				continue
 			}
-			evaluation.Candidates[previous].Decision = "conflicting eligible recording"
-			evaluation.Candidates[index].Decision = "conflicting eligible recording"
+			evaluation.Candidates[previous].Decision = conflictingCandidate
+			evaluation.Candidates[index].Decision = conflictingCandidate
 			return qobuz.Recording{}, ambiguousCatalogRecording, evaluation
 		}
 	}
@@ -321,23 +366,68 @@ func evaluateRecordingsOnAlbum(track Track, candidates []qobuz.Recording, isrc, 
 	return candidates[winner], "", evaluation
 }
 
+func (evaluation catalogEvaluation) reviewCandidates(track Track) []catalogCandidate {
+	var choices []catalogCandidate
+	for _, candidate := range evaluation.Candidates {
+		if candidate.TrackID != "" && (candidate.Score > 0 || matchesLead(track, candidate.Title, candidate.Artist)) {
+			choices = append(choices, candidate)
+		}
+	}
+	slices.SortStableFunc(choices, func(a, b catalogCandidate) int {
+		switch {
+		case a.Decision == conflictingCandidate && b.Decision != conflictingCandidate:
+			return -1
+		case b.Decision == conflictingCandidate && a.Decision != conflictingCandidate:
+			return 1
+		default:
+			return b.Score - a.Score
+		}
+	})
+	return choices[:min(len(choices), 8)]
+}
+
+func libraryReviewCandidates(track Track, songs []navidrome.Song) []catalogCandidate {
+	var candidates []catalogCandidate
+	for _, song := range songs {
+		if song.ID != "" && (matchesLead(track, song.Title, song.Artist) ||
+			trackMatchWithContributors(track, song.Title, song.Artist, song.Contributors) > 0) {
+			candidates = append(candidates, catalogCandidate{TrackID: song.ID, Title: song.Title,
+				Artist: song.Artist, Album: song.Album, Duration: song.Duration, ISRC: strings.Join(song.ISRC, ", "), Navidrome: true})
+		}
+	}
+	return candidates[:min(len(candidates), 8)]
+}
+
 func chooseSongWithIdentity(track Track, recording qobuz.Recording, songs []navidrome.Song, identity trackIdentity) (navidrome.Song, bool) {
-	if identity.ISRC == "" {
+	if identity.ISRC == "" && identity.Duration == 0 {
 		return chooseSong(track, recording, songs)
 	}
 	songs = slices.DeleteFunc(slices.Clone(songs), func(song navidrome.Song) bool {
-		return !slices.ContainsFunc(song.ISRC, func(id string) bool { return equalISRC(id, identity.ISRC) })
+		if !compatibleDurations(identity.Duration, song.Duration) {
+			return true
+		}
+		if identity.ISRC == "" {
+			return identity.matchesAlbum(song.Album) && identity.Number > 0 && song.Track > 0 && song.Track != identity.Number
+		}
+		return !sharesISRC([]string{identity.ISRC}, song.ISRC) &&
+			(len(song.ISRC) != 0 || !identity.matchesPosition(song.Album, song.Track, song.Duration))
 	})
-	if album := normalize(identity.Album); album != "" {
-		onAlbum := slices.DeleteFunc(slices.Clone(songs), func(song navidrome.Song) bool { return normalize(song.Album) != album })
-		if song, ambiguous := chooseSong(track, recording, onAlbum); song.ID != "" || ambiguous {
+	if identity.Album != "" {
+		onAlbum := slices.DeleteFunc(slices.Clone(songs), func(song navidrome.Song) bool {
+			return !identity.matchesAlbum(song.Album) || (identity.ISRC == "" && !identity.matchesDuration(song.Duration))
+		})
+		if song, ambiguous := chooseSongWithEvidence(track, recording, onAlbum, identity); song.ID != "" || ambiguous {
 			return song, ambiguous
 		}
 	}
-	return chooseSong(track, recording, songs)
+	return chooseSongWithEvidence(track, recording, songs, identity)
 }
 
 func chooseSong(track Track, recording qobuz.Recording, songs []navidrome.Song) (navidrome.Song, bool) {
+	return chooseSongWithEvidence(track, recording, songs, trackIdentity{})
+}
+
+func chooseSongWithEvidence(track Track, recording qobuz.Recording, songs []navidrome.Song, identity trackIdentity) (navidrome.Song, bool) {
 	var matches []navidrome.Song
 	best := 0
 	verified := false
@@ -347,6 +437,11 @@ func chooseSong(track Track, recording qobuz.Recording, songs []navidrome.Song) 
 		}
 		score := trackMatchWithContributors(track, song.Title, song.Artist, song.Contributors)
 		identified := sharesISRC([]string{recording.ISRC}, song.ISRC)
+		if score == 0 && (identity.matchesPosition(song.Album, song.Track, song.Duration) ||
+			(identity.matchesDuration(song.Duration) && sharesISRC([]string{identity.ISRC}, song.ISRC))) &&
+			matchesLead(track, song.Title, song.Artist) {
+			score = 1
+		}
 		if score == 0 || (verified && !identified) {
 			continue
 		}
