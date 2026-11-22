@@ -127,11 +127,8 @@ func TestChartISRCSelectsAndRemembersTheRecording(t *testing.T) {
 	if lookups != 1 {
 		t.Fatalf("Credits.fm lookups = %d, wanted one", lookups)
 	}
-	if err := m.SetTrackISRC(ctx, first.ID, sweaterSpotifyID, "wrong", ""); !errors.Is(err, ErrSettings) {
-		t.Fatalf("invalid ISRC error = %v", err)
-	}
-	if err := m.SetTrackISRC(ctx, first.ID, sweaterSpotifyID, "us-sm1-13-00891", ""); !errors.Is(err, ErrTrackBusy) {
-		t.Fatalf("changing ISRC on an active job returned %v", err)
+	if err := m.ClearTrackMatch(ctx, first.ID, sweaterSpotifyID); !errors.Is(err, ErrTrackBusy) {
+		t.Fatalf("changing the match on an active job returned %v", err)
 	}
 	for _, p := range []playlist{first, second} {
 		p.Entries[0].JobID = ""
@@ -140,7 +137,9 @@ func TestChartISRCSelectsAndRemembersTheRecording(t *testing.T) {
 		}
 	}
 	const manualAlbum = "Other Edition"
-	if err := m.SetTrackISRC(ctx, first.ID, sweaterSpotifyID, "us-sm1-13-00891", " "+manualAlbum+" "); err != nil {
+	// An override created by an older CineRoute version stays active.
+	if _, err := m.db.ExecContext(ctx, "UPDATE chart_identity SET isrc = ?, album = ?, manual = 1, checked_at = 0 WHERE spotify_id = ?",
+		otherISRC, manualAlbum, sweaterSpotifyID); err != nil {
 		t.Fatal(err)
 	}
 	if err := m.cacheIdentity(ctx, sweaterSpotifyID, trackIdentity{ISRC: chartISRC}, now); err != nil {
@@ -155,8 +154,7 @@ func TestChartISRCSelectsAndRemembersTheRecording(t *testing.T) {
 	}
 	m.lookupIdentity = lookup
 	views, err := m.Views(ctx)
-	if err != nil || len(views) != 2 || views[0].Tracks[0].ConfirmedISRC != otherISRC || views[1].Tracks[0].ConfirmedISRC != otherISRC ||
-		views[0].Tracks[0].ConfirmedAlbum != manualAlbum || views[1].Tracks[0].ConfirmedAlbum != manualAlbum {
+	if err != nil || len(views) != 2 || !views[0].Tracks[0].ManualMatch || !views[1].Tracks[0].ManualMatch || views[0].Tracks[0].QobuzMatch != nil {
 		t.Fatalf("manual ISRC views %+v, error %v", views, err)
 	}
 	p, err := m.playlist(ctx, second.ID)
@@ -169,7 +167,7 @@ func TestChartISRCSelectsAndRemembersTheRecording(t *testing.T) {
 	if lookups != 1 || p.Entries[0].SongID != "manual-local" {
 		t.Fatalf("manual match %q, lookups %d", p.Entries[0].SongID, lookups)
 	}
-	if err := m.SetTrackISRC(ctx, first.ID, sweaterSpotifyID, "", ""); err != nil {
+	if err := m.ClearTrackMatch(ctx, first.ID, sweaterSpotifyID); err != nil {
 		t.Fatal(err)
 	}
 	if got, err := m.identity(ctx, sweaterSpotifyID); err != nil || got.ISRC != "" {

@@ -80,22 +80,40 @@ func (s *Server) syncChartPlaylist(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusAccepted, map[string]bool{"queued": true})
 }
 
-func (s *Server) setChartTrackISRC(w http.ResponseWriter, r *http.Request) {
+func (s *Server) chartTrackQobuzMatch(w http.ResponseWriter, r *http.Request) {
 	manager := s.chartManager(w)
 	if manager == nil {
 		return
 	}
+	id, track := r.PathValue("id"), r.PathValue("track")
+	if r.Method == http.MethodDelete {
+		if err := manager.ClearTrackMatch(r.Context(), id, track); err != nil {
+			chartError(w, err)
+			return
+		}
+		writeJSON(w, http.StatusAccepted, map[string]bool{"saved": true})
+		return
+	}
 	var body struct {
-		ISRC  *string `json:"isrc"`
-		Album string  `json:"album"`
+		Reference string `json:"reference"`
+		TrackID   string `json:"track_id"`
 	}
 	dec := json.NewDecoder(http.MaxBytesReader(w, r.Body, 4096))
 	dec.DisallowUnknownFields()
-	if err := dec.Decode(&body); err != nil || body.ISRC == nil {
-		writeErr(w, http.StatusBadRequest, "Provide an ISRC or an empty string to clear it.")
+	if err := dec.Decode(&body); err != nil || strings.TrimSpace(body.Reference) == "" {
+		writeErr(w, http.StatusBadRequest, "Provide a Qobuz link or album ID.")
 		return
 	}
-	if err := manager.SetTrackISRC(r.Context(), r.PathValue("id"), r.PathValue("track"), *body.ISRC, body.Album); err != nil {
+	if r.Method == http.MethodPost {
+		choices, err := manager.QobuzChoices(r.Context(), id, track, body.Reference)
+		if err != nil {
+			chartError(w, err)
+			return
+		}
+		writeJSON(w, http.StatusOK, map[string]any{"tracks": choices})
+		return
+	}
+	if err := manager.SetQobuzMatch(r.Context(), id, track, body.Reference, body.TrackID); err != nil {
 		chartError(w, err)
 		return
 	}
@@ -172,6 +190,8 @@ func chartError(w http.ResponseWriter, err error) {
 		writeErr(w, http.StatusBadRequest, strings.TrimPrefix(err.Error(), charts.ErrSettings.Error()+": "))
 	case errors.Is(err, charts.ErrPaused), errors.Is(err, charts.ErrStale), errors.Is(err, charts.ErrTrackBusy):
 		writeErr(w, http.StatusConflict, err.Error())
+	case errors.Is(err, charts.ErrQobuzLookup):
+		writeErr(w, http.StatusBadGateway, err.Error())
 	default:
 		slog.Error("music chart request", "err", err)
 		writeErr(w, http.StatusInternalServerError, "Could not save or load music charts.")

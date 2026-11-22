@@ -856,11 +856,12 @@ Removing a playlist also removes it from Navidrome. Imported albums stay in
 the music library.
 
 When the usual match is unresolved, CineRoute tries the exact Spotify track
-link with the keyless Credits.fm API. Under **Track status**, use **Set ISRC**
-to confirm an unresolved recording. CineRoute saves the code for that Spotify
-track across playlists. Add a **Preferred album** when the same ISRC appears
-on multiple editions, using the exact album name. **Use automatic match**
-clears the manual choice.
+link with the keyless Credits.fm API. Under **Track status**, choose **Use Qobuz
+link** and paste a track link, album link, or album ID. CineRoute selects a
+single result automatically and shows a track picker when the album has
+multiple tracks. **Use this track** saves the selected recording across all
+chart playlists that include that Spotify track. **Use automatic match**
+clears the saved choice.
 
 For ongoing matching triage, look for `chart track needs review` in the
 CineRoute logs. New or changed review reasons include the playlist, chart

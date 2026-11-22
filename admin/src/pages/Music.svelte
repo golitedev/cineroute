@@ -17,9 +17,10 @@
 		state: string;
 		reason?: string;
 		album?: string;
-		confirmed_isrc?: string;
-		confirmed_album?: string;
+		manual_match?: boolean;
+		qobuz_match?: QobuzTrack;
 	};
+	type QobuzTrack = { id: string; title: string; artist: string; album: string; disc: number; number: number; duration: number };
 	type Chart = {
 		id: string;
 		settings: Settings;
@@ -40,9 +41,10 @@
 	const chartsPath = '/music/charts';
 	const charts = new Resource<Charts>();
 	let editor = $state('');
-	let isrcEditor = $state('');
-	let isrc = $state('');
-	let isrcAlbum = $state('');
+	let qobuzEditor = $state('');
+	let reference = $state('');
+	let qobuzTracks = $state<QobuzTrack[]>([]);
+	let qobuzTrackID = $state('');
 	let country = $state('global');
 	let limit = $state<number | undefined>(50);
 	let name = $state('');
@@ -121,7 +123,7 @@
 		success = '';
 	}
 
-	async function mutate(path: string, method: string, notice: string, body?: Settings | { isrc: string; album?: string }) {
+	async function mutate(path: string, method: string, notice: string, body?: Settings | { reference: string; track_id: string }) {
 		busy = true;
 		error = '';
 		success = '';
@@ -154,15 +156,41 @@
 		}
 	}
 
-	async function saveISRC(chart: Chart, track: Track, code: string, album = '') {
-		const path = `/${chart.id}/tracks/${track.spotify_id}/isrc`;
-		if (
-			await mutate(path, 'PUT', code ? 'ISRC saved. Track check queued.' : 'Automatic matching restored.', {
-				isrc: code,
-				album: album || undefined,
-			})
-		)
-			isrcEditor = '';
+	function qobuzPath(chart: Chart, track: Track) {
+		return `/${chart.id}/tracks/${track.spotify_id}/qobuz`;
+	}
+
+	async function lookUpQobuz(chart: Chart, track: Track) {
+		busy = true;
+		error = '';
+		success = '';
+		try {
+			const result = await api<{ tracks: QobuzTrack[] }>(chartsPath + qobuzPath(chart, track), {
+				method: 'POST',
+				signal: charts.signal,
+				headers: { 'Content-Type': 'application/json' },
+				body: JSON.stringify({ reference: reference.trim() }),
+			});
+			qobuzTracks = result.tracks;
+			qobuzTrackID = qobuzTracks.length === 1 ? qobuzTracks[0].id : '';
+		} catch (e) {
+			if (!charts.signal.aborted) error = message(e);
+		} finally {
+			busy = false;
+		}
+	}
+
+	async function saveQobuz(chart: Chart, track: Track, clear = false) {
+		const path = qobuzPath(chart, track);
+		const saved = clear
+			? await mutate(path, 'DELETE', 'Automatic matching restored.')
+			: await mutate(path, 'PUT', 'Qobuz track saved. Track check queued.', { reference: reference.trim(), track_id: qobuzTrackID });
+		if (saved) qobuzEditor = '';
+	}
+
+	function qobuzTrackLabel(track: QobuzTrack) {
+		const duration = track.duration > 0 ? ` · ${Math.floor(track.duration / 60)}:${String(track.duration % 60).padStart(2, '0')}` : '';
+		return `${track.disc}.${track.number} ${track.title}${track.artist ? ` · ${track.artist}` : ''}${duration}`;
 	}
 
 	function remove(chart: Chart) {
@@ -275,44 +303,67 @@
 								<p class="muted">
 									{statusLabels[track.state] || track.state}{track.reason ? ' · ' + track.reason : ''}
 									{track.album ? ' · ' + track.album : ''}
-									{track.confirmed_isrc ? ' · Confirmed ISRC ' + track.confirmed_isrc : ''}
-									{track.confirmed_album && track.confirmed_album !== track.album ? ' · Preferred album ' + track.confirmed_album : ''}
+									{track.qobuz_match ? ' · Qobuz match: ' + track.qobuz_match.title : track.manual_match ? ' · Saved manual match' : ''}
 								</p>
-								{#if isrcEditor === trackKey}
+								{#if qobuzEditor === trackKey}
 									<form
+										class="qobuz-match-form"
 										onsubmit={(event) => {
 											event.preventDefault();
-											void saveISRC(chart, track, isrc.trim(), isrcAlbum.trim());
+											if (qobuzTracks.length) void saveQobuz(chart, track);
+											else void lookUpQobuz(chart, track);
 										}}
 									>
 										<div class="actions">
-											<label>ISRC <input bind:value={isrc} required maxlength="24" disabled={busy} /></label>
-											<label>Preferred album (optional) <input bind:value={isrcAlbum} maxlength="256" disabled={busy} /></label>
-											<button type="submit" disabled={busy || !isrc.trim()}>Save ISRC</button>
-											{#if track.confirmed_isrc}<button type="button" disabled={busy} onclick={() => saveISRC(chart, track, '')}
-													>Use automatic match</button
-												>{/if}
-											<button type="button" disabled={busy} onclick={() => (isrcEditor = '')}>Cancel</button>
+											<label
+												>Qobuz link or album ID
+												<input
+													bind:value={reference}
+													oninput={() => {
+														qobuzTracks = [];
+														qobuzTrackID = '';
+													}}
+													required
+													maxlength="512"
+													disabled={busy}
+												/>
+											</label>
+											{#if qobuzTracks.length === 0}
+												<button type="submit" disabled={busy || !reference.trim()}>Find tracks</button>
+											{:else if qobuzTracks.length === 1}
+												<p>{qobuzTrackLabel(qobuzTracks[0])}</p>
+											{:else}
+												<label
+													>Qobuz track
+													<select bind:value={qobuzTrackID} required disabled={busy}>
+														<option value="">Choose a track</option>
+														{#each qobuzTracks as choice (choice.id)}
+															<option value={choice.id}>{qobuzTrackLabel(choice)}</option>
+														{/each}
+													</select>
+												</label>
+											{/if}
+											{#if qobuzTracks.length}
+												<button type="submit" disabled={busy || !qobuzTrackID}>Use this track</button>
+											{/if}
+											{#if track.manual_match}
+												<button type="button" disabled={busy} onclick={() => saveQobuz(chart, track, true)}>Use automatic match</button>
+											{/if}
+											<button type="button" disabled={busy} onclick={() => (qobuzEditor = '')}>Cancel</button>
 										</div>
-										<p class="muted">
-											Paste the Spotify track link into the <a
-												href="https://www.unchainedmusic.io/tools/isrc-checker/"
-												target="_blank"
-												rel="noreferrer">ISRC checker</a
-											> to find the code.
-										</p>
 									</form>
-								{:else if track.state === 'needs_review' || (track.confirmed_isrc && !downloadStates.has(track.state) && track.state !== 'indexing')}
+								{:else if !downloadStates.has(track.state) && track.state !== 'indexing' && (track.manual_match || reviewStates.has(track.state) || track.state === 'retrying')}
 									<button
 										type="button"
 										disabled={busy}
 										onclick={() => {
-											isrcEditor = trackKey;
-											isrc = track.confirmed_isrc || '';
-											isrcAlbum = track.confirmed_album || '';
+											qobuzEditor = trackKey;
+											reference = track.qobuz_match ? 'https://play.qobuz.com/track/' + track.qobuz_match.id : '';
+											qobuzTracks = [];
+											qobuzTrackID = '';
 										}}
 									>
-										{track.confirmed_isrc ? 'Edit ISRC' : 'Set ISRC'}
+										{track.manual_match ? 'Edit Qobuz match' : 'Use Qobuz link'}
 									</button>
 								{/if}
 							</li>
@@ -330,5 +381,17 @@
 	.chart-tracks {
 		list-style: decimal;
 		padding-inline-start: 2.5rem;
+	}
+	.qobuz-match-form {
+		width: min(100%, 36rem);
+	}
+	.qobuz-match-form label {
+		flex: 0 0 100%;
+		min-width: 0;
+	}
+	.qobuz-match-form input,
+	.qobuz-match-form select {
+		width: 100%;
+		min-width: 0;
 	}
 </style>

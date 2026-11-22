@@ -76,11 +76,11 @@ type PlaylistView struct {
 
 type TrackView struct {
 	Track
-	State          string `json:"state"`
-	Reason         string `json:"reason,omitempty"`
-	Album          string `json:"album,omitempty"`
-	ConfirmedISRC  string `json:"confirmed_isrc,omitempty"`
-	ConfirmedAlbum string `json:"confirmed_album,omitempty"`
+	State       string       `json:"state"`
+	Reason      string       `json:"reason,omitempty"`
+	Album       string       `json:"album,omitempty"`
+	ManualMatch bool         `json:"manual_match,omitempty"`
+	QobuzMatch  *QobuzChoice `json:"qobuz_match,omitempty"`
 }
 
 type playlist struct {
@@ -152,6 +152,7 @@ func openStore(dataDir string) (*sql.DB, error) {
 		CREATE TABLE IF NOT EXISTS chart_playlist (id TEXT PRIMARY KEY, revision INTEGER NOT NULL, state TEXT NOT NULL);
 		CREATE TABLE IF NOT EXISTS chart_recording (spotify_id TEXT PRIMARY KEY, metadata TEXT NOT NULL);
 		CREATE TABLE IF NOT EXISTS chart_identity (spotify_id TEXT PRIMARY KEY, isrc TEXT NOT NULL, album TEXT NOT NULL, manual INTEGER NOT NULL, checked_at INTEGER NOT NULL);
+		CREATE TABLE IF NOT EXISTS chart_qobuz_match (spotify_id TEXT PRIMARY KEY, metadata TEXT NOT NULL);
 		CREATE TABLE IF NOT EXISTS chart_import (job_id TEXT PRIMARY KEY, imported_at INTEGER NOT NULL, receipt TEXT NOT NULL);
 		CREATE INDEX IF NOT EXISTS chart_import_date ON chart_import(imported_at DESC, job_id DESC);
 	`)
@@ -235,7 +236,7 @@ func (m *Manager) Views(ctx context.Context) ([]PlaylistView, error) {
 	if err != nil {
 		return nil, err
 	}
-	manual, err := m.confirmedIdentities(ctx)
+	manual, err := m.confirmedMatches(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -249,8 +250,7 @@ func (m *Manager) Views(ctx context.Context) ([]PlaylistView, error) {
 		}
 		for i, entry := range p.Entries {
 			track := &view.Tracks[i]
-			identity := manual[entry.SpotifyID]
-			track.ConfirmedISRC, track.ConfirmedAlbum = identity.ISRC, identity.Album
+			track.QobuzMatch, track.ManualMatch = manual[entry.SpotifyID]
 			if entry.JobID == "" {
 				continue
 			}
@@ -359,35 +359,36 @@ func (m *Manager) cacheIdentity(ctx context.Context, spotifyID string, identity 
 	return err
 }
 
-func (m *Manager) confirmedIdentities(ctx context.Context) (map[string]trackIdentity, error) {
-	rows, err := m.db.QueryContext(ctx, "SELECT spotify_id, isrc, album FROM chart_identity WHERE manual = 1")
+func (m *Manager) confirmedMatches(ctx context.Context) (map[string]*QobuzChoice, error) {
+	rows, err := m.db.QueryContext(ctx, `SELECT spotify_id, NULL FROM chart_identity WHERE manual = 1
+		UNION ALL SELECT spotify_id, metadata FROM chart_qobuz_match`)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
-	result := make(map[string]trackIdentity)
+	result := make(map[string]*QobuzChoice)
 	for rows.Next() {
 		var id string
-		var identity trackIdentity
-		if err := rows.Scan(&id, &identity.ISRC, &identity.Album); err != nil {
+		var raw []byte
+		if err := rows.Scan(&id, &raw); err != nil {
 			return nil, err
 		}
-		result[id] = identity
+		if raw == nil {
+			result[id] = nil // Legacy manual ISRC remains in effect until replaced or cleared.
+			continue
+		}
+		var recording qobuz.Recording
+		if err := json.Unmarshal(raw, &recording); err != nil {
+			return nil, err
+		}
+		choice := qobuzChoice(recording)
+		result[id] = &choice
 	}
 	return result, rows.Err()
 }
 
-// SetTrackISRC updates all playlists that include the Spotify track. An empty
-// code returns it to automatic matching.
-func (m *Manager) SetTrackISRC(ctx context.Context, playlistID, spotifyID, input, album string) error {
-	code := normalizeISRC(input)
-	if strings.TrimSpace(input) != "" && !validISRC.MatchString(code) {
-		return fmt.Errorf("%w: enter a valid 12-character ISRC", ErrSettings)
-	}
-	album = strings.TrimSpace(album)
-	if utf8.RuneCountInString(album) > 256 {
-		return fmt.Errorf("%w: album name must be at most 256 characters", ErrSettings)
-	}
+// setTrackMatch updates all chart playlists containing this Spotify track.
+func (m *Manager) setTrackMatch(ctx context.Context, playlistID, spotifyID string, recording *qobuz.Recording) error {
 	m.mutations.Lock()
 	defer m.mutations.Unlock()
 	tx, err := m.db.BeginTx(ctx, nil)
@@ -428,11 +429,18 @@ func (m *Manager) SetTrackISRC(ctx context.Context, playlistID, spotifyID, input
 			return err
 		}
 	}
-	if code == "" {
-		_, err = tx.ExecContext(ctx, "DELETE FROM chart_identity WHERE spotify_id = ? AND manual = 1", spotifyID)
+	if _, err := tx.ExecContext(ctx, "DELETE FROM chart_identity WHERE spotify_id = ? AND manual = 1", spotifyID); err != nil {
+		return err
+	}
+	if recording == nil {
+		_, err = tx.ExecContext(ctx, "DELETE FROM chart_qobuz_match WHERE spotify_id = ?", spotifyID)
 	} else {
-		_, err = tx.ExecContext(ctx, `INSERT INTO chart_identity VALUES (?, ?, ?, 1, 0)
-			ON CONFLICT(spotify_id) DO UPDATE SET isrc = excluded.isrc, album = excluded.album, manual = 1, checked_at = 0`, spotifyID, code, album)
+		raw, encodeErr := json.Marshal(recording)
+		if encodeErr != nil {
+			return encodeErr
+		}
+		_, err = tx.ExecContext(ctx, `INSERT INTO chart_qobuz_match VALUES (?, ?)
+			ON CONFLICT(spotify_id) DO UPDATE SET metadata = excluded.metadata`, spotifyID, raw)
 	}
 	if err != nil {
 		return err
@@ -444,10 +452,18 @@ func (m *Manager) SetTrackISRC(ctx context.Context, playlistID, spotifyID, input
 	return nil
 }
 
+func (m *Manager) qobuzMatch(ctx context.Context, spotifyID string) (qobuz.Recording, error) {
+	return m.loadRecording(ctx, "SELECT metadata FROM chart_qobuz_match WHERE spotify_id = ?", spotifyID)
+}
+
 func (m *Manager) recording(ctx context.Context, spotifyID string) (qobuz.Recording, error) {
+	return m.loadRecording(ctx, "SELECT metadata FROM chart_recording WHERE spotify_id = ?", spotifyID)
+}
+
+func (m *Manager) loadRecording(ctx context.Context, query, spotifyID string) (qobuz.Recording, error) {
 	var raw []byte
 	var result qobuz.Recording
-	err := m.db.QueryRowContext(ctx, "SELECT metadata FROM chart_recording WHERE spotify_id = ?", spotifyID).Scan(&raw)
+	err := m.db.QueryRowContext(ctx, query, spotifyID).Scan(&raw)
 	if errors.Is(err, sql.ErrNoRows) {
 		return result, nil
 	}

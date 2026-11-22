@@ -373,8 +373,12 @@ test('admin routes survive refresh and browser history', async ({ page, requests
 test('admin chart playlists show sync progress and automatic import history', async ({ page, requests }) => {
 	let created = false;
 	let reviewing = false;
-	let confirmedISRC = '';
-	let confirmedAlbum = '';
+	const qobuzTracks = [
+		{ id: '10', title: 'Studio version', artist: 'Example artist', album: 'Example release', disc: 1, number: 1, duration: 165 },
+		{ id: '20', title: 'Live version', artist: 'Example artist', album: 'Example release', disc: 1, number: 2, duration: 202 },
+	];
+	const trackLink = 'https://play.qobuz.com/track/20';
+	let confirmedTrack: (typeof qobuzTracks)[number] | undefined;
 	const folder = 'Example artist — Example release (2026) [FLAC]';
 	const folderPath = '/mnt/music/' + folder;
 	await page.route('**/api/music/charts**', async (route) => {
@@ -387,12 +391,20 @@ test('admin chart playlists show sync progress and automatic import history', as
 				body: 'Folder path\n' + folderPath,
 			});
 		}
-		if (pathname === '/api/music/charts/colombia/tracks/2/isrc' && request.method() === 'PUT') {
+		if (pathname === '/api/music/charts/colombia/tracks/2/qobuz') {
 			expect(request.headers()['x-cineroute-csrf']).toBe('test-csrf');
-			const body = request.postDataJSON();
-			expect(body).toEqual(confirmedISRC ? { isrc: '' } : { isrc: 'USSM11300080', album: 'I Love You.' });
-			confirmedISRC = body.isrc;
-			confirmedAlbum = body.album || '';
+			const reference = request.method() === 'DELETE' ? '' : request.postDataJSON().reference;
+			if (reference) expect(['album123', trackLink]).toContain(reference);
+			if (request.method() === 'POST') {
+				return route.fulfill({ json: { tracks: reference === trackLink ? [qobuzTracks[1]] : qobuzTracks } });
+			}
+			if (request.method() === 'PUT') {
+				expect(request.postDataJSON()).toEqual({ reference, track_id: '20' });
+				confirmedTrack = qobuzTracks[1];
+			} else {
+				expect(request.method()).toBe('DELETE');
+				confirmedTrack = undefined;
+			}
 			return route.fulfill({ status: 202, json: { saved: true } });
 		}
 		if (pathname.endsWith('/imports')) {
@@ -446,8 +458,8 @@ test('admin chart playlists show sync progress and automatic import history', as
 										artists: ['Example artist'],
 										state: reviewing ? 'needs_review' : 'indexing',
 										reason: reviewing ? 'No matching Qobuz track' : '',
-										confirmed_isrc: confirmedISRC || undefined,
-										confirmed_album: confirmedAlbum || undefined,
+										manual_match: !!confirmedTrack,
+										qobuz_match: confirmedTrack,
 									},
 								],
 							},
@@ -473,15 +485,22 @@ test('admin chart playlists show sync progress and automatic import history', as
 	await expect(page.getByRole('progressbar', { name: 'Tracks processed' })).toHaveAttribute('value', '2');
 	await page.getByText('Track status', { exact: true }).click();
 	await expect(page.getByText('Needs review · No matching Qobuz track')).toBeVisible();
-	await page.getByRole('button', { name: 'Set ISRC', exact: true }).click();
-	await page.getByLabel('ISRC', { exact: true }).fill('USSM11300080');
-	await page.getByLabel('Preferred album (optional)').fill('I Love You.');
-	await page.getByRole('button', { name: 'Save ISRC', exact: true }).click();
-	await expect(page.getByText('Confirmed ISRC USSM11300080', { exact: false })).toBeVisible();
-	await page.getByRole('button', { name: 'Edit ISRC', exact: true }).click();
-	await expect(page.getByLabel('Preferred album (optional)')).toHaveValue('I Love You.');
+	await page.getByRole('button', { name: 'Use Qobuz link', exact: true }).click();
+	await page.getByLabel('Qobuz link or album ID').fill('album123');
+	await page.getByRole('button', { name: 'Find tracks', exact: true }).click();
+	await expect(page.getByRole('button', { name: 'Use this track', exact: true })).toBeDisabled();
+	await page.getByRole('combobox', { name: 'Qobuz track', exact: true }).selectOption('20');
+	await page.getByRole('button', { name: 'Use this track', exact: true }).click();
+	await expect(page.getByText('Qobuz match: Live version', { exact: false })).toBeVisible();
+	await page.getByRole('button', { name: 'Edit Qobuz match', exact: true }).click();
+	await expect(page.getByLabel('Qobuz link or album ID')).toHaveValue(trackLink);
 	await page.getByRole('button', { name: 'Use automatic match', exact: true }).click();
-	await expect(page.getByRole('button', { name: 'Set ISRC', exact: true })).toBeVisible();
+	await page.getByRole('button', { name: 'Use Qobuz link', exact: true }).click();
+	await page.getByLabel('Qobuz link or album ID').fill(trackLink);
+	await page.getByRole('button', { name: 'Find tracks', exact: true }).click();
+	await expect(page.getByRole('combobox', { name: 'Qobuz track' })).toHaveCount(0);
+	await page.getByRole('button', { name: 'Use this track', exact: true }).click();
+	await expect(page.getByText('Qobuz match: Live version', { exact: false })).toBeVisible();
 	await page.getByRole('main').getByRole('button', { name: 'Import history', exact: true }).click();
 	await expect(page).toHaveURL(/\/admin\/music\/imports$/);
 	await page.reload();

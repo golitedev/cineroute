@@ -323,30 +323,49 @@ func (m *Manager) jobInProgress(e *entry, now time.Time) bool {
 }
 
 func (m *Manager) resolve(ctx context.Context, p playlist, e *entry, now time.Time) error {
-	identity, err := m.identity(ctx, e.SpotifyID)
+	selected, err := m.qobuzMatch(ctx, e.SpotifyID)
 	if err != nil {
 		return err
 	}
-	if e.Recording.ID == "" {
-		cached, err := m.recording(ctx, e.SpotifyID)
+	searchTrack, artist := e.Track, e.Artists[0]
+	var identity trackIdentity
+	if selected.ID != "" {
+		e.Recording = selected
+		searchTrack.Title = selected.Title
+		if selected.Artist != "" {
+			artist = selected.Artist
+		}
+	} else {
+		identity, err = m.identity(ctx, e.SpotifyID)
 		if err != nil {
 			return err
 		}
-		e.Recording = cached
+		if e.Recording.ID == "" {
+			e.Recording, err = m.recording(ctx, e.SpotifyID)
+			if err != nil {
+				return err
+			}
+		}
+		if e.Recording.ID != "" && identity.ISRC != "" && !equalISRC(identity.ISRC, e.Recording.ISRC) {
+			e.Recording = qobuz.Recording{}
+			e.JobID, e.IndexSince = "", time.Time{}
+		}
+		if e.JobID == "" && e.Recording.ID != "" && catalogMatch(e.Track, e.Recording) == 0 {
+			e.Recording = qobuz.Recording{}
+		}
 	}
-	if e.Recording.ID != "" && identity.ISRC != "" && !equalISRC(identity.ISRC, e.Recording.ISRC) {
-		e.Recording = qobuz.Recording{}
-		e.JobID, e.IndexSince = "", time.Time{}
-	}
-	if e.JobID == "" && e.Recording.ID != "" && catalogMatch(e.Track, e.Recording) == 0 {
-		e.Recording = qobuz.Recording{}
-	}
-	title := trackSearchTitle(e.Track)
-	songs, err := m.nav.Search(ctx, title, e.Artists[0])
+	title := trackSearchTitle(searchTrack)
+	songs, err := m.nav.Search(ctx, title, artist)
 	if err != nil {
 		return err
 	}
-	song, ambiguous := chooseSongWithIdentity(e.Track, e.Recording, songs, identity)
+	var song navidrome.Song
+	var ambiguous bool
+	if selected.ID != "" {
+		song = chooseQobuzMatch(selected, songs)
+	} else {
+		song, ambiguous = chooseSongWithIdentity(e.Track, e.Recording, songs, identity)
+	}
 	if song.ID != "" {
 		e.setReady(song, now)
 		return nil
@@ -424,6 +443,10 @@ func (m *Manager) resolve(ctx context.Context, p playlist, e *entry, now time.Ti
 	if ambiguous {
 		e.State, e.Reason = "needs_review", "Multiple Navidrome recordings match this track"
 		e.NextAttempt = now.Add(retryTrack)
+		return nil
+	}
+	if selected.ID != "" && !selected.Streamable {
+		e.State, e.Reason, e.NextAttempt = "needs_review", "The selected track is unavailable for this Qobuz account", now.Add(retryTrack)
 		return nil
 	}
 

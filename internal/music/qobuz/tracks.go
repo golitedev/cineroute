@@ -3,6 +3,7 @@ package qobuz
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"net/url"
 	"strings"
 )
@@ -14,6 +15,49 @@ type Recording struct {
 	Streamable                              bool
 }
 
+type trackResp struct {
+	ID          json.RawMessage `json:"id"`
+	Title       string          `json:"title"`
+	Version     *string         `json:"version"`
+	ISRC        string          `json:"isrc"`
+	MediaNumber int             `json:"media_number"`
+	TrackNumber int             `json:"track_number"`
+	Duration    int             `json:"duration"`
+	Streamable  bool            `json:"streamable"`
+	Performer   struct {
+		Name string `json:"name"`
+	} `json:"performer"`
+}
+
+type recordingResp struct {
+	trackResp
+	Album albumResp `json:"album"`
+}
+
+func (r recordingResp) recording() Recording {
+	album := albumMetadata(r.Album)
+	return Recording{ID: rawID(r.ID), AlbumID: album.ID, Title: recordingTitle(r.Title, deref(r.Version)),
+		Artist: firstNonEmpty(r.Performer.Name, album.Artist), ISRC: r.ISRC, Album: album.FullTitle(),
+		Disc: max(r.MediaNumber, 1), Number: r.TrackNumber, Duration: r.Duration, Streamable: r.Streamable}
+}
+
+// TrackRecording fetches an exact track and its release by Qobuz track ID.
+func (c *Client) TrackRecording(ctx context.Context, id string) (Recording, error) {
+	raw, err := c.Get(ctx, "track/get", url.Values{"track_id": {id}})
+	if err != nil {
+		return Recording{}, err
+	}
+	var response recordingResp
+	if err := json.Unmarshal(raw, &response); err != nil {
+		return Recording{}, err
+	}
+	recording := response.recording()
+	if recording.ID != id || recording.AlbumID == "" || recording.Title == "" {
+		return Recording{}, fmt.Errorf("Qobuz returned incomplete track details")
+	}
+	return recording, nil
+}
+
 // SearchRecordings returns track results from the same catalog used by the portal.
 func (c *Client) SearchRecordings(ctx context.Context, query string) ([]Recording, error) {
 	raw, err := c.Get(ctx, "catalog/search", url.Values{"query": {query}, "limit": {"50"}})
@@ -22,20 +66,7 @@ func (c *Client) SearchRecordings(ctx context.Context, query string) ([]Recordin
 	}
 	var response struct {
 		Tracks struct {
-			Items []struct {
-				ID        json.RawMessage `json:"id"`
-				Title     string          `json:"title"`
-				Version   string          `json:"version"`
-				ISRC      string          `json:"isrc"`
-				Disc      int             `json:"media_number"`
-				Number    int             `json:"track_number"`
-				Duration  int             `json:"duration"`
-				Available bool            `json:"streamable"`
-				Performer struct {
-					Name string `json:"name"`
-				} `json:"performer"`
-				Album albumResp `json:"album"`
-			} `json:"items"`
+			Items []recordingResp `json:"items"`
 		} `json:"tracks"`
 	}
 	if err := json.Unmarshal(raw, &response); err != nil {
@@ -43,12 +74,7 @@ func (c *Client) SearchRecordings(ctx context.Context, query string) ([]Recordin
 	}
 	tracks := make([]Recording, 0, len(response.Tracks.Items))
 	for _, item := range response.Tracks.Items {
-		album := albumMetadata(item.Album)
-		tracks = append(tracks, Recording{
-			ID: rawID(item.ID), AlbumID: album.ID, Album: album.FullTitle(), Title: recordingTitle(item.Title, item.Version),
-			Artist: firstNonEmpty(item.Performer.Name, album.Artist), ISRC: item.ISRC,
-			Disc: max(item.Disc, 1), Number: item.Number, Duration: item.Duration, Streamable: item.Available,
-		})
+		tracks = append(tracks, item.recording())
 	}
 	return tracks, nil
 }

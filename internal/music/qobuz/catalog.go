@@ -93,6 +93,8 @@ type Album struct {
 type Track struct {
 	ID          string
 	Title       string // with version
+	Artist      string
+	ISRC        string
 	Disc        int
 	Number      int
 	DurationSec int
@@ -154,16 +156,8 @@ type albumResp struct {
 	Downloadable    bool    `json:"downloadable"`
 	TracksCount     int     `json:"tracks_count"`
 	Tracks          struct {
-		Total int `json:"total"`
-		Items []struct {
-			ID          json.RawMessage `json:"id"`
-			Title       string          `json:"title"`
-			Version     *string         `json:"version"`
-			TrackNumber int             `json:"track_number"`
-			MediaNumber int             `json:"media_number"`
-			Duration    int             `json:"duration"`
-			Streamable  bool            `json:"streamable"`
-		} `json:"items"`
+		Total int         `json:"total"`
+		Items []trackResp `json:"items"`
 	} `json:"tracks"`
 }
 
@@ -208,6 +202,8 @@ func (c *Client) Album(ctx context.Context, albumID string) (Album, error) {
 			a.Tracks = append(a.Tracks, Track{
 				ID:          id,
 				Title:       title,
+				Artist:      t.Performer.Name,
+				ISRC:        t.ISRC,
 				Disc:        disc,
 				Number:      t.TrackNumber,
 				DurationSec: t.Duration,
