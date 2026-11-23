@@ -9,6 +9,7 @@ import (
 	"crypto/subtle"
 	"embed"
 	"encoding/base64"
+	"encoding/json"
 	"fmt"
 	"log/slog"
 	"net/http"
@@ -185,7 +186,8 @@ func New(cfg *config.Config, qb *qbittorrent.Client, tmdbClient *tmdb.Client, pr
 		requests:  requests.NewStore(cfg.Requests.StatePath),
 		intakes:   map[string]*Intake{},
 	}
-	s.catalogLibrary = librarycache.New(s.scanCatalogLibrary)
+	librarySource, _ := json.Marshal(drives)
+	s.catalogLibrary = librarycache.NewPersistent(s.scanCatalogLibrary, cfg.Requests.StatePath+".library-cache.json", string(librarySource))
 	s.engine = requests.NewEngine(s.requests, tmdbClient, prowlarrClient, requestBackend{s})
 	s.engine.LibraryChanged = s.catalogLibrary.Invalidate
 	go s.cleanupLoop()

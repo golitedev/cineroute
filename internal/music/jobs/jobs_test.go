@@ -873,6 +873,13 @@ func TestAlbumIDDuplicateIgnoresFolderNameAndQuality(t *testing.T) {
 	if !e.m.InLibrary(testAlbum("a1", 1)) {
 		t.Fatal("ID not found by discovery")
 	}
+	restarted, err := New(e.cfg, e.m.deps)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if snapshot := restarted.libraryCache.Get(); snapshot.Albums["a1"] != file || !snapshot.Paths[dir] {
+		t.Fatalf("saved snapshot lost album identity or folder: %+v", snapshot)
+	}
 	job, err := e.m.Enqueue(context.Background(), "a1", "")
 	if err != nil || job.Status != StatusSkipped || job.LibraryPath != filepath.Base(dir) {
 		t.Fatalf("duplicate: %+v %v", job, err)

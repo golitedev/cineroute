@@ -13,12 +13,12 @@ import (
 
 // librarySnapshot is built in the background; requests only read it.
 type librarySnapshot struct {
-	paths  map[string]bool
-	albums map[string]string // release ID -> representative FLAC path
+	Paths  map[string]bool   `json:"paths"`
+	Albums map[string]string `json:"albums"` // release ID -> representative FLAC path
 }
 
 func (m *Manager) scanLibrary() librarySnapshot {
-	out := librarySnapshot{paths: map[string]bool{}, albums: map[string]string{}}
+	out := librarySnapshot{Paths: map[string]bool{}, Albums: map[string]string{}}
 	root := filepath.Clean(m.cfg.Paths.Library)
 	_ = filepath.WalkDir(root, func(path string, d fs.DirEntry, err error) error {
 		if err != nil {
@@ -39,13 +39,13 @@ func (m *Manager) scanLibrary() librarySnapshot {
 		}
 		if strings.EqualFold(filepath.Ext(path), ".flac") {
 			if id := verify.AlbumID(path); id != "" {
-				if out.albums[id] == "" {
-					out.albums[id] = path
+				if out.Albums[id] == "" {
+					out.Albums[id] = path
 				}
 			}
 		}
 		for dir := filepath.Dir(path); dir != root && withinLibrary(root, dir); dir = filepath.Dir(dir) {
-			out.paths[dir] = true
+			out.Paths[dir] = true
 		}
 		return nil
 	})
@@ -70,7 +70,7 @@ func (m *Manager) InLibrary(album qobuz.Album) bool {
 	if m.albumIDPath(album.ID) != "" {
 		return true
 	}
-	if rel, err := m.folderFor(album, library.Quality{}); err == nil && (index.paths[filepath.Join(m.cfg.Paths.Library, rel)] || index.paths[filepath.Join(m.cfg.Paths.Library, rel+" - INCOMPLETE")]) {
+	if rel, err := m.folderFor(album, library.Quality{}); err == nil && (index.Paths[filepath.Join(m.cfg.Paths.Library, rel)] || index.Paths[filepath.Join(m.cfg.Paths.Library, rel+" - INCOMPLETE")]) {
 		return true
 	}
 	m.mu.Lock()
@@ -78,7 +78,7 @@ func (m *Manager) InLibrary(album qobuz.Album) bool {
 	for _, job := range m.jobs {
 		// Skipped jobs only record a folder collision, not a verified import.
 		// Older naming templates could send different editions to that folder.
-		if job.Status == StatusCompleted && job.AlbumID == album.ID && job.LibraryPath != "" && index.paths[filepath.Join(m.cfg.Paths.Library, job.LibraryPath)] {
+		if job.Status == StatusCompleted && job.AlbumID == album.ID && job.LibraryPath != "" && index.Paths[filepath.Join(m.cfg.Paths.Library, job.LibraryPath)] {
 			return true
 		}
 	}
@@ -96,7 +96,7 @@ func (m *Manager) albumIDPath(id string) string {
 	if !ready || id == "" {
 		return ""
 	}
-	path := index.albums[id]
+	path := index.Albums[id]
 	if path == "" || !withinLibrary(m.cfg.Paths.Library, path) {
 		return ""
 	}

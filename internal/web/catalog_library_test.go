@@ -68,6 +68,11 @@ func TestCatalogLibraryBadgeUsesFilesNotRequestHistory(t *testing.T) {
 	if !f.s.catalogInLibrary(movie, false) {
 		t.Fatal("warm search unexpectedly read disk")
 	}
+	restarted := New(f.cfg, nil, nil)
+	t.Cleanup(restarted.Close)
+	if !restarted.catalogInLibrary(movie, false) {
+		t.Fatal("restart scanned the library instead of restoring the last snapshot")
+	}
 	f.s.catalogLibrary.Refresh()
 	if f.s.catalogInLibrary(movie, false) {
 		t.Fatal("removed movie still marked in library after refresh")

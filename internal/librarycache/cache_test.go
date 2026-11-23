@@ -2,11 +2,41 @@ package librarycache
 
 import (
 	"context"
+	"os"
+	"path/filepath"
 	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
 )
+
+func TestPersistentCacheReusesRefreshedSnapshotAfterRestart(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "library.json")
+	var scans atomic.Int32
+	load := func() int { return int(scans.Add(1)) }
+	first := NewPersistent(load, path, "library A")
+	if got := first.Get(); got != 1 {
+		t.Fatalf("initial snapshot = %d, want 1", got)
+	}
+	first.Refresh()
+
+	restarted := NewPersistent(load, path, "library A")
+	restarted.Start(context.Background())
+	defer restarted.Stop()
+	if got := restarted.Get(); got != 2 || scans.Load() != 2 {
+		t.Fatalf("restart returned %d after %d scans, want the saved snapshot from scan 2", got, scans.Load())
+	}
+
+	if got := NewPersistent(load, path, "library B").Get(); got != 3 {
+		t.Fatalf("changed library got %d, want a fresh scan", got)
+	}
+	if err := os.WriteFile(path, []byte(`{"version":1,"source":"library B","value":`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if got := NewPersistent(load, path, "library B").Get(); got != 4 {
+		t.Fatalf("corrupt snapshot got %d, want a fresh scan", got)
+	}
+}
 
 func TestColdReadersShareOneLoadAndWarmReadersUseSnapshot(t *testing.T) {
 	var calls atomic.Int32

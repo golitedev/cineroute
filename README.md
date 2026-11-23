@@ -810,13 +810,15 @@ executed as a separate process.
 
 ### Unified public portal and music
 
-Artwork's **In library** badges use a shared in-memory index, warmed at startup
-and refreshed every 24 hours. Request-download state changes and music
-imports trigger an earlier background refresh. Searches and pagination reuse
-that snapshot; files added or removed outside CineRoute appear after the next
-refresh. Movie/TV badges exclude known unfinished downloads, and music badges
-require a nonempty audio file. Download-time duplicate and overwrite checks
-continue to read current library data directly.
+Artwork's **In library** badges reuse snapshots saved alongside CineRoute's
+request and music state. The first run builds the snapshots, and restarts load
+them from disk. A missing or invalid snapshot, or a change to the configured
+library paths, triggers a rebuild. While CineRoute runs, the snapshots refresh
+every 24 hours. Request-download state changes and music imports can trigger
+an earlier refresh. Files added or removed outside CineRoute appear after the
+next refresh. Movie/TV badges exclude known unfinished downloads, and music
+badges require a nonempty audio file. Download-time duplicate and overwrite
+checks continue to read current library data directly.
 
 Music folder templates using `{album}` automatically include the release version
 (for example, `PARADIXE (REMIX)`) unless `{title}` or `{version}` already includes

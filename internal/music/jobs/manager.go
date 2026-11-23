@@ -98,7 +98,7 @@ func New(cfg *config.Config, deps Deps) (*Manager, error) {
 		running: map[string]context.CancelFunc{},
 		wake:    make(chan struct{}, 1),
 	}
-	m.libraryCache = librarycache.New(m.scanLibrary)
+	m.libraryCache = librarycache.NewPersistent(m.scanLibrary, filepath.Join(cfg.Paths.Data, "library-cache.json"), filepath.Clean(cfg.Paths.Library))
 	if cfg.Metadata.TranslateGenres {
 		m.genres = genres.New(cfg.Metadata.GenreTranslations)
 	}

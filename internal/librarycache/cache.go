@@ -4,6 +4,7 @@ package librarycache
 
 import (
 	"context"
+	"log/slog"
 	"sync"
 	"time"
 )
@@ -11,9 +12,10 @@ import (
 const RefreshInterval = 24 * time.Hour
 
 // Cache publishes complete snapshots. Refreshing never locks out warm readers.
-// The first read loads synchronously, including when used without Start in tests.
+// The first read restores a saved snapshot or loads the library synchronously.
 type Cache[T any] struct {
 	load      func() T
+	disk      snapshotFile[T]
 	refreshMu sync.Mutex
 	mu        sync.RWMutex
 	value     T
@@ -26,6 +28,13 @@ type Cache[T any] struct {
 
 func New[T any](load func() T) *Cache[T] {
 	return &Cache[T]{load: load, wake: make(chan struct{}, 1)}
+}
+
+// NewPersistent saves snapshots for reuse by later processes with the same source.
+func NewPersistent[T any](load func() T, path, source string) *Cache[T] {
+	c := New(load)
+	c.disk = snapshotFile[T]{path: path, source: source}
+	return c
 }
 
 // Peek returns the current snapshot without starting or waiting for a scan.
@@ -48,7 +57,11 @@ func (c *Cache[T]) Get() T {
 	value, ready = c.value, c.ready
 	c.mu.RUnlock()
 	if !ready {
-		value = c.publish()
+		if saved, ok := c.disk.restore(); ok {
+			c.publish(saved)
+			return saved
+		}
+		value = c.refresh()
 	}
 	return value
 }
@@ -57,15 +70,22 @@ func (c *Cache[T]) Get() T {
 func (c *Cache[T]) Refresh() {
 	c.refreshMu.Lock()
 	defer c.refreshMu.Unlock()
-	c.publish()
+	c.refresh()
 }
 
-func (c *Cache[T]) publish() T {
+func (c *Cache[T]) refresh() T {
 	value := c.load()
+	c.publish(value)
+	if err := c.disk.save(value); err != nil {
+		slog.Warn("cannot save library cache", "path", c.disk.path, "err", err)
+	}
+	return value
+}
+
+func (c *Cache[T]) publish(value T) {
 	c.mu.Lock()
 	c.value, c.ready = value, true
 	c.mu.Unlock()
-	return value
 }
 
 // Invalidate coalesces change notifications for the background worker.
