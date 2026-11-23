@@ -22,8 +22,6 @@ const maxProblems = 30
 // Run processes the queue until ctx is cancelled. Albums are handled one at a
 // time.
 func (m *Manager) Run(ctx context.Context) {
-	m.libraryCache.Start(ctx)
-	defer m.libraryCache.Stop()
 	for {
 		job, jctx, cancel, ok := m.next()
 		if !ok {
@@ -120,7 +118,6 @@ func (m *Manager) process(root, ctx context.Context, job Job) {
 
 	switch out.status {
 	case StatusCompleted:
-		m.libraryCache.Invalidate()
 		log.Info("album added", "path", out.rel)
 		if m.deps.AfterImport != nil {
 			go m.deps.AfterImport(context.WithoutCancel(root), out.rel)
@@ -442,6 +439,11 @@ func (m *Manager) importAlbum(job Job, album qobuz.Album, albumDir string, vr ve
 			return outcome{status: StatusFailed, msg: M("error_import", "error", err.Error())}
 		}
 		m.log.Warn("cleaning staging after an album import", "job", job.ID, "err", err)
+	}
+	if len(vr.Files) > 0 {
+		if err := m.imports.record(album.ID, rel, vr.Files[0]); err != nil {
+			m.log.Warn("save music album location", "album", album.ID, "err", err)
+		}
 	}
 	return outcome{status: StatusCompleted, msg: msg, rel: rel, tracks: len(vr.Files)}
 }

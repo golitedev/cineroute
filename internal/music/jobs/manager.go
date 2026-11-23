@@ -13,6 +13,7 @@ import (
 	"sort"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"cineroute/internal/librarycache"
@@ -65,6 +66,8 @@ type Manager struct {
 	genres *genres.Translator // nil when genre translation is off
 
 	libraryCache *librarycache.Cache[librarySnapshot]
+	libraryScan  atomic.Bool
+	imports      albumIndex
 
 	mu      sync.Mutex
 	jobs    []*Job
@@ -139,6 +142,13 @@ func New(cfg *config.Config, deps Deps) (*Manager, error) {
 		}
 		j.PreparedImport = nil
 		m.jobs = append(m.jobs, j)
+	}
+	m.libraryCache.Restore()
+	m.imports.path = filepath.Join(cfg.Paths.Data, "album-index.db")
+	m.imports.root = filepath.Clean(cfg.Paths.Library)
+	m.imports.locations = make(map[string]albumLocation)
+	if err := m.imports.load(m.jobs); err != nil {
+		m.log.Warn("load music album index", "err", err)
 	}
 	m.cleanDownloads()
 	return m, m.saveLocked()

@@ -27,6 +27,21 @@ func (s *Server) musicReady(w http.ResponseWriter) bool {
 func (s *Server) musicInfo(w http.ResponseWriter, r *http.Request) {
 	musicOK(w, map[string]any{"enabled": s.cfg.Music.Enabled, "qobuz_ok": s.music != nil, "qobuz_error": "", "qobuz_error_code": ""})
 }
+
+func (s *Server) musicLibraryScan(w http.ResponseWriter, r *http.Request) {
+	enabled := s.music != nil && s.music.Jobs != nil
+	if r.Method == http.MethodPost {
+		if !s.musicReady(w) {
+			return
+		}
+		if err := s.music.Jobs.StartLibraryScan(); err != nil {
+			writeErr(w, http.StatusConflict, err.Error())
+			return
+		}
+	}
+	writeJSON(w, http.StatusOK, map[string]bool{"enabled": enabled, "running": enabled && s.music.Jobs.LibraryScanRunning()})
+}
+
 func (s *Server) musicCatalog(w http.ResponseWriter, r *http.Request) {
 	if !s.musicReady(w) {
 		return

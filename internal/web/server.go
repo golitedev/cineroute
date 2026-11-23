@@ -260,6 +260,8 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("POST /api/subtitles/{id}/skip", s.skipSubtitleItem)
 	mux.HandleFunc("POST /api/subtitles/{id}/reset", s.resetSubtitleItem)
 	mux.HandleFunc("GET /api/music/charts", s.chartPlaylists)
+	mux.HandleFunc("GET /api/music/library/scan", s.musicLibraryScan)
+	mux.HandleFunc("POST /api/music/library/scan", s.musicLibraryScan)
 	mux.HandleFunc("POST /api/music/charts", s.saveChartPlaylist)
 	mux.HandleFunc("PUT /api/music/charts/{id}", s.saveChartPlaylist)
 	mux.HandleFunc("POST /api/music/charts/{id}/sync", s.syncChartPlaylist)

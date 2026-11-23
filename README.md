@@ -810,15 +810,18 @@ executed as a separate process.
 
 ### Unified public portal and music
 
-Artwork's **In library** badges reuse snapshots saved alongside CineRoute's
-request and music state. The first run builds the snapshots, and restarts load
-them from disk. A missing or invalid snapshot, or a change to the configured
-library paths, triggers a rebuild. While CineRoute runs, the snapshots refresh
-every 24 hours. Request-download state changes and music imports can trigger
-an earlier refresh. Files added or removed outside CineRoute appear after the
-next refresh. Movie/TV badges exclude known unfinished downloads, and music
-badges require a nonempty audio file. Download-time duplicate and overwrite
-checks continue to read current library data directly.
+Movies, TV and Anime **In library** badges reuse a snapshot saved alongside
+CineRoute's request state. It refreshes every 24 hours while CineRoute runs,
+and release activity can trigger an earlier refresh. The snapshot excludes
+known unfinished downloads.
+
+Music saves each imported album's Qobuz ID and folder in the album index in
+`music.paths.data`. It also reuses saved FLAC matches and completed import
+history. For albums without a known location, the portal checks the expected
+album folder. Use **Music → Scan music library** in the admin interface to
+find older tagged albums in renamed folders. CineRoute walks the full music
+library for its index only when an admin starts this scan. Download-time
+duplicate and overwrite checks read current library data.
 
 Music folder templates using `{album}` automatically include the release version
 (for example, `PARADIXE (REMIX)`) unless `{title}` or `{version}` already includes

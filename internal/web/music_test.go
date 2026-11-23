@@ -105,6 +105,20 @@ func TestMusicRequestsAreOwnedByUser(t *testing.T) {
 		t.Fatal("retry returned another user's pending album")
 	}
 }
+
+func TestMusicLibraryScanRequiresAdminListener(t *testing.T) {
+	s := musicServer(t)
+	for _, method := range []string{http.MethodGet, http.MethodPost} {
+		out := musicCall(s, "alice", method, "/api/music/library/scan", "")
+		if out.Code != http.StatusForbidden {
+			t.Fatalf("public %s scan: %d %s", method, out.Code, out.Body.String())
+		}
+	}
+	out := userWorkflowCall(t, s, "admin", "GET", "/api/music/library/scan", "")
+	if out.Code != http.StatusOK || !strings.Contains(out.Body.String(), `"enabled":true`) {
+		t.Fatalf("admin scan status: %d %s", out.Code, out.Body.String())
+	}
+}
 func TestMusicUsesCineRouteSessionAndCSRF(t *testing.T) {
 	s := musicServer(t)
 	h := s.PublicHandler()

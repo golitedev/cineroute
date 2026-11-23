@@ -50,7 +50,11 @@
 	};
 	type Charts = { available: boolean; reason?: string; markets: { code: string; label: string }[]; playlists: Chart[] };
 	const chartsPath = '/music/charts';
+	const scanPath = '/music/library/scan';
 	const charts = new Resource<Charts>();
+	const libraryScan = new Resource<{ enabled: boolean; running: boolean }>();
+	let startingScan = $state(false);
+	let scanError = $state('');
 	let editor = $state('');
 	let qobuzEditor = $state('');
 	let reference = $state('');
@@ -115,14 +119,29 @@
 
 	onMount(() => {
 		void charts.load(chartsPath);
+		void libraryScan.load(scanPath);
 		const chartsTimer = setInterval(() => {
 			if (!busy && !charts.loading) void charts.load(chartsPath);
+			if (libraryScan.data?.running && !libraryScan.loading) void libraryScan.load(scanPath);
 		}, 5_000);
 		return () => {
 			clearInterval(chartsTimer);
 			charts.destroy();
+			libraryScan.destroy();
 		};
 	});
+
+	async function scanLibrary() {
+		startingScan = true;
+		scanError = '';
+		try {
+			libraryScan.data = await api(scanPath, { method: 'POST', signal: libraryScan.signal });
+		} catch (e) {
+			if (!libraryScan.signal.aborted) scanError = message(e);
+		} finally {
+			startingScan = false;
+		}
+	}
 
 	function edit(chart?: Chart) {
 		editor = chart?.id || 'new';
@@ -214,13 +233,17 @@
 </script>
 
 <PageHeader title="Music" description="Manage daily Spotify charts in Navidrome.">
+	<button type="button" disabled={!libraryScan.data?.enabled || libraryScan.data.running || startingScan} onclick={scanLibrary}>
+		<RefreshCw class="size-4" />
+		{libraryScan.data?.running ? 'Scanning music library…' : 'Scan music library'}
+	</button>
 	<button type="button" onclick={onhistory}><FolderClock class="size-4" /> Import history</button>
 	<button type="button" class="primary" disabled={!charts.data?.available || busy} onclick={() => edit()}>
 		<Plus class="size-4" /> Add chart playlist
 	</button>
 </PageHeader>
 
-<Notice error={error || charts.error} {success} />
+<Notice error={scanError || error || charts.error} {success} />
 {#if charts.data?.reason}<p class="notice">{charts.data.reason}</p>{/if}
 
 {#if editor && charts.data}

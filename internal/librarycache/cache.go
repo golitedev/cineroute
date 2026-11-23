@@ -66,6 +66,17 @@ func (c *Cache[T]) Get() T {
 	return value
 }
 
+// Restore loads a saved snapshot without running the library scanner.
+func (c *Cache[T]) Restore() {
+	c.refreshMu.Lock()
+	defer c.refreshMu.Unlock()
+	if _, ready := c.Peek(); !ready {
+		if saved, ok := c.disk.restore(); ok {
+			c.publish(saved)
+		}
+	}
+}
+
 // Refresh rebuilds the snapshot; concurrent refreshes are serialized.
 func (c *Cache[T]) Refresh() {
 	c.refreshMu.Lock()

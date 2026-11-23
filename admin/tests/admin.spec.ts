@@ -370,6 +370,29 @@ test('admin routes survive refresh and browser history', async ({ page, requests
 	await expect(page.getByRole('heading', { name: 'Request settings', exact: true })).toBeVisible();
 });
 
+test('music library indexing starts only when an admin clicks scan', async ({ page, requests }) => {
+	let running = false;
+	let scans = 0;
+	await page.route('**/api/music/library/scan', async (route) => {
+		if (route.request().method() === 'POST') {
+			expect(route.request().headers()['x-cineroute-csrf']).toBe('test-csrf');
+			scans++;
+			running = true;
+		}
+		await route.fulfill({ json: { enabled: true, running } });
+	});
+	await page.goto('http://admin.test/admin/music');
+	const scan = page.getByRole('button', { name: 'Scan music library', exact: true });
+	await expect(scan).toBeEnabled();
+	expect(requests.some((request) => request.path === '/session')).toBeTruthy();
+	expect(scans).toBe(0);
+	await scan.click();
+	await expect(page.getByRole('button', { name: 'Scanning music library…' })).toBeDisabled();
+	running = false;
+	await expect(scan).toBeEnabled({ timeout: 7_000 });
+	expect(scans).toBe(1);
+});
+
 test('admin chart playlists show sync progress and automatic import history', async ({ page, requests }) => {
 	let created = false;
 	let reviewing = false;

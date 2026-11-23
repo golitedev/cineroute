@@ -170,7 +170,7 @@ func publicPath(p string) bool {
 }
 func userPath(r *http.Request) bool {
 	p := r.URL.Path
-	if p == "/api/music/charts" || strings.HasPrefix(p, "/api/music/charts/") {
+	if p == "/api/music/library/scan" || p == "/api/music/charts" || strings.HasPrefix(p, "/api/music/charts/") {
 		return false
 	}
 	return (r.Method == http.MethodGet && (p == "/api/session" || p == "/api/catalog/search" || strings.HasPrefix(p, "/api/catalog/movie/") || strings.HasPrefix(p, "/api/catalog/tv/") || strings.HasPrefix(p, "/api/catalog/anime/") || p == "/api/user/requests" || strings.HasPrefix(p, "/api/music/"))) ||

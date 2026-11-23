@@ -669,19 +669,14 @@ func TestInLibraryChecksConfiguredNamingAndRecordedPaths(t *testing.T) {
 	if err := os.MkdirAll(path, 0755); err != nil {
 		t.Fatal(err)
 	}
-	e.m.RefreshLibrary()
 	if e.m.InLibrary(album) {
 		t.Fatal("empty album folder marked in library")
 	}
 	if err := os.WriteFile(filepath.Join(path, "01. Song.flac"), []byte("audio"), 0644); err != nil {
 		t.Fatal(err)
 	}
-	if e.m.InLibrary(album) {
-		t.Fatal("search bypassed cached library")
-	}
-	e.m.RefreshLibrary()
 	if !e.m.InLibrary(album) {
-		t.Fatal("existing album without job absent")
+		t.Fatal("album in expected folder was not found")
 	}
 	if err := os.RemoveAll(path); err != nil {
 		t.Fatal(err)
@@ -693,19 +688,20 @@ func TestInLibraryChecksConfiguredNamingAndRecordedPaths(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(old, "song.mp3"), []byte("audio"), 0644); err != nil {
 		t.Fatal(err)
 	}
-	e.m.jobs = append(e.m.jobs, &Job{AlbumID: "a1", LibraryPath: "old-import", Status: StatusCompleted})
-	e.m.RefreshLibrary()
-	if !e.m.InLibrary(album) {
+	if err := e.m.st.save([]*Job{{AlbumID: "a1", LibraryPath: "old-import", Status: StatusCompleted}}); err != nil {
+		t.Fatal(err)
+	}
+	restarted, err := New(e.cfg, e.m.deps)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !restarted.InLibrary(album) {
 		t.Fatal("recorded import path absent")
 	}
 	if err := os.RemoveAll(old); err != nil {
 		t.Fatal(err)
 	}
-	if !e.m.InLibrary(album) {
-		t.Fatal("warm search unexpectedly read disk")
-	}
-	e.m.RefreshLibrary()
-	if e.m.InLibrary(album) {
+	if restarted.InLibrary(album) {
 		t.Fatal("deleted import still in library")
 	}
 }
@@ -869,7 +865,19 @@ func TestAlbumIDDuplicateIgnoresFolderNameAndQuality(t *testing.T) {
 	if out, err := exec.Command("metaflac", "--set-tag=QOBUZ_ALBUM_ID=a1", file).CombinedOutput(); err != nil {
 		t.Fatalf("%v %s", err, out)
 	}
-	e.m.RefreshLibrary()
+	if e.m.InLibrary(testAlbum("a1", 1)) {
+		t.Fatal("renamed album discovered before a manual scan")
+	}
+	if err := e.m.StartLibraryScan(); err != nil {
+		t.Fatal(err)
+	}
+	deadline := time.Now().Add(time.Second)
+	for e.m.LibraryScanRunning() && time.Now().Before(deadline) {
+		time.Sleep(time.Millisecond)
+	}
+	if e.m.LibraryScanRunning() {
+		t.Fatal("manual scan did not complete")
+	}
 	if !e.m.InLibrary(testAlbum("a1", 1)) {
 		t.Fatal("ID not found by discovery")
 	}
@@ -877,8 +885,8 @@ func TestAlbumIDDuplicateIgnoresFolderNameAndQuality(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if snapshot := restarted.libraryCache.Get(); snapshot.Albums["a1"] != file || !snapshot.Paths[dir] {
-		t.Fatalf("saved snapshot lost album identity or folder: %+v", snapshot)
+	if snapshot, ok := restarted.libraryCache.Peek(); !ok || snapshot.Albums["a1"] != file {
+		t.Fatalf("saved snapshot lost the album identity: %+v", snapshot)
 	}
 	job, err := e.m.Enqueue(context.Background(), "a1", "")
 	if err != nil || job.Status != StatusSkipped || job.LibraryPath != filepath.Base(dir) {
@@ -907,6 +915,23 @@ func TestImportPreservesDownloaderFolder(t *testing.T) {
 	done := e.wait(j.ID, StatusCompleted)
 	if done.LibraryPath != "Exact Streamrip Album Name" {
 		t.Fatal(done.LibraryPath)
+	}
+	if _, ready := e.m.libraryCache.Peek(); ready {
+		t.Fatal("starting the worker or importing an album scanned the library")
+	}
+	if !e.m.InLibrary(testAlbum("a1", 1)) {
+		t.Fatal("import was not indexed immediately")
+	}
+	if err := e.m.Remove(j.ID); err != nil {
+		t.Fatal(err)
+	}
+	e.stop()
+	restarted, err := New(e.cfg, e.m.deps)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := restarted.albumIDPath("a1"); got != done.LibraryPath {
+		t.Fatalf("restart lost the album without its job history: %q", got)
 	}
 }
 
