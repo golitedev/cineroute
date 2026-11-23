@@ -18,7 +18,7 @@ type Detail = {
 // The catalog returns null for movies and shows without announced seasons.
 type DetailResponse = Omit<Detail, 'seasons'> & { seasons?: Detail['seasons'] | null };
 
-export default function VideoDetail({ media, onClose }: { media: Media | null; onClose: () => void }) {
+export default function VideoDetail({ media, anime = false, onClose }: { media: Media | null; anime?: boolean; onClose: () => void }) {
     const t = useT();
     const { jobs, refresh } = useStatusBar();
     const [detail, setDetail] = useState<Detail | null>(null);
@@ -27,8 +27,9 @@ export default function VideoDetail({ media, onClose }: { media: Media | null; o
     const [saving, setSaving] = useState(false);
     const [error, setError] = useState('');
     const [message, setMessage] = useState('');
+    const kind = anime ? 'anime' : media?.media_type;
     const existing = media
-        ? jobs.find((j) => j.kind === media.media_type && j.media?.id === media.id && !['cancelled', 'declined'].includes(j.status))
+        ? jobs.find((j) => j.kind === kind && j.media?.id === media.id && !['cancelled', 'declined'].includes(j.status))
         : undefined;
     useEffect(() => {
         let active = true;
@@ -38,7 +39,7 @@ export default function VideoDetail({ media, onClose }: { media: Media | null; o
         setSaving(false);
         setSpanishAudio(!!existing?.spanish_audio);
         if (media)
-            void portalRequest<DetailResponse>(`/api/catalog/${media.media_type}/${media.id}`)
+            void portalRequest<DetailResponse>(`/api/catalog/${kind}/${media.id}`)
                 .then((data) => {
                     if (!active) return;
                     const normalized = { ...data, seasons: data.seasons ?? [] };
@@ -55,7 +56,7 @@ export default function VideoDetail({ media, onClose }: { media: Media | null; o
         return () => {
             active = false;
         };
-    }, [media?.id, media?.media_type]);
+    }, [media?.id, kind]);
     async function submit() {
         if (!media || !detail || saving) return;
         if (media.media_type === 'tv' && !seasons.length) {
@@ -67,7 +68,7 @@ export default function VideoDetail({ media, onClose }: { media: Media | null; o
         setMessage('');
         try {
             const result = await portalRequest<{ request: VideoJob }>('/api/user/requests', 'POST', {
-                media_type: media.media_type,
+                media_type: kind,
                 tmdb_id: media.id,
                 spanish_audio: spanishAudio,
                 ...(media.media_type === 'tv' ? { seasons } : {})
@@ -96,7 +97,7 @@ export default function VideoDetail({ media, onClose }: { media: Media | null; o
         >
             <DialogContent className='video-dialog max-w-2xl max-h-[90dvh] overflow-y-auto'>
                 <DialogTitle className='pr-6'>{media ? mediaTitle(media) : t('requestDetails')}</DialogTitle>
-                <DialogDescription>{media ? `${media.media_type === 'tv' ? t('tv') : t('movies')} · ${mediaYear(media)}` : ''}</DialogDescription>
+                <DialogDescription>{media ? `${t(anime ? 'anime' : media.media_type === 'tv' ? 'tv' : 'movies')} · ${mediaYear(media)}` : ''}</DialogDescription>
                 {!detail && !error && <LoaderCircle className='mx-auto animate-spin' aria-label={t('search')} />}
                 {detail && (
                     <>

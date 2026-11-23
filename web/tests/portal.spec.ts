@@ -119,11 +119,12 @@ async function fixtures(
                 }
             });
         if (url.pathname === '/api/catalog/search')
-            return respond({ results: [url.searchParams.get('type') === 'tv' ? tv : movie], page: 1, total_pages: 1, similar_matches: true });
-        if (url.pathname.startsWith('/api/catalog/'))
+            return respond({ results: [['tv', 'anime'].includes(url.searchParams.get('type') || '') ? tv : movie], page: 1, total_pages: 1, similar_matches: true });
+        if (url.pathname.startsWith('/api/catalog/')) {
+            const series = /\/api\/catalog\/(tv|anime)\//.test(url.pathname);
             return respond({
-                media: url.pathname.includes('/tv/') ? tv : movie,
-                seasons: url.pathname.includes('/tv/')
+                media: series ? tv : movie,
+                seasons: series
                     ? [
                           { season_number: 1, name: 'Season 1', episode_count: 8, air_date: '2023-01-01' },
                           { season_number: 2, name: 'Season 2', episode_count: 8, air_date: '2099-01-01' }
@@ -132,12 +133,14 @@ async function fixtures(
                 auto_approve: true,
                 digitally_available: true
             });
+        }
         if (url.pathname === '/api/user/requests' && req.method() === 'POST') {
             const body = req.postDataJSON();
             created.push(body);
             const job = {
                 id: 'new-request',
-                media: body.media_type === 'tv' ? tv : movie,
+                kind: body.media_type,
+                media: body.media_type === 'movie' ? movie : tv,
                 status: 'downloading',
                 message: 'Downloading your request',
                 progress: 0.42,
@@ -151,7 +154,7 @@ async function fixtures(
             return respond({ request: job }, 201);
         }
         if (url.pathname === '/api/user/requests') {
-            return respond({ requests: jobs.filter((job) => allowedMedia.includes(job.media.media_type === 'movie' ? 'movies' : 'tv')) });
+            return respond({ requests: jobs.filter((job) => allowedMedia.includes(job.kind === 'anime' ? 'anime' : job.media.media_type === 'movie' ? 'movies' : 'tv')) });
         }
         if (url.pathname.endsWith('/cancel')) {
             cancelled.push(url.pathname);
@@ -245,6 +248,23 @@ test('TV details send only explicitly selected seasons', async ({ page }) => {
     await page.getByRole('button', { name: 'Add to library', exact: true }).click();
     await expect.poll(() => f.created.length).toBe(1);
     expect(f.created[0]).toEqual({ media_type: 'tv', tmdb_id: 202, seasons: [1, 2], spanish_audio: true });
+});
+
+test('anime-only accounts can search for a TV title and request a season through Anime', async ({ page }) => {
+    const f = await fixtures(page, true, undefined, ['anime']);
+    await page.goto('/');
+    await expect(page.getByRole('button', { name: 'Anime', exact: true })).toHaveAttribute('aria-pressed', 'true');
+    await expect(page.getByRole('button', { name: 'TV', exact: true })).toHaveCount(0);
+    await page.getByRole('textbox', { name: 'Search', exact: true }).fill('A show');
+    const search = page.waitForRequest((req) => req.url().includes('/api/catalog/search') && new URL(req.url()).searchParams.get('type') === 'anime');
+    await page.getByRole('button', { name: 'Search', exact: true }).click();
+    await search;
+    await page.getByRole('button', { name: 'A good show 2023', exact: true }).click();
+    await expect(page.getByRole('checkbox', { name: /Season 1/ })).toBeChecked();
+    await page.getByRole('button', { name: 'Add to library', exact: true }).click();
+    await expect.poll(() => f.created[0]).toEqual({ media_type: 'anime', tmdb_id: 202, seasons: [1], spanish_audio: false });
+    await page.getByRole('button', { name: 'Open my requests', exact: true }).click();
+    await expect(page.getByRole('dialog').getByText('Anime · S01', { exact: true })).toBeVisible();
 });
 
 test('music keeps square artwork and movie selection does not query Qobuz', async ({ page }) => {

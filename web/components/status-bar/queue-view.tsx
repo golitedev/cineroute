@@ -6,7 +6,6 @@ import { useT } from '@/lib/i18n';
 import { useStatusBar } from '@/lib/status-bar/context';
 import {
     type Job,
-    type Media,
     type RequestKind,
     isPending,
     cancelRequest,
@@ -28,9 +27,9 @@ export default function QueueView() {
     const { jobs, mediaKinds, act } = useStatusBar();
     const [search, setSearch] = useState('');
     const [filter, setFilter] = useState<RequestKind | 'all'>('all');
-    const labels = { all: t('all'), movie: t('movies'), tv: t('tv'), music: t('music') };
+    const labels = { all: t('all'), movie: t('movies'), tv: t('tv'), anime: t('anime'), music: t('music') };
     const filters = ['all' as const, ...(mediaKinds ?? [])];
-    const [selected, setSelected] = useState<Media | null>(null);
+    const [selected, setSelected] = useState<Job | null>(null);
     const [busy, setBusy] = useState<string | null>(null);
     const filtered = jobs.filter(
         (job) => `${job.title} ${job.artist}`.toLocaleLowerCase().includes(search.toLocaleLowerCase()) && (filter === 'all' || job.kind === filter)
@@ -59,14 +58,14 @@ export default function QueueView() {
                         )}
                         <div className='flex-1 min-w-0'>
                             {job.media ? (
-                                <button type='button' className='font-semibold text-left hover:underline break-words' onClick={() => setSelected(job.media!)}>
+                                <button type='button' className='font-semibold text-left hover:underline break-words' onClick={() => setSelected(job)}>
                                     {job.title}
                                 </button>
                             ) : (
                                 <p className='font-semibold break-words'>{job.title}</p>
                             )}
                             <p className='text-xs text-muted-foreground break-words mt-1'>
-                                {music ? t('music') : job.kind === 'tv' ? t('tv') : t('movies')}
+                                {labels[job.kind ?? 'movie']}
                                 {job.artist ? ` · ${job.artist}` : ''}
                             </p>
                             <p className={cn('text-xs mt-1', job.status === 'failed' && 'text-destructive')}>{t(`status.${job.status}`)}</p>
@@ -160,7 +159,7 @@ export default function QueueView() {
                 <h3 className='font-semibold pt-2'>{t('recent')}</h3>
                 {recent.length ? recent.map(renderJob) : <p className='text-sm text-muted-foreground'>{t('noRecent')}</p>}
             </div>
-            <VideoDetail media={selected} onClose={() => setSelected(null)} />
+            <VideoDetail media={selected?.media ?? null} anime={selected?.kind === 'anime'} onClose={() => setSelected(null)} />
         </div>
     );
 }

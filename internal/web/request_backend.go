@@ -17,7 +17,6 @@ import (
 	"cineroute/internal/qbittorrent"
 	"cineroute/internal/requests"
 	"cineroute/internal/subtitles"
-	"cineroute/internal/tmdb"
 	"cineroute/internal/torrentmeta"
 )
 
@@ -44,13 +43,21 @@ func (b requestBackend) QueueMovieSubtitles(ctx context.Context, d requests.Down
 	return b.s.subtitles.QueueRequestedMovie(ctx, subtitles.MovieFile{DriveID: d.DriveID, Target: d.Target, Path: path, Size: size})
 }
 
-func (s *Server) requestMatches(media tmdb.Details) *mediaMatch {
+func (s *Server) requestMatches(job requests.Job) *mediaMatch {
+	media := job.Media
 	folder := library.FolderName(s.cfg.Library.FolderFormat, media.DisplayTitle(), media.Year())
+	plain := library.SanitizeTitle(media.DisplayTitle())
+	if job.Target == "anime" {
+		matches := s.lib.FindAnime(folder)
+		if plain != folder {
+			matches = append(matches, s.lib.FindAnime(plain)...)
+		}
+		return resolveMediaMatch(matches, nil)
+	}
 	if media.MediaType == "movie" {
 		return resolveMediaMatch(s.lib.FindMovie(folder), s.lib.FindMovieRemote(folder))
 	}
 	main, remote := s.lib.FindTV(folder), s.lib.FindTVRemote(folder)
-	plain := library.SanitizeTitle(media.DisplayTitle())
 	if plain != folder {
 		main = append(main, s.lib.FindTV(plain)...)
 		remote = append(remote, s.lib.FindTVRemote(plain)...)
@@ -73,7 +80,7 @@ func within(root, path string) bool {
 
 func (b requestBackend) Inventory(ctx context.Context, job requests.Job, downloads []requests.Download) (requests.Inventory, error) {
 	out := requests.Inventory{Episodes: map[string]requests.Existing{}}
-	match := b.s.requestMatches(job.Media)
+	match := b.s.requestMatches(job)
 	if match == nil {
 		return out, nil
 	}
@@ -161,12 +168,13 @@ func (b requestBackend) Submit(ctx context.Context, job requests.Job, candidate 
 	if current.SpanishAudio != job.SpanishAudio || current.Status == "cancelled" || current.Status == "declined" {
 		return d, errors.New("request was withdrawn")
 	}
-	pin, err := s.requests.Placement(job.Media.MediaType, job.Media.ID)
+	kind := requestKind(job)
+	pin, err := s.requests.Placement(kind, job.Media.ID)
 	if err != nil {
 		return d, err
 	}
 	folder := library.FolderName(s.cfg.Library.FolderFormat, job.Media.DisplayTitle(), job.Media.Year())
-	match := s.requestMatches(job.Media)
+	match := s.requestMatches(job)
 	if match != nil {
 		if match.Conflict {
 			return d, errors.New("conflicting library folders require review")
@@ -203,7 +211,7 @@ func (b requestBackend) Submit(ctx context.Context, job requests.Job, candidate 
 		if err := validateNewRequestPaths(dest.SavePath, meta.FullPaths()); err != nil {
 			return err
 		}
-		if err := s.requests.Pin(job.Media.MediaType, job.Media.ID, dest.DriveID); err != nil {
+		if err := s.requests.Pin(kind, job.Media.ID, dest.DriveID); err != nil {
 			return err
 		}
 		d = requests.Download{Hash: meta.PrimaryHash(), MediaType: job.Media.MediaType, TMDBID: job.Media.ID, Target: job.Target, DriveID: dest.DriveID, SavePath: dest.SavePath, ContentPath: meta.ContentPath(dest.SavePath), TorrentData: raw, ReleaseKey: requests.ReleaseKey(candidate.Release), Title: candidate.Release.Title, Quality: candidate.Quality, Score: candidate.Score, Size: meta.Size, Episodes: episodes, Status: "planned", AddedAt: time.Now().UTC(), LastProgress: time.Now().UTC(), FileSizes: map[string]int64{}}
@@ -223,6 +231,9 @@ func (b requestBackend) Submit(ctx context.Context, job requests.Job, candidate 
 		return d, err
 	}
 	if len(previous) > 0 {
+		if job.Target == "anime" {
+			return d, errors.New("this torrent is already in qBittorrent")
+		}
 		if len(previous) != 1 || match == nil || !downloadComplete(previous[0]) {
 			return d, errors.New("this torrent is already downloading; waiting for its existing copy")
 		}
@@ -256,7 +267,7 @@ func (b requestBackend) Submit(ctx context.Context, job requests.Job, candidate 
 				d.FileSizes[full] = meta.Files[i].Length
 			}
 		}
-		if err = s.requests.Pin(job.Media.MediaType, job.Media.ID, match.DriveID); err != nil {
+		if err = s.requests.Pin(kind, job.Media.ID, match.DriveID); err != nil {
 			return d, err
 		}
 		if err = planned(d); err != nil {
@@ -264,7 +275,7 @@ func (b requestBackend) Submit(ctx context.Context, job requests.Job, candidate 
 		}
 		return b.finishLink(ctx, d)
 	}
-	out, err := s.submitTorrent(ctx, submissionRequest{Bytes: raw, Filename: "request-" + job.ID + ".torrent", Meta: meta, MediaType: job.Media.MediaType, Match: job.Media.Result, Remote: job.Target == "remote", FolderName: folder, PreferredDrive: job.PreferredDrive, PinnedDrive: pin, Reservations: reservations, BeforeAdd: makePlan})
+	out, err := s.submitTorrent(ctx, submissionRequest{Bytes: raw, Filename: "request-" + job.ID + ".torrent", Meta: meta, MediaType: job.Media.MediaType, Library: kind, Match: job.Media.Result, Remote: job.Target == "remote", FolderName: folder, PreferredDrive: job.PreferredDrive, PinnedDrive: pin, Reservations: reservations, BeforeAdd: makePlan})
 	if err != nil {
 		return d, err
 	}

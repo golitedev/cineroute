@@ -26,7 +26,7 @@ func TestUserConfigurationValidation(t *testing.T) {
 		})
 	}
 	cfg := Default()
-	cfg.Users = []User{{Name: "admin", Role: "admin", Password: "secret"}, {Name: "alice", Password: "secret"}}
+	cfg.Users = []User{{Name: "admin", Role: "admin", Password: "secret"}, {Name: "alice", Password: "secret", AllowedMedia: []string{"anime"}}}
 	if err := cfg.validate(); err != nil {
 		t.Fatal(err)
 	}

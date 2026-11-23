@@ -10,6 +10,7 @@ import (
 	"strings"
 	"time"
 
+	"cineroute/internal/config"
 	"cineroute/internal/requests"
 	"cineroute/internal/tmdb"
 )
@@ -21,12 +22,13 @@ func (s *Server) catalogSearch(w http.ResponseWriter, r *http.Request) {
 	if page == 0 {
 		page = 1
 	}
-	if len(query) < 2 || len(query) > 200 || page < 1 || page > 500 || (kind != "" && kind != "all" && kind != "movie" && kind != "tv") {
+	if len(query) < 2 || len(query) > 200 || page < 1 || page > 500 || (kind != "" && kind != "all" && !videoRequestKind(kind)) {
 		writeErr(w, 400, "Enter a search between 2 and 200 characters.")
 		return
 	}
 	a := actor(r)
 	movies, tv := a.canRequest("movie"), a.canRequest("tv")
+	anime := kind == "anime"
 	switch kind {
 	case "", "all":
 		switch {
@@ -43,6 +45,9 @@ func (s *Server) catalogSearch(w http.ResponseWriter, r *http.Request) {
 			denyMedia(w)
 			return
 		}
+	}
+	if anime {
+		kind, tv = "tv", true
 	}
 	if s.tmdb == nil {
 		writeErr(w, 503, "Movie search is not configured yet.")
@@ -61,7 +66,7 @@ func (s *Server) catalogSearch(w http.ResponseWriter, r *http.Request) {
 	filtered := []catalogMedia{}
 	for _, item := range result.Results {
 		if (item.MediaType == "movie" && movies && settings.AllowMovies) || (item.MediaType == "tv" && tv && settings.AllowTV) {
-			filtered = append(filtered, catalogMedia{Result: item, InLibrary: s.catalogInLibrary(item)})
+			filtered = append(filtered, catalogMedia{Result: item, InLibrary: s.catalogInLibrary(item, anime)})
 		}
 	}
 	writeJSON(w, 200, struct {
@@ -72,7 +77,7 @@ func (s *Server) catalogSearch(w http.ResponseWriter, r *http.Request) {
 func (s *Server) catalogDetails(w http.ResponseWriter, r *http.Request) {
 	kind := r.PathValue("type")
 	id, _ := strconv.Atoi(r.PathValue("id"))
-	if (kind != "movie" && kind != "tv") || id <= 0 {
+	if !videoRequestKind(kind) || id <= 0 {
 		writeErr(w, 400, "invalid title")
 		return
 	}
@@ -80,6 +85,9 @@ func (s *Server) catalogDetails(w http.ResponseWriter, r *http.Request) {
 	if !a.canRequest(kind) {
 		denyMedia(w)
 		return
+	}
+	if kind == "anime" {
+		kind = "tv"
 	}
 	if s.tmdb == nil {
 		writeErr(w, 503, "Movie search is not configured yet.")
@@ -112,6 +120,7 @@ func (s *Server) catalogDetails(w http.ResponseWriter, r *http.Request) {
 type publicJob struct {
 	SpanishAudio bool      `json:"spanish_audio"`
 	ID           string    `json:"id"`
+	Kind         string    `json:"kind"`
 	Media        any       `json:"media"`
 	Status       string    `json:"status"`
 	Message      string    `json:"message"`
@@ -121,12 +130,24 @@ type publicJob struct {
 }
 
 func jobView(job requests.Job) publicJob {
-	return publicJob{SpanishAudio: job.SpanishAudio, ID: job.ID, Media: job.Media.Result, Status: job.Status, Message: job.Message, Progress: job.Progress, Seasons: job.Seasons, CreatedAt: job.CreatedAt}
+	return publicJob{SpanishAudio: job.SpanishAudio, ID: job.ID, Kind: requestKind(job), Media: job.Media.Result, Status: job.Status, Message: job.Message, Progress: job.Progress, Seasons: job.Seasons, CreatedAt: job.CreatedAt}
 }
+
+func videoRequestKind(kind string) bool {
+	return kind == "movie" || kind == "tv" || kind == "anime"
+}
+
+func requestKind(job requests.Job) string {
+	if job.Target == "anime" {
+		return "anime"
+	}
+	return job.Media.MediaType
+}
+
 func (s *Server) userRequests(w http.ResponseWriter, r *http.Request) {
 	a := actor(r)
 	view := []publicJob{}
-	if !a.canRequest("movie") && !a.canRequest("tv") {
+	if !a.canRequest("movie") && !a.canRequest("tv") && !a.canRequest("anime") {
 		writeJSON(w, 200, map[string]any{"requests": view})
 		return
 	}
@@ -136,7 +157,7 @@ func (s *Server) userRequests(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	for _, job := range jobs {
-		if a.canRequest(job.Media.MediaType) {
+		if a.canRequest(requestKind(job)) {
 			view = append(view, jobView(job))
 		}
 	}
@@ -152,7 +173,7 @@ func (s *Server) createUserRequest(w http.ResponseWriter, r *http.Request) {
 	r.Body = http.MaxBytesReader(w, r.Body, 16<<10)
 	decoder := json.NewDecoder(r.Body)
 	decoder.DisallowUnknownFields()
-	if err := decoder.Decode(&body); err != nil || body.TMDBID <= 0 || (body.MediaType != "movie" && body.MediaType != "tv") || len(body.Seasons) > 100 {
+	if err := decoder.Decode(&body); err != nil || body.TMDBID <= 0 || !videoRequestKind(body.MediaType) || len(body.Seasons) > 100 {
 		writeErr(w, 400, "Choose a movie or show and its seasons.")
 		return
 	}
@@ -160,6 +181,10 @@ func (s *Server) createUserRequest(w http.ResponseWriter, r *http.Request) {
 	if !a.canRequest(body.MediaType) {
 		denyMedia(w)
 		return
+	}
+	anime := body.MediaType == "anime"
+	if anime {
+		body.MediaType = "tv"
 	}
 	if s.tmdb == nil {
 		writeErr(w, 503, "Movie search is not configured yet.")
@@ -182,6 +207,12 @@ func (s *Server) createUserRequest(w http.ResponseWriter, r *http.Request) {
 	profile := profileFor(settings, body.MediaType)
 	now := time.Now().UTC()
 	job := requests.Job{SpanishAudio: body.SpanishAudio, Owner: a.Name, Media: media, Target: profile.Destination, PreferredDrive: profile.NewTitleDrive, Seasons: []int{}, Episodes: []string{}, Status: "pending", Message: "Waiting for administrator approval"}
+	if anime {
+		job.Target = "anime"
+		if !slices.ContainsFunc(s.cfg.Drives, func(d config.Drive) bool { return d.ID == job.PreferredDrive && d.AnimeRoot != "" }) {
+			job.PreferredDrive = ""
+		}
+	}
 	if body.MediaType == "tv" {
 		for _, number := range body.Seasons {
 			found := false
@@ -234,7 +265,7 @@ func (s *Server) cancelUserRequest(w http.ResponseWriter, r *http.Request) {
 	a := actor(r)
 	id := r.PathValue("id")
 	job, err := s.requests.Job(id)
-	if errors.Is(err, requests.ErrNotFound) || (err == nil && (!strings.EqualFold(job.Owner, a.Name) || !a.canRequest(job.Media.MediaType))) {
+	if errors.Is(err, requests.ErrNotFound) || (err == nil && (!strings.EqualFold(job.Owner, a.Name) || !a.canRequest(requestKind(job)))) {
 		writeErr(w, 404, "request not found")
 		return
 	}

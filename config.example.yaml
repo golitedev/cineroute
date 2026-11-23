@@ -35,7 +35,7 @@ admin:
 #     role: "user"
 #     language: es # optional portal language at sign-in: en, es, or sv
 #     password_hash: "$2a$...replace-with-generated-bcrypt-hash..."
-#     allowed_media: [movies, tv, music] # list only the types this user can request
+#     allowed_media: [movies, tv, anime, music] # list only the types this user can request
 #     disabled: false
 
 # Legacy single-admin login, used only when users is empty.

@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useRef, useState } from 'react';
-import { ArrowRight, Search, LoaderCircle, DiscAlbum, Disc3, Users, Film, Tv, Music2, ChevronDown } from 'lucide-react';
+import { ArrowRight, Search, LoaderCircle, DiscAlbum, Disc3, Users, Film, Tv, Sparkles, Music2, ChevronDown } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { DropdownMenu, DropdownMenuContent, DropdownMenuRadioGroup, DropdownMenuRadioItem, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
@@ -132,7 +132,9 @@ export default function SearchView() {
                         <img src='/favicon.svg' alt='' className='h-11 w-11 sm:h-12 sm:w-12' />
                         <img src='/logo.svg' alt='CineRoute' className='h-10 sm:h-12 w-auto max-w-[240px]' />
                     </h1>
-                    {mediaKinds?.length === 3 && <p className='text-sm sm:text-base text-muted-foreground font-medium text-center'>{t('tagline')}</p>}
+                    {mediaKinds?.includes('movie') && mediaKinds.includes('tv') && canMusic && (
+                        <p className='text-sm sm:text-base text-muted-foreground font-medium text-center'>{t('tagline')}</p>
+                    )}
                 </button>
                 {kind && (
                     <form
@@ -183,6 +185,17 @@ export default function SearchView() {
                             >
                                 <Tv className='size-4' />
                                 {t('tv')}
+                            </Button>
+                        )}
+                        {mediaKinds?.includes('anime') && (
+                            <Button
+                                variant={kind === 'anime' ? 'secondary' : 'outline'}
+                                className='border px-2 aria-[pressed=true]:border-transparent sm:px-4'
+                                aria-pressed={kind === 'anime'}
+                                onClick={() => changeKind('anime')}
+                            >
+                                <Sparkles className='size-4' />
+                                {t('anime')}
                             </Button>
                         )}
                         {canMusic && (
@@ -294,7 +307,7 @@ export default function SearchView() {
                     )}
                 </section>
             )}
-            <VideoDetail media={selected} onClose={() => setSelected(null)} />
+            <VideoDetail media={selected} anime={kind === 'anime'} onClose={() => setSelected(null)} />
         </>
     );
 }

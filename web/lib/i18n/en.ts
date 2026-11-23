@@ -30,6 +30,7 @@ export const en = {
     loadMore: 'Load more',
     music: 'Music',
     tv: 'TV',
+    anime: 'Anime',
     movies: 'Movies',
     noQueued: 'No requests in progress.',
     openQueue: 'Open my requests',

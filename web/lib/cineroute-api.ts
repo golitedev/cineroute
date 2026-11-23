@@ -49,7 +49,7 @@ export type JobStatus =
     | 'monitoring'
     | 'declined';
 export type Job = {
-    kind?: 'music' | 'movie' | 'tv';
+    kind?: RequestKind;
     media?: Media;
     progress?: number;
     seasons?: number[];
@@ -126,6 +126,7 @@ export type Media = {
     overview?: string;
 };
 export type VideoJob = {
+    kind?: Exclude<RequestKind, 'music'>;
     spanish_audio?: boolean;
     id: string;
     media: Media;
@@ -141,7 +142,7 @@ export const posterURL = (path?: string) => (/^\/[A-Za-z0-9_.-]+\.(jpg|png|webp)
 export function videoJob(job: VideoJob): Job {
     return {
         ...job,
-        kind: job.media.media_type,
+        kind: job.kind ?? job.media.media_type,
         album_id: '',
         title: mediaTitle(job.media),
         artist: job.media.media_type === 'tv' ? (job.seasons || []).map((s) => `S${String(s).padStart(2, '0')}`).join(', ') : mediaYear(job.media),
@@ -179,7 +180,7 @@ export const cancelRequest = (job: Job) =>
 export const dismissJob = (id: string) => request<null>(`jobs/${encodeURIComponent(id)}`, 'DELETE');
 export const getInfo = () => request<{ enabled: boolean; qobuz_ok: boolean; qobuz_error: string; qobuz_error_code?: string }>('info');
 export const refreshJobs = () => window.dispatchEvent(new Event('cineroute:jobs'));
-export type RequestKind = 'movie' | 'tv' | 'music';
+export type RequestKind = 'movie' | 'tv' | 'anime' | 'music';
 export type Session = { user: string; auth: boolean; role: string; language?: string; mediaKinds: RequestKind[] };
 export function getMe(): Promise<Session> {
     if (!sessionPromise)
@@ -190,7 +191,7 @@ export function getMe(): Promise<Session> {
                 csrf = result.csrf_token;
                 if (result.account.role !== 'user') throw new ApiError('Use a user account.', 403);
                 const allowed = result.account.allowed_media || [];
-                const mediaKinds = (['movie', 'tv', 'music'] as const).filter((kind) => allowed.includes(kind === 'movie' ? 'movies' : kind));
+                const mediaKinds = (['movie', 'tv', 'anime', 'music'] as const).filter((kind) => allowed.includes(kind === 'movie' ? 'movies' : kind));
                 return { user: result.account.name, auth: true, role: result.account.role, language: result.account.language, mediaKinds };
             })
             .catch((error) => {

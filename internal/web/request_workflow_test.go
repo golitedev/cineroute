@@ -39,9 +39,9 @@ func newWorkflowFixture(t *testing.T, tv bool) *workflowFixture {
 	base := t.TempDir()
 	cfg.Drives = nil
 	for _, id := range []string{"disk1", "disk2"} {
-		drive := config.Drive{ID: id, MovieRoot: filepath.Join(base, id, "movies"), MovieRemoteRoot: filepath.Join(base, id, "movies-remote"), TVRoot: filepath.Join(base, id, "tv"), TVRemoteRoot: filepath.Join(base, id, "tv-remote")}
+		drive := config.Drive{ID: id, MovieRoot: filepath.Join(base, id, "movies"), MovieRemoteRoot: filepath.Join(base, id, "movies-remote"), TVRoot: filepath.Join(base, id, "tv"), TVRemoteRoot: filepath.Join(base, id, "tv-remote"), AnimeRoot: filepath.Join(base, id, "anime")}
 		cfg.Drives = append(cfg.Drives, drive)
-		for _, p := range []string{drive.MovieRoot, drive.MovieRemoteRoot, drive.TVRoot, drive.TVRemoteRoot} {
+		for _, p := range []string{drive.MovieRoot, drive.MovieRemoteRoot, drive.TVRoot, drive.TVRemoteRoot, drive.AnimeRoot} {
 			if err := os.MkdirAll(p, 0o755); err != nil {
 				t.Fatal(err)
 			}
@@ -72,6 +72,8 @@ func newWorkflowFixture(t *testing.T, tv bool) *workflowFixture {
 			fmt.Fprint(w, `{"page":1,"total_pages":1,"results":[{"id":101,"title":"Example Movie","media_type":"movie","release_date":"2024-01-01","poster_path":"/movie.jpg"},{"id":202,"name":"Example Show","media_type":"tv"},{"id":999,"name":"A Person","media_type":"person"}]}`)
 		case "/search/movie":
 			fmt.Fprint(w, `{"page":1,"total_pages":1,"results":[{"id":101,"title":"Example Movie","release_date":"2024-01-01","poster_path":"/movie.jpg"}]}`)
+		case "/search/tv":
+			fmt.Fprint(w, `{"page":1,"total_pages":1,"results":[{"id":202,"name":"Example Show","original_language":"en","genre_ids":[18]}]}`)
 		default:
 			http.NotFound(w, r)
 		}
@@ -244,6 +246,78 @@ func TestTVSeasonPackStaysOnExistingShowDisk(t *testing.T) {
 		t.Fatalf("TV completion: %+v", current)
 	}
 }
+
+func TestAnimeRequestsUseTVMetadataAndAnimeLibrary(t *testing.T) {
+	f := newWorkflowFixture(t, true)
+	f.cfg.Users[1].AllowedMedia = []string{"anime"}
+	tvFolder := filepath.Join(f.cfg.Drives[0].TVRemoteRoot, "Example Show")
+	animeFolder := filepath.Join(f.cfg.Drives[1].AnimeRoot, "Example Show")
+	for _, folder := range []string{tvFolder, animeFolder} {
+		if err := os.Mkdir(folder, 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for _, episode := range []string{"Example.Show.S01E01.mkv", "Example.Show.S01E02.mkv"} {
+		if err := os.WriteFile(filepath.Join(tvFolder, episode), []byte("TV copy"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := f.s.requests.Pin("tv", 202, "disk1"); err != nil {
+		t.Fatal(err)
+	}
+	f.s.catalogLibrary.Refresh()
+	search := func(inLibrary bool) {
+		t.Helper()
+		out := userWorkflowCall(t, f.s, "alice", "GET", "/api/catalog/search?q=example&type=anime", "")
+		var page struct{ Results []catalogMedia }
+		if err := json.Unmarshal(out.Body.Bytes(), &page); err != nil || out.Code != 200 || len(page.Results) != 1 ||
+			page.Results[0].MediaType != "tv" || page.Results[0].Name != "Example Show" || page.Results[0].InLibrary != inLibrary {
+			t.Fatalf("anime search: %d %s", out.Code, out.Body.String())
+		}
+	}
+	search(false)
+	for _, tc := range []struct {
+		user, method, path, body string
+		status                   int
+	}{
+		{"alice", "GET", "/api/catalog/anime/202", "", 200},
+		{"alice", "GET", "/api/catalog/tv/202", "", 403},
+		{"alice", "POST", "/api/user/requests", `{"media_type":"tv","tmdb_id":202,"seasons":[1]}`, 403},
+		{"bob", "GET", "/api/catalog/search?q=example&type=anime", "", 403},
+		{"bob", "GET", "/api/catalog/anime/202", "", 403},
+		{"bob", "POST", "/api/user/requests", `{"media_type":"anime","tmdb_id":202,"seasons":[1]}`, 403},
+	} {
+		if out := userWorkflowCall(t, f.s, tc.user, tc.method, tc.path, tc.body); out.Code != tc.status {
+			t.Errorf("%s %s %s: got %d, want %d: %s", tc.user, tc.method, tc.path, out.Code, tc.status, out.Body.String())
+		}
+	}
+	out := userWorkflowCall(t, f.s, "alice", "POST", "/api/user/requests", `{"media_type":"anime","tmdb_id":202,"seasons":[1]}`)
+	var created struct{ Request publicJob }
+	if err := json.Unmarshal(out.Body.Bytes(), &created); err != nil || out.Code != 201 || created.Request.Kind != "anime" {
+		t.Fatalf("create anime: %d %s", out.Code, out.Body.String())
+	}
+	if err := f.s.engine.Tick(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	downloads, err := f.s.requests.Downloads()
+	if err != nil || len(downloads) != 1 || downloads[0].Target != "anime" || downloads[0].SavePath != animeFolder || len(downloads[0].Episodes) != 2 {
+		job, _ := f.s.requests.Job(created.Request.ID)
+		t.Fatalf("anime routing/coverage: %+v %v (request: %+v)", downloads, err, job)
+	}
+	finishWorkflowDownload(t, f)
+	if err := f.s.engine.Tick(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	out = userWorkflowCall(t, f.s, "alice", "GET", "/api/user/requests", "")
+	var history struct{ Requests []publicJob }
+	if err := json.Unmarshal(out.Body.Bytes(), &history); err != nil || out.Code != 200 || len(history.Requests) != 1 ||
+		history.Requests[0].ID != created.Request.ID || history.Requests[0].Kind != "anime" || history.Requests[0].Status != "complete" {
+		t.Fatalf("anime completion: %d %s", out.Code, out.Body.String())
+	}
+	f.s.catalogLibrary.Refresh()
+	search(true)
+}
+
 func TestRequestOwnershipApprovalAndQuotas(t *testing.T) {
 	f := newWorkflowFixture(t, false)
 	settings, _ := f.s.requests.Load()

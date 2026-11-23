@@ -88,7 +88,7 @@ users:
     role: "user"
     language: es
     password: "replace-with-a-different-password"
-    allowed_media: [movies, tv, music]
+    allowed_media: [movies, tv, anime, music]
 
 tmdb:
   api_key: ""              # v3 API key or v4 read access token, or CINEROUTE_TMDB_API_KEY
@@ -328,10 +328,17 @@ Create accounts in the YAML `users` list, using `name`, `role` (`admin` or
 `user`; at least one enabled administrator is required. Names are unique
 ignoring case. Set `disabled: true` to disable an account. Restart after edits.
 Set `allowed_media` on each regular user to choose which types they can see
-and request in the portal. The supported values are `movies`, `tv`, and
+and request in the portal. The supported values are `movies`, `tv`, `anime`, and
 `music`. For example, `allowed_media: [movies, music]` enables movies and
 music. An omitted or empty list grants no request types, including for
 existing accounts. Administrator access is independent of this list.
+
+The `anime` permission adds an **Anime** option that uses the same unfiltered
+TMDB TV title search and season picker as **TV**. Anime requests use the TV
+request settings and limits and download to the configured `anime_root`.
+Existing anime stays on its drive. New titles use the TV disk preference if
+that drive has an anime root, or automatic placement across configured anime
+roots otherwise.
 
 To generate a hash without putting the password in a shell command:
 

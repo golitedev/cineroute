@@ -32,6 +32,7 @@ export const sv: Dictionary = {
     loadMore: 'Visa fler',
     music: 'Musik',
     tv: 'TV-serier',
+    anime: 'Anime',
     movies: 'Filmer',
     noQueued: 'Inga pågående önskemål.',
     openQueue: 'Öppna mina önskemål',

@@ -66,15 +66,15 @@ func (s *Server) scanCatalogLibrary() catalogLibrary {
 	return out
 }
 
-func (s *Server) catalogInLibrary(media tmdb.Result) bool {
+func (s *Server) catalogInLibrary(media tmdb.Result, animeOnly bool) bool {
 	index := s.catalogLibrary.Get()
 	folder := library.FolderName(s.cfg.Library.FolderFormat, media.DisplayTitle(), media.Year())
-	if index[catalogLibraryKey(media.MediaType, folder)] || index[catalogLibraryKey("anime", folder)] {
+	if index[catalogLibraryKey("anime", folder)] || (!animeOnly && index[catalogLibraryKey(media.MediaType, folder)]) {
 		return true
 	}
 	if media.MediaType != "tv" {
 		return false
 	}
 	sanitized := library.SanitizeTitle(media.DisplayTitle())
-	return index[catalogLibraryKey("tv", sanitized)] || index[catalogLibraryKey("anime", sanitized)]
+	return index[catalogLibraryKey("anime", sanitized)] || (!animeOnly && index[catalogLibraryKey("tv", sanitized)])
 }
