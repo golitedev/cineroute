@@ -170,12 +170,32 @@ func TestWriteConfig(t *testing.T) {
 	dir := t.TempDir()
 	cfg := config.Default()
 	cfg.Paths.Staging = filepath.Join(dir, "staging")
-	cfg.Qobuz.UserID, cfg.Qobuz.Token, cfg.Qobuz.Quality = "42", "tok", 4
 	cfg.Download.RipCommand = ripForTest(t)
-	cfg.Metadata.Exclude = []string{"copyright"}
-	cfg.Streamrip = map[string]any{
-		"conversion": map[string]any{"enabled": true, "codec": "FLAC"},
-		"database":   map[string]any{"downloads_enabled": true},
+	source := `[qobuz]
+email_or_userid = "42"
+password_or_token = "tok"
+quality = 4
+verify_flac = false
+download_lyrics = true
+[downloads]
+max_connections = 8
+[filepaths]
+folder_format = "{albumartist} - {title}"
+track_format = "{tracknumber:02} - {title}"
+[metadata]
+exclude = ["copyright"]
+[conversion]
+enabled = true
+codec = "FLAC"
+[database]
+downloads_enabled = true
+`
+	cfg.StreamripPath = filepath.Join(dir, "streamrip.toml")
+	if err := os.WriteFile(cfg.StreamripPath, []byte(source), 0o400); err != nil {
+		t.Fatal(err)
+	}
+	if err := cfg.LoadStreamrip(dir); err != nil {
+		t.Fatal(err)
 	}
 	files := FilesIn(filepath.Join(dir, "data"))
 
@@ -204,10 +224,14 @@ func TestWriteConfig(t *testing.T) {
 		"qobuz.use_auth_token":       true,
 		"qobuz.email_or_userid":      "42",
 		"qobuz.password_or_token":    "tok",
+		"qobuz.verify_flac":          false,
+		"qobuz.download_lyrics":      true,
+		"downloads.max_connections":  int64(8),
 		"database.downloads_enabled": false,
 		"conversion.enabled":         true,
 		"conversion.codec":           "FLAC",
-		"filepaths.folder_format":    cfg.Naming.Folder,
+		"filepaths.folder_format":    "{albumartist} - {title}",
+		"filepaths.track_format":     "{tracknumber:02} - {title}",
 		"cli.progress_bars":          false,
 		"misc.check_for_updates":     false,
 	}
@@ -236,5 +260,12 @@ func TestWriteConfig(t *testing.T) {
 	}
 	if err := ForgetAppID(files); err != nil || CachedAppID(files) != "" {
 		t.Fatalf("ForgetAppID: %v", err)
+	}
+	if b, err := os.ReadFile(cfg.StreamripPath); err != nil || string(b) != source {
+		t.Fatalf("source TOML was modified: %v", err)
+	}
+	cfg.StreamripPath = files.Config
+	if _, err := WriteConfig(context.Background(), &cfg, files); err == nil {
+		t.Fatal("generated config accepted as its own input")
 	}
 }

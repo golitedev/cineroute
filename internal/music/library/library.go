@@ -43,6 +43,7 @@ func Values(a qobuz.Album, q Quality, maxQuality int) map[string]string {
 		"label":       a.Label,
 		"genre":       a.Genre,
 		"format":      format,
+		"container":   format,
 		"id":          a.ID,
 		"upc":         a.UPC,
 	}

@@ -325,9 +325,9 @@ func (m *Manager) fixFLAC(ctx context.Context, job Job, albumDir string) ([]Prob
 	}
 	m.update(job.ID, false, func(j *Job) { j.set(M("fixing_flac")) })
 	opts := flacfix.Options{
-		FixMD5:            false,                      // Streamrip validates and fills missing signatures.
-		CleanDescriptions: false,                      // Streamrip writes plain-text descriptions.
-		Confirm:           !m.cfg.Download.VerifyFLAC, // otherwise verify runs flac -t next
+		FixMD5:            false,                   // Streamrip validates and fills missing signatures.
+		CleanDescriptions: false,                   // Streamrip writes plain-text descriptions.
+		Confirm:           !m.cfg.Qobuz.VerifyFLAC, // otherwise verify runs flac -t next
 		FlacBin:           "flac",
 		MetaflacBin:       "metaflac",
 	}

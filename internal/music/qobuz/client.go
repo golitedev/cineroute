@@ -38,7 +38,7 @@ func (e *APIError) Error() string {
 }
 
 // ErrLoginRejected means Qobuz refused the user id and token.
-var ErrLoginRejected = errors.New("Qobuz rejected the user_id/token in config.yaml (expired or wrong). Copy a fresh token from play.qobuz.com")
+var ErrLoginRejected = errors.New("Qobuz rejected the configured credentials. Copy a fresh token from play.qobuz.com")
 
 // IsAuth reports whether err means the token or app id was rejected.
 func IsAuth(err error) bool {
@@ -51,8 +51,8 @@ type Client struct {
 	UserID  string
 	Token   string
 	HTTP    *http.Client
-	// AppIDHint returns an app id known from elsewhere (config.yaml or the
-	// streamrip config). It may return "".
+	// AppIDHint returns an app id from the Streamrip config or its runtime cache.
+	// It may return "".
 	AppIDHint func() string
 
 	mu    sync.Mutex
@@ -100,7 +100,7 @@ func (c *Client) resetAppID() {
 // Get calls an API endpoint (e.g. "album/get") and returns the raw JSON body.
 func (c *Client) Get(ctx context.Context, endpoint string, params url.Values) (json.RawMessage, error) {
 	if c.Token == "" {
-		return nil, errors.New("Qobuz token is not set in config.yaml")
+		return nil, errors.New("Qobuz token is not set in the Streamrip config")
 	}
 	body, status, err := c.do(ctx, endpoint, params)
 	if err == nil && status == 400 {
@@ -171,7 +171,7 @@ type Account struct {
 // Login checks the user id and token and reports the account.
 func (c *Client) Login(ctx context.Context) (Account, error) {
 	if c.UserID == "" || c.Token == "" {
-		return Account{}, errors.New("set qobuz.user_id and qobuz.token in config.yaml")
+		return Account{}, errors.New("set email_or_userid and password_or_token in the Streamrip config")
 	}
 	raw, err := c.Get(ctx, "user/login", url.Values{
 		"user_id":         {c.UserID},

@@ -14,7 +14,7 @@ import (
 // Fields lists the placeholders a folder template may use.
 var Fields = []string{
 	"albumartist", "title", "album", "version", "year", "date", "label",
-	"genre", "format", "bit_depth", "sampling_rate", "id", "upc",
+	"genre", "format", "container", "bit_depth", "sampling_rate", "id", "upc",
 }
 
 var fieldSet = func() map[string]bool {

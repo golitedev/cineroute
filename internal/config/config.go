@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"path/filepath"
 	"strings"
 
 	musicconfig "cineroute/internal/music/config"
@@ -202,9 +203,9 @@ func Default() *Config {
 	}
 }
 
-// Load reads the config file (if it exists) and applies environment overrides.
-// A missing file is not an error: defaults are used so the tool can run with
-// only environment variables configured.
+// Load reads the main config, loads the required Streamrip config when music
+// is enabled, and applies environment overrides.
+// The main config is optional. Defaults are used if it is absent.
 func Load(path string) (*Config, error) {
 	cfg := Default()
 	data, err := os.ReadFile(path)
@@ -216,6 +217,14 @@ func Load(path string) (*Config, error) {
 		return nil, fmt.Errorf("config %s: %w", path, err)
 	}
 
+	if v := os.Getenv("CINEROUTE_MUSIC_ENABLED"); v != "" {
+		cfg.Music.Enabled = v == "true" || v == "1"
+	}
+	if cfg.Music.Enabled {
+		if err := cfg.Music.LoadStreamrip(filepath.Dir(path)); err != nil {
+			return nil, err
+		}
+	}
 	applyEnv(cfg)
 
 	if err := cfg.validate(); err != nil {
@@ -238,9 +247,6 @@ func applyEnv(cfg *Config) {
 		cfg.Jellyfin.StatePath = v
 	}
 
-	if v := os.Getenv("CINEROUTE_MUSIC_ENABLED"); v != "" {
-		cfg.Music.Enabled = v == "true" || v == "1"
-	}
 	if v := os.Getenv("CINEROUTE_QOBUZ_USER_ID"); v != "" {
 		cfg.Music.Qobuz.UserID = v
 	}
@@ -304,7 +310,7 @@ func (c *Config) validate() error {
 			return fmt.Errorf("music: %w", err)
 		}
 		if !c.Music.QobuzConfigured() {
-			return errors.New("music requires qobuz.user_id and qobuz.token")
+			return fmt.Errorf("music requires [qobuz] email_or_userid and password_or_token in %q or their CINEROUTE_QOBUZ environment overrides", c.Music.StreamripPath)
 		}
 	}
 	if err := c.validateListeners(); err != nil {

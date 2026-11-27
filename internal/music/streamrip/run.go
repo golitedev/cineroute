@@ -57,7 +57,7 @@ func (f Failure) Fatal() bool {
 func (f Failure) Message() string {
 	switch f {
 	case FailureAuth:
-		return "Qobuz rejected the login. Check music.qobuz.user_id and music.qobuz.token in config.yaml (tokens expire when you log out of the web player)."
+		return "Qobuz rejected the login. Check email_or_userid and password_or_token in the Streamrip config (tokens expire when you log out of the web player)."
 	case FailureIneligible:
 		return "This Qobuz account can't download music (free or lapsed subscription)."
 	case FailureAppID:
@@ -67,7 +67,7 @@ func (f Failure) Message() string {
 	case FailureDiskFull:
 		return "The staging disk is full."
 	case FailureMissingCredentials:
-		return "Qobuz credentials are missing. Set music.qobuz.user_id and music.qobuz.token in config.yaml."
+		return "Qobuz credentials are missing. Set email_or_userid and password_or_token in the Streamrip config."
 	case FailureCrash:
 		return "streamrip crashed."
 	}

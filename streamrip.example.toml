@@ -1,0 +1,34 @@
+# Copy to streamrip.toml beside config.yaml and enable music in config.yaml.
+# CineRoute reads this file when it starts.
+
+[qobuz]
+use_auth_token = true
+email_or_userid = "" # Qobuz user ID, or set CINEROUTE_QOBUZ_USER_ID
+password_or_token = "" # Qobuz token, or set CINEROUTE_QOBUZ_TOKEN
+quality = 3 # 1 MP3, 2 CD, 3 up to 24/96, 4 up to 24/192
+verify_flac = true
+download_booklets = false
+download_lyrics = false
+lyrics_mode = "sidecar"
+save_metadata_json = false
+
+[downloads]
+disc_subdirectories = true
+concurrency = true
+max_connections = 12
+requests_per_minute = 120
+
+[filepaths]
+folder_format = "{albumartist} — {title} ({year}) [WEB] [{format}] [{bit_depth}B-{sampling_rate}kHz]"
+track_format = "{tracknumber:02}. {title}"
+restrict_characters = false
+
+[artwork]
+embed = true
+embed_size = "large"
+embed_max_width = -1
+save_artwork = true
+saved_max_width = -1
+
+[metadata]
+exclude = []

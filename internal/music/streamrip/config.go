@@ -1,10 +1,11 @@
-// Package streamrip writes streamrip's config from config.yaml and runs
+// Package streamrip prepares a runtime config from streamrip.toml and runs
 // `rip` for one album at a time.
 package streamrip
 
 import (
 	"bytes"
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
@@ -34,30 +35,35 @@ func FilesIn(dataDir string) Files {
 }
 
 // protected lists streamrip settings CineRoute always sets itself. They cannot
-// be changed through [streamrip] in config.yaml.
+// be changed through streamrip.toml.
 var protected = map[string]bool{
 	"downloads.folder":                  true,
 	"downloads.source_subdirectories":   true,
-	"qobuz.quality":                     true,
 	"qobuz.use_auth_token":              true,
-	"qobuz.email_or_userid":             true,
-	"qobuz.password_or_token":           true,
 	"database.downloads_enabled":        true,
 	"database.downloads_path":           true,
 	"database.failed_downloads_enabled": true,
 	"database.failed_downloads_path":    true,
-	"filepaths.folder_format":           true,
 	"cli.progress_bars":                 true,
 	"cli.text_output":                   true,
 	"misc.version":                      true,
 	"misc.check_for_updates":            true,
 }
 
-// WriteConfig creates streamrip's config.toml from cfg. It asks the installed
-// streamrip for its default config first, so the file always matches the
-// installed version, and keeps the app id and secrets streamrip cached in an
-// earlier config.
+// WriteConfig merges user settings into the installed Streamrip defaults and
+// saves a writable config for jobs and Qobuz's cached app credentials.
 func WriteConfig(ctx context.Context, cfg *config.Config, files Files) (ignored []string, err error) {
+	if cfg.StreamripPath != "" {
+		source, err := os.Stat(cfg.StreamripPath)
+		if err != nil {
+			return nil, err
+		}
+		for _, path := range []string{files.Config, files.Default} {
+			if dest, err := os.Stat(path); err == nil && os.SameFile(source, dest) {
+				return nil, fmt.Errorf("Streamrip config %q conflicts with generated file %q", cfg.StreamripPath, path)
+			}
+		}
+	}
 	if err := os.MkdirAll(files.Dir, 0o700); err != nil {
 		return nil, err
 	}
@@ -76,30 +82,22 @@ func WriteConfig(ctx context.Context, cfg *config.Config, files Files) (ignored 
 	}
 
 	doc := defaults
-	// User passthrough first, so CineRoute's own settings below win.
 	ignored = merge(doc, cfg.Streamrip, "")
 
 	set := func(path string, v any) { setPath(doc, path, v) }
 	set("downloads.folder", cfg.Paths.Staging)
 	set("downloads.source_subdirectories", false)
-	set("downloads.disc_subdirectories", cfg.Naming.DiscSubfolders)
-	set("downloads.concurrency", true)
-	set("downloads.max_connections", int64(cfg.Download.MaxConnections))
-	set("downloads.requests_per_minute", int64(cfg.Download.RequestsPerMinute))
-
 	set("qobuz.quality", int64(cfg.Qobuz.Quality))
-	set("qobuz.download_booklets", cfg.Download.Booklets)
+	set("qobuz.verify_flac", cfg.Qobuz.VerifyFLAC)
 	set("qobuz.use_auth_token", true)
 	set("qobuz.email_or_userid", cfg.Qobuz.UserID)
 	set("qobuz.password_or_token", cfg.Qobuz.Token)
 	switch {
 	case cfg.Qobuz.AppID != "":
-		// An app id from config.yaml needs streamrip to find matching
-		// secrets again, unless they were cached for this same id.
 		set("qobuz.app_id", cfg.Qobuz.AppID)
-		if cachedAppID != cfg.Qobuz.AppID || cachedSecrets == nil {
-			set("qobuz.secrets", []any{})
-		} else {
+		qobuz, _ := cfg.Streamrip["qobuz"].(map[string]any)
+		secrets, _ := qobuz["secrets"].([]any)
+		if len(secrets) == 0 && cachedAppID == cfg.Qobuz.AppID && cachedSecrets != nil {
 			set("qobuz.secrets", cachedSecrets)
 		}
 	case cachedAppID != "" && cachedSecrets != nil:
@@ -114,23 +112,9 @@ func WriteConfig(ctx context.Context, cfg *config.Config, files Files) (ignored 
 	set("database.failed_downloads_enabled", false)
 	set("database.failed_downloads_path", filepath.Join(files.Dir, "failed_downloads.db"))
 
-	set("artwork.embed", cfg.Artwork.Embed)
-	set("artwork.embed_size", cfg.Artwork.EmbedSize)
-	set("artwork.embed_max_width", int64(cfg.Artwork.EmbedMaxWidth))
-	set("artwork.save_artwork", cfg.Artwork.SaveCover)
-	set("artwork.saved_max_width", int64(cfg.Artwork.SavedMaxWidth))
-
-	exclude := make([]any, 0, len(cfg.Metadata.Exclude))
-	for _, e := range cfg.Metadata.Exclude {
-		exclude = append(exclude, e)
-	}
-	set("metadata.exclude", exclude)
-
 	// Streamrip creates the final relative album path inside isolated staging.
 	// Import preserves that path without renaming the release.
 	set("filepaths.folder_format", cfg.Naming.Folder)
-	set("qobuz.verify_flac", cfg.Download.VerifyFLAC || cfg.Download.FixMD5)
-	set("filepaths.track_format", cfg.Naming.Track)
 	set("filepaths.restrict_characters", cfg.Naming.RestrictCharacters)
 
 	set("cli.text_output", true)
@@ -141,12 +125,17 @@ func WriteConfig(ctx context.Context, cfg *config.Config, files Files) (ignored 
 	if err != nil {
 		return ignored, err
 	}
-	header := "# Generated by CineRoute from config.yaml. Changes here are overwritten.\n\n"
-	tmp := files.Config + ".tmp"
-	if err := os.WriteFile(tmp, append([]byte(header), out...), 0o600); err != nil {
+	header := "# Generated by CineRoute. Edit the source Streamrip TOML to change downloader settings.\n\n"
+	tmp, err := os.CreateTemp(files.Dir, "config-*.toml")
+	if err != nil {
 		return ignored, err
 	}
-	return ignored, os.Rename(tmp, files.Config)
+	defer os.Remove(tmp.Name())
+	_, writeErr := tmp.Write(append([]byte(header), out...))
+	if err := errors.Join(writeErr, tmp.Close()); err != nil {
+		return ignored, err
+	}
+	return ignored, os.Rename(tmp.Name(), files.Config)
 }
 
 // streamripDefaults asks rip to write its default config for the installed

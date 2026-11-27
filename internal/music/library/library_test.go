@@ -12,6 +12,7 @@ func TestFolderForPreservesReleaseVersion(t *testing.T) {
 		{"{albumartist} — {album} ({year})", "Feid — PARADIXE (REMIX) (2026)"},
 		{"{albumartist}/{album} ({version})", "Feid/PARADIXE (REMIX)"},
 		{"{albumartist}/{title}", "Feid/PARADIXE (REMIX)"},
+		{"{albumartist} - {title} ({year}) [{container}]", "Feid - PARADIXE (REMIX) (2026) [FLAC]"},
 	} {
 		t.Run(tt.template, func(t *testing.T) {
 			got, err := FolderFor(tt.template, album, Quality{}, 3, false)

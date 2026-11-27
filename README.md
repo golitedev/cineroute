@@ -837,12 +837,37 @@ TV details include explicit season selection. Downloading and release searches
 appear in the same bottom status bar as music downloads. Administration remains on the LAN listener.
 
 Music runs in the CineRoute process, without another service or container.
-Enable `music.enabled` in `config.yaml`, set `music.qobuz.user_id` and
-`music.qobuz.token` (or `CINEROUTE_QOBUZ_USER_ID` and `CINEROUTE_QOBUZ_TOKEN`),
-and mount existing writable library and staging directories at the configured
-`music.paths.library` and `music.paths.staging`. Persistent music state lives in
-`/data/music` by default. The Compose example includes optional mounts. Keep
-staging outside the library so media servers never discover partial albums.
+
+1. Enable `music.enabled` in `config.yaml`. Keep library and staging paths,
+   retries, import policy, and Navidrome settings in this file.
+2. Copy [`streamrip.example.toml`](streamrip.example.toml) to `streamrip.toml`
+   beside `config.yaml`. You can select a different file with
+   `music.streamrip_config`. Relative paths are resolved from the directory
+   containing `config.yaml`. The Streamrip file is required when music is enabled.
+3. In the TOML's `[qobuz]` section, enter your user ID as `email_or_userid`
+   and your token as `password_or_token`. The `CINEROUTE_QOBUZ_USER_ID` and
+   `CINEROUTE_QOBUZ_TOKEN` environment variables override those values.
+4. In Docker, mount the TOML read-only alongside the YAML and mount existing
+   writable library and staging directories at `music.paths.library` and
+   `music.paths.staging`. Keep staging outside the library so media servers
+   only discover imported albums. See the mounts in the Compose example.
+
+Move previous YAML downloader options to the corresponding TOML tables.
+`music.qobuz` moves to `[qobuz]` using the field names above, with
+`app_id` and `quality` keeping their names. Naming templates move to
+`[filepaths]` as `folder_format` and `track_format`, and
+`disc_subfolders` moves to `[downloads]` as `disc_subdirectories`.
+Move `booklets` to `[qobuz].download_booklets` and use
+`[qobuz].verify_flac` for Streamrip's download-time FLAC verification and MD5
+repair. Connection limits move to `[downloads]`. Artwork settings go under
+`[artwork]`, where `save_cover` becomes `save_artwork`. Tag exclusions go
+under `[metadata]`. Move tables under the old `music.streamrip` block directly
+into the TOML.
+
+CineRoute uses the TOML to prepare a private runtime file at
+`/data/music/streamrip/config.toml` by default. This lets Streamrip cache its
+Qobuz app credentials. CineRoute sets the staging path and disables Streamrip's
+download database for its jobs. Edit the source TOML for downloader settings.
 
 The bundled streamrip CLI downloads complete Qobuz releases. Choosing a track
 requests its containing album, EP or single. CineRoute verifies completeness,

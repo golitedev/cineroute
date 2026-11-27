@@ -3,6 +3,7 @@ package qobuz
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -101,7 +102,7 @@ func TestErrors(t *testing.T) {
 	if !IsAuth(err) || !strings.Contains(err.Error(), "authentication") {
 		t.Fatalf("err %v", err)
 	}
-	if _, err := c.Login(context.Background()); err == nil || !strings.Contains(err.Error(), "config.yaml") {
+	if _, err := c.Login(context.Background()); !errors.Is(err, ErrLoginRejected) {
 		t.Fatalf("login err %v", err)
 	}
 	c.Token = ""

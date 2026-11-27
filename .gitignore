@@ -1,6 +1,7 @@
 /cineroute
 /config.yaml
 /config.yml
+/streamrip.toml
 *.test
 /dist/
 screenshots/

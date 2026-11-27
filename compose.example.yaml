@@ -32,6 +32,8 @@ services:
     volumes:
       # Configuration on the NAS:
       - /srv/docker/cineroute/config.yaml:/config/config.yaml:ro
+      # Required when music is enabled. Copy streamrip.example.toml first.
+      # - /srv/docker/cineroute/streamrip.toml:/config/streamrip.toml:ro
       # Request settings and subtitle state (writable by UID 1000 / GID 1000):
       - /srv/docker/cineroute/data:/data
       # Subtitle work files (reference, downloaded, aligned). Disposable; keep

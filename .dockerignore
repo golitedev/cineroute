@@ -3,6 +3,8 @@
 *.md
 compose.example.yaml
 config.example.yaml
+streamrip.example.toml
+streamrip.toml
 **/*_test.go
 .tmp-cargo-home
 .tmp-alass-target

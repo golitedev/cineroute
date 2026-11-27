@@ -11,7 +11,7 @@ func TestMusicDefaults(t *testing.T) {
 	if err := cfg.Validate(); err != nil {
 		t.Fatal(err)
 	}
-	if cfg.Qobuz.Quality != 3 || !cfg.Download.FixMD5 || !cfg.Download.VerifyFLAC || cfg.Download.Attempts != 2 {
+	if cfg.Qobuz.Quality != 3 || !cfg.Qobuz.VerifyFLAC || cfg.Download.Attempts != 2 {
 		t.Fatal("incomplete verification defaults")
 	}
 	cfg.Qobuz.UserID = " test "
