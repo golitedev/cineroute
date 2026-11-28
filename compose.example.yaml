@@ -8,6 +8,8 @@ services:
     # build: .
     container_name: cineroute
     user: "1000:1000"
+    # Optional access to aiogram's Telegram download files.
+    # group_add: ["101"]
     environment:
       TZ: America/Asuncion
       CINEROUTE_CONFIG: /config/config.yaml
@@ -29,6 +31,7 @@ services:
       CINEROUTE_QOBUZ_USER_ID: ${CINEROUTE_QOBUZ_USER_ID:-}
       CINEROUTE_QOBUZ_TOKEN: ${CINEROUTE_QOBUZ_TOKEN:-}
       CINEROUTE_AUTH_PASSWORD: ${CINEROUTE_AUTH_PASSWORD:-}
+      # CINEROUTE_AUDIOBOOKS_BOT_TOKEN: ${CINEROUTE_AUDIOBOOKS_BOT_TOKEN:-}
     volumes:
       # Configuration on the NAS:
       - /srv/docker/cineroute/config.yaml:/config/config.yaml:ro
@@ -43,6 +46,10 @@ services:
       # before enabling music. Both must be writable by the container user.
       # - /mnt/music/library:/music
       # - /mnt/music/staging:/staging
+      # Optional Telegram intake. The host books folder contains separate
+      # staging and library directories. Mount their parent once for atomic moves.
+      # - /mnt/books:/books
+      # - telegram-bot-api-data:/var/lib/telegram-bot-api:ro
       # Mount each disk once; qBittorrent must use the same /diskN paths.
       - /mnt/disk1/data:/disk1
       - /mnt/disk2/data:/disk2
@@ -60,3 +67,16 @@ services:
     security_opt:
       - no-new-privileges:true
     restart: unless-stopped
+
+# Add this service only if the stack does not already have a local Bot API.
+#   telegram-bot-api:
+#     image: aiogram/telegram-bot-api:latest
+#     restart: unless-stopped
+#     env_file: ./telegram-bot-api.env
+#     environment:
+#       TELEGRAM_LOCAL: "1"
+#     volumes:
+#       - telegram-bot-api-data:/var/lib/telegram-bot-api
+#
+# volumes:
+#   telegram-bot-api-data:

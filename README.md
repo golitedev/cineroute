@@ -169,6 +169,46 @@ index the new paths.
 Set `CINEROUTE_LISTEN=0.0.0.0:8787` (already in the example) — the default
 `127.0.0.1` listen address is unreachable from outside the container.
 
+### Telegram audiobook imports
+
+CineRoute can poll a local Telegram Bot API server for audiobooks and import
+them into an existing Audiobookshelf library. Enable `audiobooks` in
+`config.yaml` and pass the BotFather token as
+`CINEROUTE_AUDIOBOOKS_BOT_TOKEN` in the CineRoute container environment.
+Keep tokens and API hashes in private environment files or secret storage.
+
+- Run the Telegram Bot API with local mode enabled on the same Docker
+  network as CineRoute. The optional service in `compose.example.yaml`
+  uses `TELEGRAM_LOCAL=1` and a private `telegram-bot-api.env` containing
+  `TELEGRAM_API_ID` and `TELEGRAM_API_HASH`. The example uses
+  `http://telegram-bot-api:8081` inside Docker. If the bot previously used
+  Telegram's hosted API, follow Telegram's
+  [logOut migration instructions](https://core.telegram.org/bots/api#logout)
+  before starting the poller.
+- Share the Bot API download volume read-only with CineRoute at the same
+  absolute path used by the API server. Check that CineRoute's UID can traverse
+  the download directories and read the files. The aiogram example adds
+  the Telegram container's group (GID 101) to CineRoute.
+- Create separate staging and library directories on the same filesystem
+  and expose them through **one** parent mount in CineRoute. Give CineRoute
+  write access to both and point Audiobookshelf at the library directory.
+  With the example mount, those paths are `/books/staging` and
+  `/books/library` inside CineRoute.
+- Send `/id` to the bot in a private chat to get your numeric Telegram user
+  ID. Add approved IDs to `allowed_user_ids` and restart CineRoute. An empty
+  list allows ID lookup while accepting no imports.
+
+Send or forward one complete `.m4b`, `.m4a`, or `.mp3` per audiobook.
+CineRoute uses audio tags by default. When sending a file, you can set the
+details with the caption `Book: Author | Title`. If the tags are missing,
+the bot supplies an ID for `/details ID Author | Title` and `/cancel ID`.
+Staged books awaiting details survive restarts. The importer keeps the audio
+bytes and embedded chapters intact and publishes one folder per book at
+`Author/Title/Title.ext`. If Audiobookshelf should prefer your corrected
+folder names over embedded tags, set its scanner's metadata priority
+accordingly. Its file watcher or a periodic scan adds completed books to
+the catalog.
+
 ### LAN administration and Cloudflare Tunnel
 
 One process/container serves two independent interfaces:

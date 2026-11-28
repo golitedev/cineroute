@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 
+	"cineroute/internal/audiobooks"
 	"cineroute/internal/jellyfin"
 	"cineroute/internal/music"
 )
@@ -31,6 +32,12 @@ func (s *Server) Start(ctx context.Context) error {
 		s.music.Close()
 		return fmt.Errorf("initialize Jellyfin notifications: %w", err)
 	}
+	s.audiobooks, err = audiobooks.Start(ctx, s.cfg.Audiobooks)
+	if err != nil {
+		s.jellyfin.Close()
+		s.music.Close()
+		return fmt.Errorf("start audiobook importer: %w", err)
+	}
 	s.jellyfin.Start(ctx, s.queueJellyfinUpdates)
 	s.subtitles.StartAutomatic(ctx)
 	s.catalogLibrary.Start(ctx)
@@ -38,6 +45,7 @@ func (s *Server) Start(ctx context.Context) error {
 	return nil
 }
 func (s *Server) Close() {
+	s.audiobooks.Close()
 	s.music.Close()
 	if s.engine != nil {
 		s.engine.Stop()

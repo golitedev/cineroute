@@ -21,6 +21,7 @@ import (
 
 	"cineroute/internal/adminui"
 	"cineroute/internal/allocator"
+	"cineroute/internal/audiobooks"
 	"cineroute/internal/config"
 	"cineroute/internal/copies"
 	"cineroute/internal/jellyfin"
@@ -128,6 +129,8 @@ type SubmitResult struct {
 }
 
 type Server struct {
+	audiobooks *audiobooks.Service
+
 	jellyfin  *jellyfin.Notifier
 	music     *music.Service
 	accounts  *accounts

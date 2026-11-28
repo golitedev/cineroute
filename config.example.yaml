@@ -90,6 +90,17 @@ jellyfin:
   #   - local: "/disk1/media/movies"
   #     remote: "/media/movies"
 
+# Optional private Telegram intake for single-file audiobooks.
+# The app reads CINEROUTE_AUDIOBOOKS_BOT_TOKEN from its environment.
+audiobooks:
+  enabled: false
+  bot_api_url: http://telegram-bot-api:8081
+  allowed_user_ids: [] # Ask the bot for /id in a private chat, then list the approved IDs.
+  telegram_root: /var/lib/telegram-bot-api
+  staging_root: /books/staging
+  library_root: /books/library
+  max_file_bytes: 0 # 0 uses the default of 5 GiB.
+
 # External subtitles for the remote movie libraries.
 # CineRoute searches OpenSubtitles.com for every target language a movie is
 # missing (a language with no candidate is reported and does not stop the

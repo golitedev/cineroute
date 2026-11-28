@@ -17,6 +17,7 @@ type Music struct {
 }
 
 type Config struct {
+	Audiobooks     Audiobooks  `yaml:"audiobooks"`
 	Jellyfin       Jellyfin    `yaml:"jellyfin"`
 	Music          Music       `yaml:"music"`
 	Listen         string      `yaml:"listen"`
@@ -234,6 +235,10 @@ func Load(path string) (*Config, error) {
 }
 
 func applyEnv(cfg *Config) {
+	if v, ok := os.LookupEnv("CINEROUTE_AUDIOBOOKS_BOT_TOKEN"); ok {
+		cfg.Audiobooks.BotToken = strings.TrimSpace(v)
+	}
+
 	if v := os.Getenv("CINEROUTE_JELLYFIN_URL"); v != "" {
 		cfg.Jellyfin.URL = v
 	}
@@ -302,6 +307,9 @@ func applyEnv(cfg *Config) {
 }
 
 func (c *Config) validate() error {
+	if err := c.Audiobooks.Validate(); err != nil {
+		return err
+	}
 	if err := c.Jellyfin.Validate(); err != nil {
 		return err
 	}
