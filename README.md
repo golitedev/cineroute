@@ -199,6 +199,9 @@ Keep tokens and API hashes in private environment files or secret storage.
   list allows ID lookup while accepting no imports.
 
 Send or forward one complete `.m4b`, `.m4a`, or `.mp3` per audiobook.
+Send each book as a separate message. The bot replies to each submission
+with its status and edits that message as the book downloads and imports.
+Long downloads show elapsed time.
 CineRoute uses audio tags by default. When sending a file, you can set the
 details with the caption `Book: Author | Title`. If the tags are missing,
 the bot supplies an ID for `/details ID Author | Title` and `/cancel ID`.

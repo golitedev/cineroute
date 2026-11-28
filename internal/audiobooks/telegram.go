@@ -62,9 +62,10 @@ type attachment struct {
 }
 
 type telegramError struct {
-	method string
-	code   int
-	retry  time.Duration
+	method    string
+	code      int
+	retry     time.Duration
+	unchanged bool
 }
 
 func (e *telegramError) Error() string {
@@ -90,10 +91,11 @@ func (t telegram) call(ctx context.Context, method string, input, output any) er
 	}
 	defer resp.Body.Close()
 	var envelope struct {
-		OK         bool            `json:"ok"`
-		Code       int             `json:"error_code"`
-		Result     json.RawMessage `json:"result"`
-		Parameters struct {
+		OK          bool            `json:"ok"`
+		Code        int             `json:"error_code"`
+		Description string          `json:"description"`
+		Result      json.RawMessage `json:"result"`
+		Parameters  struct {
 			RetryAfter int `json:"retry_after"`
 		} `json:"parameters"`
 	}
@@ -103,7 +105,10 @@ func (t telegram) call(ctx context.Context, method string, input, output any) er
 		if code == 0 {
 			code = resp.StatusCode
 		}
-		return &telegramError{method: method, code: code, retry: time.Duration(min(max(envelope.Parameters.RetryAfter, 0), 900)) * time.Second}
+		return &telegramError{
+			method: method, code: code, retry: time.Duration(min(max(envelope.Parameters.RetryAfter, 0), 900)) * time.Second,
+			unchanged: method == "editMessageText" && code == http.StatusBadRequest && strings.Contains(envelope.Description, "message is not modified"),
+		}
 	}
 	if decodeErr != nil || !envelope.OK || (output != nil && json.Unmarshal(envelope.Result, output) != nil) {
 		return fmt.Errorf("invalid Telegram %s response", method)
@@ -142,4 +147,23 @@ func (t telegram) send(ctx context.Context, chatID int64, text string) error {
 		return nil
 	}
 	return err
+}
+
+func (t telegram) sendStatus(ctx context.Context, msg *message, text string) (int64, error) {
+	ctx, cancel := context.WithTimeout(ctx, 4*time.Second)
+	defer cancel()
+	var result struct {
+		ID int64 `json:"message_id"`
+	}
+	err := t.call(ctx, "sendMessage", map[string]any{
+		"chat_id": msg.Chat.ID, "text": text,
+		"reply_parameters": map[string]any{"message_id": msg.ID, "allow_sending_without_reply": true},
+	}, &result)
+	return result.ID, err
+}
+
+func (t telegram) editStatus(ctx context.Context, chatID, statusID int64, text string) error {
+	ctx, cancel := context.WithTimeout(ctx, 4*time.Second)
+	defer cancel()
+	return t.call(ctx, "editMessageText", map[string]any{"chat_id": chatID, "message_id": statusID, "text": text}, nil)
 }

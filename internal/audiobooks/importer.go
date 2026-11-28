@@ -11,7 +11,6 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
-	"time"
 
 	"cineroute/internal/config"
 	"golang.org/x/sys/unix"
@@ -82,6 +81,11 @@ func Start(ctx context.Context, cfg config.Audiobooks) (*Service, error) {
 		closeRoots()
 		return nil, fmt.Errorf("lock audiobook staging directory: %w", err)
 	}
+	if err := roots[1].MkdirAll(inboxDir, 0o700); err != nil {
+		lock.Close()
+		closeRoots()
+		return nil, fmt.Errorf("create Telegram audiobook inbox: %w", err)
+	}
 
 	w := worker{
 		api: newTelegram(cfg.BotAPIURL, cfg.BotToken), allowed: make(map[int64]bool, len(cfg.AllowedUserIDs)),
@@ -120,6 +124,14 @@ func (s *Service) Close() {
 }
 
 func (w *worker) run(ctx context.Context) {
+	notify := make(chan struct{}, 1)
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		w.consumeInbox(ctx, notify)
+	}()
+	defer func() { <-done }()
+
 	var offset int64
 	for ctx.Err() == nil {
 		updates, err := w.api.poll(ctx, offset)
@@ -132,24 +144,18 @@ func (w *worker) run(ctx context.Context) {
 			if update.ID <= 0 || (offset > 0 && update.ID < offset) {
 				continue
 			}
-			if err = w.handle(ctx, update.Message); err != nil {
+			if err = w.enqueue(ctx, update); err != nil {
 				break
 			}
 			offset = update.ID + 1
+			select {
+			case notify <- struct{}{}:
+			default:
+			}
 		}
 		if err != nil && ctx.Err() == nil {
 			slog.Warn("audiobook importer will retry Telegram polling", "err", err)
-			delay := 5 * time.Second
-			var response *telegramError
-			if errors.As(err, &response) {
-				delay = max(delay, response.retry)
-			}
-			timer := time.NewTimer(delay)
-			select {
-			case <-timer.C:
-			case <-ctx.Done():
-				timer.Stop()
-			}
+			waitToRetry(ctx, err)
 		}
 	}
 }
@@ -158,43 +164,51 @@ func jobName(chatID, messageID int64) string {
 	return fmt.Sprintf("import-%d-%d", chatID, messageID)
 }
 
-func (w *worker) handle(ctx context.Context, msg *message) error {
-	if msg == nil || msg.ID <= 0 || msg.From.ID <= 0 || msg.Chat.Type != "private" || msg.Chat.ID != msg.From.ID {
+func (m *message) privateChat() bool {
+	return m != nil && m.ID > 0 && m.From.ID > 0 && m.Chat.Type == "private" && m.Chat.ID == m.From.ID
+}
+
+func (m *message) attachment() *attachment {
+	if m.Audio != nil {
+		return m.Audio
+	}
+	return m.Document
+}
+
+func (w *worker) canImport(msg *message, item *attachment) bool {
+	return item != nil && item.ID != "" && formats[attachmentExtension(item)] != "" &&
+		msg.MediaGroup == "" && item.Size <= w.maxFileBytes
+}
+
+func (w *worker) handle(ctx context.Context, msg *message, statusID int64) error {
+	if !msg.privateChat() || !w.allowed[msg.From.ID] {
 		return nil
 	}
 	reply := func(text string) error { return w.api.send(ctx, msg.Chat.ID, text) }
 	command, args, _ := strings.Cut(strings.TrimSpace(msg.Text), " ")
-	if command == "/id" {
-		return reply(fmt.Sprintf("Your Telegram user ID is %d.", msg.From.ID))
-	}
-	if !w.allowed[msg.From.ID] {
-		return nil
-	}
 	switch command {
 	case "/start", "/help":
-		return reply("Send one complete M4B, M4A or MP3 audiobook in this chat. You can set the details in the caption as Book: Author | Title.")
+		return reply("Send one complete M4B, M4A or MP3 per message. You can send several separately and I'll queue them. You can set the details in the caption as Book: Author | Title.")
 	case "/details", "/cancel":
 		return w.handleCommand(ctx, msg.Chat.ID, command, strings.TrimSpace(args))
 	}
 
-	item := msg.Audio
-	if item == nil {
-		item = msg.Document
-	}
+	item := msg.attachment()
 	if item == nil {
 		return nil
 	}
 	ext := attachmentExtension(item)
-	if formats[ext] == "" || item.ID == "" || msg.MediaGroup != "" {
-		return reply("Send one complete audiobook as an M4B, M4A or MP3 file.")
+	if !w.canImport(msg, item) {
+		if item.Size > w.maxFileBytes {
+			return reply("That audiobook is larger than the configured file size limit.")
+		}
+		return reply("Send one complete M4B, M4A or MP3 per message. Please send grouped files separately.")
 	}
-	if item.Size > w.maxFileBytes {
-		return reply("That audiobook is larger than the configured file size limit.")
-	}
+	p := progress{api: w.api, chatID: msg.Chat.ID, statusID: statusID, label: attachmentLabel(item)}
 	job := jobName(msg.Chat.ID, msg.ID)
 	b, err := w.loadBook(job)
 	if errors.Is(err, os.ErrNotExist) {
-		b, err = w.stage(ctx, job, msg, item, ext)
+		b, err = w.stage(ctx, job, msg, item, ext, p)
 	}
 	if err != nil {
 		if ctx.Err() != nil {
@@ -203,14 +217,14 @@ func (w *worker) handle(ctx context.Context, msg *message) error {
 		slog.Warn("stage audiobook", "message_id", msg.ID, "err", err)
 		switch {
 		case errors.Is(err, errSize):
-			return reply("The audiobook is empty or exceeds the file size limit.")
+			return p.finish(ctx, "The audiobook is empty or exceeds the file size limit.")
 		case errors.Is(err, errAudio):
-			return reply("I couldn't read that file as audio. Please send an M4B, M4A or MP3 audiobook.")
+			return p.finish(ctx, "I couldn't read that file as audio. Please send an M4B, M4A or MP3 audiobook.")
 		default:
-			return reply("I couldn't stage that file. Please try sending it again.")
+			return p.finish(ctx, "I couldn't stage that file. Please try sending it again.")
 		}
 	}
-	return w.finish(ctx, msg.Chat.ID, msg.ID, job, b)
+	return w.finish(ctx, msg.ID, job, b, p)
 }
 
 func (w *worker) handleCommand(ctx context.Context, chatID int64, command, args string) error {
@@ -232,12 +246,13 @@ func (w *worker) handleCommand(ctx context.Context, chatID int64, command, args 
 		slog.Warn("read staged audiobook", "message_id", id, "err", err)
 		return reply("I couldn't read the staged audiobook.")
 	}
+	p := progress{api: w.api, chatID: chatID, statusID: b.StatusID, label: attachmentLabel(&attachment{Name: b.Filename})}
 	if command == "/cancel" {
 		if err := w.staging.RemoveAll(job); err != nil {
 			slog.Warn("remove staged audiobook", "message_id", id, "err", err)
 			return reply("I couldn't remove the staged audiobook. Please try again.")
 		}
-		return reply("Cancelled the staged audiobook.")
+		return p.finish(ctx, "Cancelled the staged audiobook.")
 	}
 
 	b.Author, b.Title = details(metadata)
@@ -248,25 +263,25 @@ func (w *worker) handleCommand(ctx context.Context, chatID int64, command, args 
 		slog.Warn("save staged audiobook details", "message_id", id, "err", err)
 		return reply("I couldn't save those details. Please try again.")
 	}
-	return w.finish(ctx, chatID, id, job, b)
+	return w.finish(ctx, id, job, b, p)
 }
 
-func (w *worker) finish(ctx context.Context, chatID, id int64, job string, b book) error {
+func (w *worker) finish(ctx context.Context, id int64, job string, b book, p progress) error {
 	next := fmt.Sprintf("Send /details %d Author | Title, or /cancel %d to discard the staged file.", id, id)
 	if !b.ready() {
-		return w.api.send(ctx, chatID, fmt.Sprintf("I staged %q and need its author and title. %s", b.Filename, next))
+		return p.finish(ctx, fmt.Sprintf("I staged %q and need its author and title. %s", b.Filename, next))
 	}
 	if err := w.publish(ctx, job, b); err != nil {
 		if ctx.Err() != nil {
 			return ctx.Err()
 		}
 		if errors.Is(err, errCollision) {
-			return w.api.send(ctx, chatID, "A different audiobook already uses that folder. "+next)
+			return p.finish(ctx, "A different audiobook already uses that folder. "+next)
 		}
 		slog.Warn("publish audiobook", "message_id", id, "err", err)
-		return w.api.send(ctx, chatID, "I couldn't move the audiobook into the library. It is still staged. "+next)
+		return p.finish(ctx, "I couldn't move the audiobook into the library. It is still staged. "+next)
 	}
-	if err := w.api.send(ctx, chatID, fmt.Sprintf("Imported %s by %s. It will appear in Audiobookshelf after the next scan.", b.Title, b.Author)); err != nil {
+	if err := p.finish(ctx, fmt.Sprintf("Imported %s by %s. It will appear in Audiobookshelf after the next scan.", b.Title, b.Author)); err != nil {
 		return err
 	}
 	if err := w.staging.RemoveAll(job); err != nil {

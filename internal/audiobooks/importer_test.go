@@ -23,12 +23,12 @@ func TestTelegramImportPublishesOnceAfterLostConfirmation(t *testing.T) {
 	bot.paths["first"] = filepath.Join(telegramRoot, "book.m4b")
 	msg := documentMessage(55, 10, "first", "forwarded.M4B")
 	bot.failNextReply = true
-	if err := w.handle(t.Context(), msg); err == nil {
+	if err := w.handle(t.Context(), msg, 0); err == nil {
 		t.Fatal("expected the first confirmation to fail")
 	}
 	path := filepath.Join(library, "An Author", "A Book", "A Book.m4b")
 	assertAudio(t, path, audio)
-	if err := w.handle(t.Context(), msg); err != nil {
+	if err := w.handle(t.Context(), msg, 0); err != nil {
 		t.Fatal(err)
 	}
 	assertAudio(t, path, audio)
@@ -41,14 +41,14 @@ func TestTelegramImportPublishesOnceAfterLostConfirmation(t *testing.T) {
 
 	makeAudio(t, telegramRoot, "another.m4b", "650", "An Author", "A Book")
 	bot.paths["second"] = filepath.Join(telegramRoot, "another.m4b")
-	if err := w.handle(t.Context(), documentMessage(55, 11, "second", "different.m4b")); err != nil {
+	if err := w.handle(t.Context(), documentMessage(55, 11, "second", "different.m4b"), 0); err != nil {
 		t.Fatal(err)
 	}
 	if !strings.Contains(bot.lastReply, "already uses that folder") {
 		t.Errorf("expected a collision reply, got %q", bot.lastReply)
 	}
 	assertAudio(t, path, audio)
-	if err := w.handle(t.Context(), textMessage(55, 12, "/details 11 An Author | Another Edition")); err != nil {
+	if err := w.handle(t.Context(), textMessage(55, 12, "/details 11 An Author | Another Edition"), 0); err != nil {
 		t.Fatal(err)
 	}
 	otherAudio, err := os.ReadFile(bot.paths["second"])
@@ -63,7 +63,7 @@ func TestTelegramImportStagesMissingMetadataAndRestrictsAccess(t *testing.T) {
 	w, telegramRoot, library, bot := testWorker(t)
 	audio := makeAudio(t, telegramRoot, "untagged.m4b", "440", "", "")
 	bot.paths["book"] = filepath.Join(telegramRoot, "untagged.m4b")
-	if err := w.handle(t.Context(), documentMessage(99, 10, "book", "unknown.m4b")); err != nil {
+	if err := w.handle(t.Context(), documentMessage(99, 10, "book", "unknown.m4b"), 0); err != nil {
 		t.Fatal(err)
 	}
 	if bot.reads != 0 || bot.lastReply != "" {
@@ -71,14 +71,14 @@ func TestTelegramImportStagesMissingMetadataAndRestrictsAccess(t *testing.T) {
 	}
 	group := documentMessage(55, 11, "book", "unknown.m4b")
 	group.Chat.Type = "group"
-	if err := w.handle(t.Context(), group); err != nil {
+	if err := w.handle(t.Context(), group, 0); err != nil {
 		t.Fatal(err)
 	}
 	if bot.reads != 0 {
 		t.Fatal("a group attachment triggered a download")
 	}
 
-	if err := w.handle(t.Context(), documentMessage(55, 12, "book", "unknown.m4b")); err != nil {
+	if err := w.handle(t.Context(), documentMessage(55, 12, "book", "unknown.m4b"), 0); err != nil {
 		t.Fatal(err)
 	}
 	if !strings.Contains(bot.lastReply, "/details 12") {
@@ -92,13 +92,13 @@ func TestTelegramImportStagesMissingMetadataAndRestrictsAccess(t *testing.T) {
 	restarted := &worker{
 		api: w.api, allowed: w.allowed, staging: w.staging, library: w.library, maxFileBytes: w.maxFileBytes,
 	}
-	if err := restarted.handle(t.Context(), textMessage(56, 13, "/details 12 Someone Else | Stolen Book")); err != nil {
+	if err := restarted.handle(t.Context(), textMessage(56, 13, "/details 12 Someone Else | Stolen Book"), 0); err != nil {
 		t.Fatal(err)
 	}
 	if !strings.Contains(bot.lastReply, "no staged audiobook") {
 		t.Errorf("expected the import to be scoped to its originating chat, got %q", bot.lastReply)
 	}
-	if err := restarted.handle(t.Context(), textMessage(55, 14, "/details 12 Book Author | Book Title")); err != nil {
+	if err := restarted.handle(t.Context(), textMessage(55, 14, "/details 12 Book Author | Book Title"), 0); err != nil {
 		t.Fatal(err)
 	}
 	assertAudio(t, filepath.Join(library, "Book Author", "Book Title", "Book Title.m4b"), audio)
@@ -114,7 +114,7 @@ func TestTelegramImportStagesMissingMetadataAndRestrictsAccess(t *testing.T) {
 	bot.paths["outside"] = outside
 	bot.paths["symlink"] = link
 	for i, id := range []string{"outside", "symlink"} {
-		if err := w.handle(t.Context(), documentMessage(55, int64(20+i), id, "unsafe.m4b")); err != nil {
+		if err := w.handle(t.Context(), documentMessage(55, int64(20+i), id, "unsafe.m4b"), 0); err != nil {
 			t.Fatal(err)
 		}
 		if !strings.Contains(bot.lastReply, "couldn't stage") {
@@ -293,4 +293,114 @@ func makeAudio(t *testing.T, dir, name, frequency, author, title string) []byte 
 		t.Fatal(err)
 	}
 	return data
+}
+
+func TestTelegramQueuesSecondBookWhileFirstIsDownloading(t *testing.T) {
+	ffprobe(t)
+	telegramRoot, staging, library := t.TempDir(), t.TempDir(), t.TempDir()
+	makeAudio(t, telegramRoot, "first.m4b", "440", "An Author", "First Book")
+	makeAudio(t, telegramRoot, "second.m4b", "650", "An Author", "Second Book")
+
+	type notice struct {
+		id   int64
+		text string
+	}
+	notices := make(chan notice, 20)
+	firstDownloading := make(chan struct{})
+	releaseFirst := make(chan struct{})
+	server := httptest.NewServer(http.HandlerFunc(func(rw http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/bot123:fake-token/getUpdates":
+			var req struct{ Offset int64 }
+			if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+				t.Error(err)
+				return
+			}
+			switch req.Offset {
+			case 0:
+				writeResult(t, rw, []update{{ID: 41, Message: documentMessage(55, 11, "first", "first.m4b")}})
+			case 42:
+				select {
+				case <-firstDownloading:
+					writeResult(t, rw, []update{{ID: 42, Message: documentMessage(55, 12, "second", "second.m4b")}})
+				case <-r.Context().Done():
+				}
+			default:
+				<-r.Context().Done()
+			}
+		case "/bot123:fake-token/getFile":
+			var req struct {
+				ID string `json:"file_id"`
+			}
+			if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+				t.Error(err)
+				return
+			}
+			if req.ID == "first" {
+				close(firstDownloading)
+				select {
+				case <-releaseFirst:
+				case <-r.Context().Done():
+					return
+				}
+			}
+			writeResult(t, rw, map[string]string{"file_path": filepath.Join(telegramRoot, req.ID+".m4b")})
+		case "/bot123:fake-token/sendMessage", "/bot123:fake-token/editMessageText":
+			var req struct {
+				Text  string
+				ID    int64 `json:"message_id"`
+				Reply struct {
+					ID int64 `json:"message_id"`
+				} `json:"reply_parameters"`
+			}
+			if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+				t.Error(err)
+				return
+			}
+			id := req.ID
+			if strings.HasSuffix(r.URL.Path, "/sendMessage") {
+				if req.Reply.ID == 0 {
+					t.Errorf("unexpected standalone message: %q", req.Text)
+				}
+				id = req.Reply.ID + 100
+			}
+			notices <- notice{id: id, text: req.Text}
+			writeResult(t, rw, map[string]int64{"message_id": id})
+		default:
+			t.Errorf("unexpected request %s", r.URL.Path)
+			rw.WriteHeader(http.StatusNotFound)
+		}
+	}))
+	defer server.Close()
+
+	ctx, cancel := context.WithTimeout(t.Context(), 10*time.Second)
+	defer cancel()
+	service, err := Start(ctx, config.Audiobooks{
+		Enabled: true, BotAPIURL: server.URL, BotToken: "123:fake-token", AllowedUserIDs: []int64{55},
+		TelegramRoot: telegramRoot, StagingRoot: staging, LibraryRoot: library,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer service.Close()
+	expect := func(id int64, text string) {
+		t.Helper()
+		select {
+		case got := <-notices:
+			if got.id != id || !strings.Contains(got.text, text) {
+				t.Fatalf("status was (%d, %q), want (%d, %q)", got.id, got.text, id, text)
+			}
+		case <-ctx.Done():
+			t.Fatalf("timed out waiting for %q", text)
+		}
+	}
+	expect(111, "Queued")
+	expect(111, "Downloading")
+	expect(112, "Queued")
+	close(releaseFirst)
+	expect(111, "Preparing")
+	expect(111, "Imported First Book")
+	expect(112, "Downloading")
+	expect(112, "Preparing")
+	expect(112, "Imported Second Book")
 }

@@ -32,6 +32,7 @@ type book struct {
 	Digest    string `json:"sha256"`
 	Author    string `json:"author"`
 	Title     string `json:"title"`
+	StatusID  int64  `json:"status_id,omitempty"`
 }
 
 var formats = map[string]string{".m4b": "mov", ".m4a": "mov", ".mp3": "mp3"}
@@ -122,8 +123,8 @@ func (w *worker) saveBook(job string, b book) error {
 
 // The Bot API returns an absolute local path. Only read regular files beneath
 // the configured shared mount. O_NONBLOCK also avoids opening a FIFO for read.
-func (w *worker) stage(ctx context.Context, job string, msg *message, item *attachment, ext string) (book, error) {
-	path, err := w.api.getFile(ctx, item.ID)
+func (w *worker) stage(ctx context.Context, job string, msg *message, item *attachment, ext string, p progress) (book, error) {
+	path, err := p.download(ctx, item.ID)
 	if err != nil {
 		return book{}, err
 	}
@@ -152,6 +153,7 @@ func (w *worker) stage(ctx context.Context, job string, msg *message, item *atta
 	if item.Size > 0 && stat.Size() != item.Size {
 		return book{}, errors.New("Telegram download size does not match the attachment")
 	}
+	p.phase(ctx, "Preparing the file for Audiobookshelf…")
 
 	// An interrupted copy has no record. It can be discarded on replay.
 	if err := w.staging.RemoveAll(job); err != nil {
@@ -193,7 +195,7 @@ func (w *worker) stage(ctx context.Context, job string, msg *message, item *atta
 	if caption, ok := strings.CutPrefix(strings.TrimSpace(msg.Caption), "Book:"); ok {
 		author, title = details(caption)
 	}
-	b := book{Filename: item.Name, Extension: ext, Digest: hex.EncodeToString(hash.Sum(nil)), Author: author, Title: title}
+	b := book{Filename: item.Name, Extension: ext, Digest: hex.EncodeToString(hash.Sum(nil)), Author: author, Title: title, StatusID: p.statusID}
 	if err := w.saveBook(job, b); err != nil {
 		return book{}, err
 	}
