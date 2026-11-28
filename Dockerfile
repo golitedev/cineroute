@@ -72,7 +72,7 @@ RUN --mount=type=cache,target=/lyrics/target \
 # Update this commit to upgrade the bundled Streamrip. CI verifies this pin.
 FROM --platform=$TARGETPLATFORM alpine:3.22 AS streamrip
 RUN apk add --no-cache python3 py3-pip git build-base python3-dev libffi-dev openssl-dev
-ARG STREAMRIP_REF=26c55fec9fb334c8ff6aaf359b3c848239281619
+ARG STREAMRIP_REF=0a351af50a01458b3d089c53ee6c42d47cbbb50f
 RUN python3 -m venv /opt/streamrip && /opt/streamrip/bin/pip install --no-cache-dir \
     "streamrip @ git+https://github.com/golitedev/streamrip.git@${STREAMRIP_REF}"
 
